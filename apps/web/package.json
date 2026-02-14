@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@bubble/assets": "workspace:*",
+    "@supabase/ssr": "^0.8",
+    "@supabase/supabase-js": "^2",
     "next": "^15",
     "react": "^19",
     "react-dom": "^19"
