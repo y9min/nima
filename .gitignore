@@ -1,0 +1,21 @@
+# Node / JS
+node_modules/
+.next/
+dist/
+.turbo/
+.env
+.env.*
+!.env.example
+
+# Swift / Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# General
+.DS_Store
+*.log
