@@ -1,0 +1,338 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+> **Note**: This guide is for developers working ON the Canvas MCP codebase. If you're an AI agent USING the MCP server, see [AGENTS.md](../AGENTS.md) instead.
+
+# Canvas MCP Development Guide
+
+## Environment Setup
+- Install uv package manager: `pip install uv`
+- Install dependencies: `uv pip install -e .`
+- Create `.env` file with `CANVAS_API_TOKEN` and `CANVAS_API_URL`
+- Server installed as CLI command: `canvas-mcp-server`
+
+## Commands
+- **Start server**: `canvas-mcp-server` (or `./start_canvas_server.sh` for legacy setup)
+- **Test server**: `canvas-mcp-server --test`
+- **View config**: `canvas-mcp-server --config`
+- **MCP client config**: Update your MCP client's configuration file (e.g., `~/Library/Application Support/Claude/claude_desktop_config.json` for Claude Desktop)
+
+## Repository Structure
+```
+canvas-mcp/
+├── src/canvas_mcp/        # Main application code
+│   ├── core/             # Core utilities (client, config, validation)
+│   ├── tools/            # MCP tool implementations
+│   ├── resources/        # MCP resources and prompts
+│   └── server.py         # FastMCP server entry point
+├── docs/                 # Essential documentation
+├── archive/              # Legacy code and development specs (git-ignored)
+├── .env                  # Configuration
+└── start_canvas_server.sh # Server startup script
+```
+
+## Architecture Overview
+
+### Core Design Patterns
+- **FastMCP framework**: Built on FastMCP for robust MCP server implementation with proper tool registration
+- **Type-driven validation**: All MCP tools use `@validate_params` decorator with sophisticated Union/Optional type handling
+- **Dual-layer caching**: Bidirectional course code ↔ ID mapping via `course_code_to_id_cache` and `id_to_course_code_cache`
+- **Flexible identifiers**: Support for Canvas IDs, course codes, and SIS IDs through `get_course_id()` abstraction
+- **ISO 8601 standardization**: All dates converted via `format_date()` and `parse_date()` functions
+
+### MCP Tool Organization
+- **Progressive disclosure**: List → Details → Content → Analytics pattern
+- **Functional grouping**: Tools organized by Canvas entity (courses, assignments, discussions, messaging, etc.)
+- **Consistent naming**: `{action}_{entity}[_{specifier}]` pattern
+- **Educational analytics focus**: Student performance, completion rates, missing work identification
+- **Discussion workflow**: Browse → View → Read → Reply pattern for student interaction
+- **Messaging workflow**: Analytics → Target → Template → Send pattern for automated communications
+
+### API Layer Architecture
+- **Centralized requests**: All Canvas API calls go through `make_canvas_request()`
+- **Form data support**: Messaging endpoints use `use_form_data=True` for Canvas compatibility
+- **Automatic pagination**: `fetch_all_paginated_results()` handles Canvas pagination transparently
+- **Async throughout**: All I/O operations use async/await
+- **Graceful error handling**: Returns JSON error responses rather than raising exceptions
+- **Privacy protection**: Student data anonymization via configurable `anonymize_response_data()`
+
+## Key Components
+
+### Parameter Validation System
+- `validate_parameter()`: Runtime type coercion supporting complex types
+- `@validate_params`: Automatic validation decorator for all MCP tools
+- Handles Union types, Optional types, string→JSON conversion, comma-separated lists
+
+### Course Identifier Handling
+- `get_course_id()`: Converts any identifier type to Canvas ID
+- `get_course_code()`: Reverse lookup from ID to human-readable code
+- `refresh_course_cache()`: Rebuilds identifier mapping from Canvas API
+
+### Analytics Engine
+- `get_student_analytics()`: Multi-dimensional educational data analysis
+- `get_assignment_analytics()`: Statistical performance analysis with grade distribution
+- `get_peer_review_completion_analytics()`: Peer review tracking and completion analysis
+- `get_peer_review_comments()`: Extract actual peer review comment text and analysis
+- `analyze_peer_review_quality()`: Comprehensive comment quality analysis with metrics
+- `identify_problematic_peer_reviews()`: Automated flagging of low-quality reviews
+- Temporal filtering (current vs. all assignments)
+- Risk identification and performance categorization
+
+### Messaging System
+- `send_conversation()`: Core Canvas messaging with form data support
+- `send_peer_review_reminders()`: Automated peer review reminder workflow
+- `send_peer_review_followup_campaign()`: Complete analytics → messaging pipeline
+- `MessageTemplates`: Flexible template system for various communication types
+- Privacy-aware: Works with anonymization while preserving functional user IDs
+
+## Git Workflow - ASK FIRST
+
+**Before starting any new feature or significant change, ASK:**
+> "Should I create a feature branch for this, or work directly on main?"
+
+| Change Type | Default Branch | Notes |
+|-------------|----------------|-------|
+| New tool/feature | `feature/tool-name` | PR with CI checks |
+| Bug fix | `fix/issue-description` | PR recommended |
+| Documentation only | `main` okay | Direct push acceptable |
+| Quick fix (typo, etc.) | `main` okay | Direct push acceptable |
+
+**Branch naming:** `feature/`, `fix/`, `docs/`, `refactor/`
+
+This repo has branch protection on `main` (PR + status checks required), but admin can bypass. Always ask the user which workflow they prefer for the current task.
+
+---
+
+## Release Checklist
+
+When bumping the version in `pyproject.toml`, also update:
+- [ ] `README.md` - Update "Latest Release" section with new version, date, and changelog
+- [ ] `docs/index.html` - Update version badge, tool count, and meta descriptions (GitHub Pages site)
+- [ ] Create git tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+
+---
+
+## Coding Standards
+- **Type hints**: Mandatory for all functions, use Union/Optional appropriately
+- **MCP tools**: Use `@mcp.tool()` decorator with `@validate_params`
+- **Async functions**: All API interactions must be async
+- **Course identifiers**: Use `Union[str, int]` and `get_course_id()` for flexibility
+- **Date handling**: Use `format_date()` for all date outputs
+- **Error responses**: Return JSON strings with "error" key for failures
+- **Form data**: Use `use_form_data=True` for Canvas POST/PUT endpoints
+- **Privacy**: Student IDs preserved, names anonymized in `_should_anonymize_endpoint()`
+- **Optional params**: Use `Optional[T]` type hints for parameters that can be `None`
+
+## Test-Driven Development (TDD) - ENFORCED
+
+**All new MCP tools MUST have tests before the feature is considered complete.**
+
+### TDD Workflow
+1. **Write tests first** (or alongside) for new tools
+2. **Minimum 3 tests per tool**: success path, error handling, edge case
+3. **Run tests** before committing: `pytest tests/tools/`
+4. **No merging** without passing tests
+
+### Test Structure
+```
+tests/
+├── tools/           # Unit tests for MCP tools
+│   ├── test_modules.py    # Reference implementation
+│   ├── test_pages.py      # Page tools tests
+│   └── ...
+└── security/        # Security-focused tests
+```
+
+### Test Patterns (from test_modules.py)
+```python
+@pytest.fixture
+def mock_canvas_request():
+    with patch('src.canvas_mcp.tools.modules.make_canvas_request') as mock:
+        yield mock
+
+@pytest.mark.asyncio
+async def test_tool_success(mock_canvas_request, mock_course_id):
+    mock_canvas_request.return_value = {"id": 123, "name": "Test"}
+    result = await tool_function(course_identifier="test", ...)
+    assert "success" in result.lower() or "123" in result
+```
+
+### What to Test
+- ✅ Successful API responses
+- ✅ API error handling (404, 401, 500)
+- ✅ Parameter validation (missing required params, invalid types)
+- ✅ Edge cases (empty lists, None values, special characters)
+- ✅ Canvas API quirks (form data requirements, pagination)
+
+See: [Issue #56](https://github.com/vishalsachdev/canvas-mcp/issues/56) for comprehensive test coverage plan.
+
+## Discussion Forum Interaction Workflow
+- **Browse discussions**: `list_discussion_topics(course_id)` - Find available discussion forums
+- **View student posts**: `list_discussion_entries(course_id, topic_id)` - See all posts in a discussion
+- **Read full content**: `get_discussion_entry_details(course_id, topic_id, entry_id)` - Get complete student comment
+- **Reply to students**: `reply_to_discussion_entry(course_id, topic_id, entry_id, "Your response")` - Respond to student comments
+- **Create discussions**: `create_discussion_topic(course_id, title, message)` - Start new discussion forums
+- **Post new entries**: `post_discussion_entry(course_id, topic_id, message)` - Add top-level posts
+
+## Canvas Messaging Workflow
+- **Analyze completion**: `get_peer_review_completion_analytics(course_id, assignment_id)` - Get students needing reminders
+- **Target recipients**: Extract user IDs from analytics results for messaging
+- **Choose template**: Use `MessageTemplates.get_template()` or custom message content
+- **Send reminders**: `send_peer_review_reminders()` for targeted messaging
+- **Bulk campaigns**: `send_peer_review_followup_campaign()` for complete automated workflow
+- **Monitor delivery**: Check Canvas inbox for message delivery confirmation
+
+## Peer Review Comment Analysis Workflow
+- **Extract comments**: `get_peer_review_comments(course_id, assignment_id)` - Get all review text and metadata
+- **Analyze quality**: `analyze_peer_review_quality(course_id, assignment_id)` - Generate comprehensive quality metrics
+- **Flag problems**: `identify_problematic_peer_reviews(course_id, assignment_id)` - Find reviews needing attention
+- **Export data**: `extract_peer_review_dataset(course_id, assignment_id, format="csv")` - Export for further analysis
+- **Generate reports**: `generate_peer_review_feedback_report(course_id, assignment_id)` - Create instructor-ready reports
+- **Take action**: Use problematic review lists to provide targeted feedback or follow-up
+
+## Canvas API Specifics
+- Base URL from `CANVAS_API_URL` environment variable
+- Authentication via Bearer token in `CANVAS_API_TOKEN`
+- Always use pagination for list endpoints
+- Course codes preferred over IDs in user-facing output
+- Handle both published and unpublished content states
+- **Messaging requires form data**: Use `use_form_data=True` for `/conversations` endpoints
+- **Privacy protection**: Real user IDs preserved for functionality, names anonymized for privacy
+
+## Documentation Maintenance
+
+### Source of Truth Hierarchy
+
+This repository has multiple documentation files for different audiences. To prevent redundancy:
+
+| File | Audience | Contains | Updates When |
+|------|----------|----------|--------------|
+| `AGENTS.md` | AI agents/MCP clients | Tool tables, workflows, constraints, examples | Tools added/changed |
+| `tools/README.md` | Human users | Comprehensive tool docs with all parameters | Tools added/changed |
+| `tools/TOOL_MANIFEST.json` | Programmatic access | Machine-readable tool catalog | Tools added/changed |
+| `README.md` | Everyone (entry point) | Installation, overview, links to other docs | Major releases only |
+| `examples/*.md` | Human users | Workflow tutorials, not tool reference | New workflows added |
+| `CLAUDE.md` | Developers | Codebase architecture, NOT tool usage | Architecture changes |
+
+### Rules to Prevent Redundancy
+
+1. **Tool documentation**:
+   - Source of truth: `tools/README.md` (humans) and `AGENTS.md` (agents)
+   - `README.md` inline section exists ONLY for fetch-constrained agents
+   - Do NOT add tool details to examples/*.md - link to tools/README.md instead
+
+2. **Example prompts**:
+   - Source of truth: `AGENTS.md` (has example prompts per tool)
+   - `tools/TOOL_MANIFEST.json` mirrors these for machine access
+   - Quickstart guides use DIFFERENT examples (workflow-focused, not tool-focused)
+
+3. **Rate limits/constraints**:
+   - Source of truth: `AGENTS.md` (agent-facing constraints)
+   - Do NOT duplicate in README.md or tools/README.md
+
+4. **Workflows**:
+   - Source of truth: `AGENTS.md` (common workflows) + `examples/*.md` (detailed tutorials)
+   - `TOOL_MANIFEST.json` has simplified workflow references
+
+5. **When adding a new tool**:
+   - Update `tools/README.md` with full documentation
+   - Update `AGENTS.md` tool table (keep it concise)
+   - Update `tools/TOOL_MANIFEST.json` with parameters and examples
+   - Do NOT update README.md unless it's a major feature
+
+6. **When updating tool behavior**:
+   - Update the source of truth files above
+   - Check for stale references in examples/*.md
+
+### What NOT to Do
+
+- Do NOT copy tool tables between files (they drift)
+- Do NOT add installation instructions outside README.md
+- Do NOT add architecture details to AGENTS.md (that's for CLAUDE.md)
+- Do NOT add example prompts to tools/README.md (that's for AGENTS.md)
+
+## Psychology
+
+Do not be afraid to question what I say. Do not always respond with "You're right!" Question the assertions I make and decide whether they are true. If they are probably true, don't question them. If they are probably false, question them. If you are unsure, question them. Always think critically about what I say and decide for yourself whether it is true or false
+
+---
+
+## Current Focus
+- [x] Release v1.0.6 with module and page tools
+- [x] Add `update_assignment` tool (completes CRUD for assignments)
+
+## Roadmap
+- [x] Module management tools (7 tools, 36 tests)
+- [x] Page settings tools (2 tools, 15 tests)
+- [x] TDD enforcement in development workflow
+- [x] Release v1.0.6
+- [x] `update_assignment` tool (9 tests)
+
+## Backlog
+- [ ] Module templates (pre-configured module structures)
+- [ ] Bulk module creation from JSON/YAML specs
+- [ ] Module duplication across courses
+- [ ] Page templates
+- [ ] Bulk page creation from markdown files
+- [ ] Page content versioning/history tools
+- [ ] Smithery publishing (blocked - see 2026-02-01 session log)
+
+## Session Log
+### 2026-02-01
+- **Smithery Publishing Attempt** (blocked):
+  - Goal: Publish canvas-mcp to Smithery marketplace for additional distribution
+  - **Findings**:
+    - Smithery has 3 publishing options: URL (HTTP), Hosted, Local (stdio)
+    - **URL option**: Requires Streamable HTTP transport (canvas-mcp uses stdio)
+    - **Hosted option**: "Private Early Access" - not publicly available
+    - **Local option**: CLI expects server entry to exist first; can't create new servers via CLI
+    - Web UI only exposes URL option; no way to create Hosted/Local servers
+  - **What we built**: TypeScript wrapper at `smithery-wrapper/` with 10 core tools
+    - Native TS Canvas MCP using `@modelcontextprotocol/sdk`
+    - Builds successfully with `smithery build`
+    - Ready for future deployment if Smithery opens up access
+  - **Decision**: Skip Smithery for now; focus on MCP Registry + PyPI (already published)
+  - **Path forward**: Contact support@smithery.ai for Hosted access, OR self-host with HTTP transport
+  - Files created: `smithery-wrapper/{package.json,tsconfig.json,src/index.ts}`
+
+### 2026-01-25
+- Added `update_assignment` tool:
+  - PUT /api/v1/courses/:course_id/assignments/:id
+  - Parameters: course_identifier, assignment_id, name, description, submission_types, due_at, unlock_at, lock_at, points_possible, grading_type, published, assignment_group_id, peer_reviews, automatic_peer_reviews, allowed_extensions
+  - All update fields optional (only changed fields sent to API)
+  - 9 unit tests following TDD pattern
+  - Updated TODO.md (moved to Completed)
+- Tool follows existing patterns from `create_assignment`
+
+### 2026-01-21
+- Fixed broken rubric API tools:
+  - Disabled `create_rubric` (Canvas API returns 500 error - known bug)
+  - Disabled `update_rubric` (API does full replacement, causes data loss)
+  - Both tools now return informative error messages with workarounds
+  - Added "Known Canvas API Limitations" section to AGENTS.md
+  - Updated README.md and tools/README.md with limitations
+- Pushed: `c01dc7d` fix: Disable broken rubric API tools (create_rubric, update_rubric)
+
+### 2026-01-20
+- Updated README documentation:
+  - Corrected tool count from 50+ to 80+ (actual: 84 tools)
+  - Updated test count from 51 to 167 tests
+  - Reorganized tool sections by Canvas permissions
+  - Moved module/page management tools to Educator Tools
+  - Kept only read-only tools in Shared Tools section
+  - Added example prompts for new educator tools
+- Pushed: `85c9fef` docs: Update README with accurate tool count
+
+### 2026-01-18
+- Completed: Module tools feature branch (`feature/module-creation-tool`)
+  - 7 MCP tools for Canvas module management
+  - 36 unit tests
+  - Full documentation in tools/README.md and AGENTS.md
+- Completed: Page settings tools (`feature/page-settings-tools`)
+  - `update_page_settings` - publish/unpublish, front page, editing roles
+  - `bulk_update_pages` - batch operations on multiple pages
+  - 15 unit tests (TDD approach)
+  - Added TDD enforcement section to CLAUDE.md
+  - Created GitHub issue #56 for comprehensive test coverage
+- Released: v1.0.6 with 9 new tools
