@@ -91,7 +91,10 @@ export default function DashboardClient({ email }: DashboardClientProps) {
   const contentStyle: CSSProperties = {
     maxWidth: 960,
     margin: "0 auto",
-    padding: `0 ${theme.spacing.lg}px 200px`,
+    paddingTop: 0,
+    paddingRight: theme.spacing.lg,
+    paddingBottom: 200,
+    paddingLeft: theme.spacing.lg,
   };
 
   const greetingStyle: CSSProperties = {
