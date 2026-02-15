@@ -11,6 +11,10 @@ import StatCard from "@/components/dashboard/StatCard";
 import UsageChart from "@/components/dashboard/UsageChart";
 import HeatmapGrid from "@/components/dashboard/HeatmapGrid";
 import InsightCard from "@/components/dashboard/InsightCard";
+import TopDomainsTable from "@/components/dashboard/TopDomainsTable";
+import BandwidthCard from "@/components/dashboard/BandwidthCard";
+import MethodBreakdown from "@/components/dashboard/MethodBreakdown";
+import ContentTypeChart from "@/components/dashboard/ContentTypeChart";
 import {
   fetchDashboardData,
   DashboardData,
@@ -80,12 +84,26 @@ export default function DashboardClient({ email }: DashboardClientProps) {
         ([k, v]) => `${k}: ${v}`
       );
       setRollupStatus(parts.join(" | "));
-      // Refresh dashboard data after rollup
       fetchDashboardData(range).then(setData);
     } catch {
       setRollupStatus("failed");
     }
     setTimeout(() => setRollupStatus(null), 5000);
+  }, [range]);
+
+  const [classifyStatus, setClassifyStatus] = useState<string | null>(null);
+  const handleClassify = useCallback(async () => {
+    setClassifyStatus("classifying...");
+    try {
+      const res = await fetch("/api/analytics/classify", { method: "POST" });
+      const json = await res.json();
+      const count = Object.keys(json.classified || {}).length;
+      setClassifyStatus(`${count} hosts classified, ${json.updated || 0} events updated`);
+      fetchDashboardData(range).then(setData);
+    } catch {
+      setClassifyStatus("failed");
+    }
+    setTimeout(() => setClassifyStatus(null), 8000);
   }, [range]);
 
   const contentStyle: CSSProperties = {
@@ -132,6 +150,24 @@ export default function DashboardClient({ email }: DashboardClientProps) {
     marginBottom: theme.spacing.xl,
   };
 
+  const twoColStyle: CSSProperties = {
+    display: "flex",
+    gap: theme.spacing.md,
+    flexWrap: "wrap",
+    marginBottom: theme.spacing.xl,
+  };
+
+  const adminButtonStyle = (disabled: boolean): CSSProperties => ({
+    fontFamily: theme.fonts.body,
+    fontSize: 13,
+    color: disabled ? theme.colors.white30 : theme.colors.white,
+    background: theme.colors.white10,
+    border: `1px solid ${theme.colors.white30}`,
+    borderRadius: 12,
+    padding: "8px 16px",
+    cursor: disabled ? "default" : "pointer",
+  });
+
   if (!data) {
     return (
       <SkyBackground>
@@ -169,6 +205,10 @@ export default function DashboardClient({ email }: DashboardClientProps) {
           <StatCard label="Time Saved" value={data.timeSaved} />
           <StatCard label="Peak Hours" value={data.peakHours} />
           <StatCard label="Most Active" value={data.mostActive} />
+          <BandwidthCard
+            totalBytesIn={data.totalBytesIn}
+            totalBytesOut={data.totalBytesOut}
+          />
         </div>
 
         <div style={sectionGap}>
@@ -179,29 +219,41 @@ export default function DashboardClient({ email }: DashboardClientProps) {
         </div>
 
         <div style={sectionGap}>
+          <TopDomainsTable domains={data.topDomains} />
+        </div>
+
+        <div style={twoColStyle}>
+          <MethodBreakdown methods={data.methods} />
+          <ContentTypeChart contentTypes={data.contentTypes} />
+        </div>
+
+        <div style={sectionGap}>
           <HeatmapGrid data={data.heatmap} />
         </div>
 
-        <div style={{ ...sectionGap, display: "flex", alignItems: "center", gap: theme.spacing.md }}>
+        <div style={{ ...sectionGap, display: "flex", alignItems: "center", gap: theme.spacing.md, flexWrap: "wrap" }}>
           <button
             onClick={handleRollup}
             disabled={rollupStatus === "running..."}
-            style={{
-              fontFamily: theme.fonts.body,
-              fontSize: 13,
-              color: rollupStatus === "running..." ? theme.colors.white30 : theme.colors.white,
-              background: theme.colors.white10,
-              border: `1px solid ${theme.colors.white30}`,
-              borderRadius: 12,
-              padding: "8px 16px",
-              cursor: rollupStatus === "running..." ? "default" : "pointer",
-            }}
+            style={adminButtonStyle(rollupStatus === "running...")}
           >
             {rollupStatus === "running..." ? "Rolling up..." : "Rollup Traffic"}
+          </button>
+          <button
+            onClick={handleClassify}
+            disabled={classifyStatus === "classifying..."}
+            style={adminButtonStyle(classifyStatus === "classifying...")}
+          >
+            {classifyStatus === "classifying..." ? "Classifying..." : "Classify Domains"}
           </button>
           {rollupStatus && rollupStatus !== "running..." && (
             <span style={{ fontFamily: theme.fonts.body, fontSize: 12, color: theme.colors.white60 }}>
               {rollupStatus}
+            </span>
+          )}
+          {classifyStatus && classifyStatus !== "classifying..." && (
+            <span style={{ fontFamily: theme.fonts.body, fontSize: 12, color: theme.colors.white60 }}>
+              {classifyStatus}
             </span>
           )}
         </div>

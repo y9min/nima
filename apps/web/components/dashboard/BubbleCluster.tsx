@@ -26,12 +26,20 @@ interface BubbleState {
 
 const CENTER_SIZE = 80;
 const ORBIT_SIZE = 56;
-const ORBIT_RADIUS = 120;
+const ORBIT_GAP = 10;
+const MIN_ORBIT_RADIUS = 120;
 const SPRING_K = 0.02;
 const CENTER_SPRING_K = 0.12;
-const DAMPING = 0.92;
+const DAMPING = 0.88;
 const COLLISION_STIFFNESS = 0.15;
 const MAX_VELOCITY = 8;
+const SETTLE_THRESHOLD = 0.05;
+
+function orbitRadius(numOrbiting: number): number {
+  // Ensure circumference fits all bubbles without overlap
+  const needed = numOrbiting * (ORBIT_SIZE + ORBIT_GAP) / (2 * Math.PI);
+  return Math.max(MIN_ORBIT_RADIUS, needed);
+}
 
 function clampVel(v: number): number {
   return Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, v));
@@ -47,6 +55,10 @@ export default function BubbleCluster({ apps, onAppClick }: BubbleClusterProps) 
   const [dragging, setDragging] = useState<number | null>(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
 
+  const numOrbiting = Math.max(apps.length - 1, 0);
+  const radius = orbitRadius(numOrbiting);
+  const containerHeight = Math.max(320, radius * 2 + ORBIT_SIZE + 40);
+
   const initBubbles = useCallback(() => {
     const container = containerRef.current;
     if (!container || apps.length === 0) return;
@@ -59,11 +71,11 @@ export default function BubbleCluster({ apps, onAppClick }: BubbleClusterProps) 
       if (i === 0) {
         return { x: cx, y: cy, vx: 0, vy: 0, size: CENTER_SIZE };
       }
-      const angleStep = (2 * Math.PI) / (apps.length - 1);
+      const angleStep = (2 * Math.PI) / numOrbiting;
       const angle = -Math.PI / 2 + (i - 1) * angleStep;
       return {
-        x: cx + Math.cos(angle) * ORBIT_RADIUS,
-        y: cy + Math.sin(angle) * ORBIT_RADIUS,
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
         vx: 0,
         vy: 0,
         size: ORBIT_SIZE,
@@ -71,35 +83,35 @@ export default function BubbleCluster({ apps, onAppClick }: BubbleClusterProps) 
     });
     bubblesRef.current = bubbles;
     setPositions([...bubbles]);
-  }, [apps]);
+  }, [apps, numOrbiting, radius]);
 
   useEffect(() => {
     initBubbles();
   }, [initBubbles]);
 
-  useEffect(() => {
-    if (bubblesRef.current.length === 0) return;
+  const startSimulation = useCallback(() => {
+    cancelAnimationFrame(frameRef.current);
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || bubblesRef.current.length === 0) return;
     const rect = container.getBoundingClientRect();
     const cx = rect.width / 2;
     const cy = rect.height / 2;
 
     const simulate = () => {
       const bubbles = bubblesRef.current;
+      let maxSpeed = 0;
 
       for (let i = 0; i < bubbles.length; i++) {
         if (i === dragging) continue;
         const b = bubbles[i];
 
-        // Target position: center for i=0, orbit position for others
         let tx = cx;
         let ty = cy;
         if (i > 0) {
-          const angleStep = (2 * Math.PI) / (apps.length - 1);
+          const angleStep = (2 * Math.PI) / numOrbiting;
           const angle = -Math.PI / 2 + (i - 1) * angleStep;
-          tx = cx + Math.cos(angle) * ORBIT_RADIUS;
-          ty = cy + Math.sin(angle) * ORBIT_RADIUS;
+          tx = cx + Math.cos(angle) * radius;
+          ty = cy + Math.sin(angle) * radius;
         }
 
         const springK = i === 0 ? CENTER_SPRING_K : SPRING_K;
@@ -108,7 +120,6 @@ export default function BubbleCluster({ apps, onAppClick }: BubbleClusterProps) 
         b.vx *= DAMPING;
         b.vy *= DAMPING;
 
-        // Collision
         for (let j = 0; j < bubbles.length; j++) {
           if (i === j) continue;
           const o = bubbles[j];
@@ -127,15 +138,30 @@ export default function BubbleCluster({ apps, onAppClick }: BubbleClusterProps) 
         b.vy = clampVel(b.vy);
         b.x += b.vx;
         b.y += b.vy;
+
+        const speed = Math.abs(b.vx) + Math.abs(b.vy);
+        if (speed > maxSpeed) maxSpeed = speed;
       }
 
       setPositions(bubbles.map((b) => ({ ...b })));
+
+      if (maxSpeed < SETTLE_THRESHOLD && dragging === null) {
+        // Snap to rest
+        for (const b of bubbles) { b.vx = 0; b.vy = 0; }
+        setPositions(bubbles.map((b) => ({ ...b })));
+        return;
+      }
+
       frameRef.current = requestAnimationFrame(simulate);
     };
 
     frameRef.current = requestAnimationFrame(simulate);
+  }, [dragging, apps.length, numOrbiting, radius]);
+
+  useEffect(() => {
+    startSimulation();
     return () => cancelAnimationFrame(frameRef.current);
-  }, [dragging, apps.length]);
+  }, [startSimulation]);
 
   const handlePointerDown = (index: number, e: React.PointerEvent) => {
     didDragRef.current = false;
@@ -173,14 +199,16 @@ export default function BubbleCluster({ apps, onAppClick }: BubbleClusterProps) 
         onAppClick(apps[index]?.slug ?? "");
       }
       setDragging(null);
+      // Kick the simulation so bubbles spring back and settle
+      requestAnimationFrame(() => startSimulation());
     },
-    [onAppClick, apps]
+    [onAppClick, apps, startSimulation]
   );
 
   const containerStyle: CSSProperties = {
     position: "relative",
     width: "100%",
-    height: 320,
+    height: containerHeight,
     cursor: dragging !== null ? "grabbing" : "default",
   };
 
