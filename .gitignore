@@ -22,3 +22,5 @@ xcuserdata/
 *.log
 
 tmp/
+
+wg-soham.conf

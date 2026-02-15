@@ -1,8 +1,13 @@
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import AppDetailClient from "./client";
 
-export default async function Home() {
+interface Props {
+  params: Promise<{ app: string }>;
+}
+
+export default async function AppDetailPage({ params }: Props) {
   await connection();
 
   const supabase = await createClient();
@@ -12,5 +17,6 @@ export default async function Home() {
     redirect("/login");
   }
 
-  redirect("/dashboard");
+  const { app } = await params;
+  return <AppDetailClient slug={app} />;
 }
