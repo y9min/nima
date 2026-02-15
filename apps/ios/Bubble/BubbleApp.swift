@@ -5,7 +5,7 @@ struct BubbleApp: App {
     @State private var path = NavigationPath()
     @State private var store = AppStore()
     @State private var gridPositionStore = GridPositionStore()
-    @State private var authStore = AuthStore()
+    @State private var authStore: AuthStore = AuthStore()
 
     var body: some Scene {
         WindowGroup {
@@ -46,7 +46,7 @@ struct BubbleApp: App {
             }
             .environment(store)
             .environment(gridPositionStore)
-            .environment(AuthStore.self, authStore)
+            .environment(authStore)
             .preferredColorScheme(.dark)
             .task {
                 SVGCache.shared.preload(svgNames: ["instagram", "kalshi", "fanduel"])

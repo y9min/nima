@@ -15,6 +15,9 @@ targets:
       - Bubble/Resources/background.png
       - Bubble/Resources/clouds.png
       - Bubble/Resources/clouds_continous.png
+      - Bubble/Resources/kalshi.svg
+      - Bubble/Resources/instagram.svg
+      - Bubble/Resources/fanduel.svg
       - Bubble/Resources/Fonts
     info:
       path: Bubble/Info.plist
