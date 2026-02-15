@@ -1,10 +1,14 @@
 import SwiftUI
+import NetworkExtension
 
 struct HomeScreen: View {
     @Environment(AppStore.self) private var store
     @Environment(AuthStore.self) private var authStore
+    @EnvironmentObject private var vpnManager: VPNManager
     var onSelectApp: (BlockedApp) -> Void
     var onSignIn: (() -> Void)? = nil
+    var onSettings: (() -> Void)? = nil
+    var onTrafficDashboard: (() -> Void)? = nil
 
     var body: some View {
         ZStack {
@@ -16,60 +20,74 @@ struct HomeScreen: View {
                     onSelectApp(app)
                 },
                 onTapAdd: {
-                    // TODO: Handle add app action
                     print("Add app tapped")
                 },
                 showAddButton: false
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // HeaderBar in top left corner
+            // Header with VPN status
             VStack {
                 HStack {
                     HeaderBar()
                         .padding(.top, BubbleSpacing.md + 10)
                         .padding(.leading, BubbleSpacing.lg + 5)
                     Spacer()
-                    
-                    // Sign in button in top right corner (only show if not logged in)
-                    if !authStore.isLoggedIn, let onSignIn = onSignIn {
-                        Button {
-                            onSignIn()
-                        } label: {
-                            Text("Sign In")
-                                .font(BubbleFonts.coolvetica(size: 16))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, BubbleSpacing.md)
-                                .padding(.vertical, BubbleSpacing.sm)
-                                .background(BubbleColors.skyBlue)
-                                .clipShape(RoundedRectangle(cornerRadius: BubbleSpacing.buttonCornerRadius))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: BubbleSpacing.buttonCornerRadius)
-                                        .strokeBorder(Color.white, lineWidth: 1)
-                                )
+
+                    // VPN status dot + action buttons
+                    HStack(spacing: BubbleSpacing.sm) {
+                        // VPN status indicator
+                        Circle()
+                            .fill(VPNManager.statusColor(for: vpnManager.vpnStatus))
+                            .frame(width: 10, height: 10)
+
+                        // Traffic dashboard button
+                        if let onTrafficDashboard = onTrafficDashboard {
+                            Button {
+                                onTrafficDashboard()
+                            } label: {
+                                Image(systemName: "chart.bar.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.white)
+                            }
                         }
-                        .padding(.top, BubbleSpacing.md + 10)
-                        .padding(.trailing, BubbleSpacing.lg + 5)
+
+                        // Settings gear button
+                        if let onSettings = onSettings {
+                            Button {
+                                onSettings()
+                            } label: {
+                                Image(systemName: "gearshape.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.white)
+                            }
+                        }
+
+                        // Sign in button (only show if not logged in)
+                        if !authStore.isLoggedIn, let onSignIn = onSignIn {
+                            Button {
+                                onSignIn()
+                            } label: {
+                                Text("Sign In")
+                                    .font(BubbleFonts.coolvetica(size: 16))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, BubbleSpacing.md)
+                                    .padding(.vertical, BubbleSpacing.sm)
+                                    .background(BubbleColors.skyBlue)
+                                    .clipShape(RoundedRectangle(cornerRadius: BubbleSpacing.buttonCornerRadius))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: BubbleSpacing.buttonCornerRadius)
+                                            .strokeBorder(Color.white, lineWidth: 1)
+                                    )
+                            }
+                        }
                     }
+                    .padding(.top, BubbleSpacing.md + 10)
+                    .padding(.trailing, BubbleSpacing.lg + 5)
                 }
                 Spacer()
             }
 
-            // Add button in bottom right corner
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    Button {
-                        // TODO: Handle add app action
-                        print("Add app tapped")
-                    } label: {
-                        AppIconCircle(iconName: "plus", size: BubbleSpacing.appIconMedium, isAddButton: true)
-                    }
-                    .padding(.trailing, BubbleSpacing.xl + 10)
-                    .padding(.bottom, 14)
-                }
-            }
         }
         .navigationBarBackButtonHidden(true)
     }
@@ -80,4 +98,5 @@ struct HomeScreen: View {
         .environment(AppStore())
         .environment(GridPositionStore())
         .environment(AuthStore())
+        .environmentObject(VPNManager())
 }

@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct MagicSignInScreen: View {
+    @Environment(AuthStore.self) private var authStore
     @State private var email: String = ""
     @State private var service = MagicSignInService()
     var onCodeSent: (String) -> Void // Passes email to code verification screen
+    var onDemoLogin: (() -> Void)? = nil
     
     var body: some View {
         ZStack {
@@ -66,6 +68,11 @@ struct MagicSignInScreen: View {
                     
                     // Send code button
                     Button(action: {
+                        if email.trimmingCharacters(in: .whitespaces).lowercased() == "demo" {
+                            authStore.login(email: "demo", demo: true)
+                            onDemoLogin?()
+                            return
+                        }
                         Task {
                             do {
                                 try await service.sendMagicCode(email: email)
@@ -110,4 +117,5 @@ struct MagicSignInScreen: View {
     NavigationStack {
         MagicSignInScreen(onCodeSent: { _ in })
     }
+    .environment(AuthStore())
 }
