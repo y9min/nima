@@ -8,6 +8,7 @@ dist/
 !.env.example
 
 # Swift / Xcode
+Secrets.xcconfig
 DerivedData/
 *.xcuserstate
 xcuserdata/
@@ -19,3 +20,5 @@ xcuserdata/
 # General
 .DS_Store
 *.log
+
+tmp/

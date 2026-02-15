@@ -11,7 +11,7 @@
     "clean": "rm -rf dist .turbo node_modules"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26",
+    "fastmcp": "^3",
     "@supabase/supabase-js": "^2",
     "zod": "^3.25"
   },
