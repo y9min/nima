@@ -20,7 +20,7 @@ const transport =
 const port = parseInt(process.env.PORT || process.env.MCP_PORT || "8080", 10);
 
 if (transport === "httpStream") {
-  server.start({ transportType: "httpStream", httpStream: { port } });
+  server.start({ transportType: "httpStream", httpStream: { port, host: "0.0.0.0" } });
 } else {
   server.start({ transportType: "stdio" });
 }
