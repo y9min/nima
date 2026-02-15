@@ -1,14 +1,16 @@
 """
 VeilHeuristicBlocker - mitmproxy addon for application-layer filtering.
 
-Blocks Instagram Reels by killing large video responses from Instagram / its
-CDNs before the body is downloaded (checked in responseheaders).
+Blocks Instagram Reels by decoding the base64 ``efg`` query parameter on
+CDN video requests and dropping those whose ``vencode_tag`` contains
+"clips" (Reels) while allowing "story" content through.
 Blocks YouTube video playback by dropping all googlevideo.com/videoplayback
 requests (the CDN endpoint for all YouTube video streams).
 Blocks Kalshi order placement by killing POST requests to the orders API.
 Passes through TLS for hosts with certificate pinning (e.g. Cursor).
 """
-import os
+import base64
+import json
 import re
 from mitmproxy import http, tls
 import logging
@@ -20,7 +22,7 @@ logger = logging.getLogger(__name__)
 class VeilHeuristicBlocker:
     PASSTHROUGH_HOSTS = {".cursor.sh", ".icloud.com", ".apple.com"}
 
-    # --- Content-attribute blocking ---
+    # --- Instagram Reels blocking (vencode_tag-based) ---
     # Instagram and its CDN domains (where media is served)
     INSTAGRAM_MEDIA_DOMAINS = {
         "instagram",        # keyword match (covers *.instagram.com, cdninstagram.com)
@@ -30,14 +32,6 @@ class VeilHeuristicBlocker:
         "fbsbx.com",
         "facebook.net",
     }
-
-    # Block video responses larger than this from Instagram domains (bytes).
-    # Reels are typically 2-15 MB; feed images are < 500 KB.
-    # Default 500 KB — high enough for images, low enough to catch video.
-    VIDEO_SIZE_THRESHOLD = int(os.environ.get("REELS_VIDEO_MAX_BYTES", 500_000))
-
-    # Content-Types treated as video
-    VIDEO_CONTENT_TYPES = {"video/mp4", "video/webm", "video/ogg", "video/quicktime"}
 
     # --- YouTube video blocking ---
     # googlevideo.com CDN domain where YouTube video chunks are served.
@@ -61,10 +55,14 @@ class VeilHeuristicBlocker:
         return h == self.YOUTUBE_CDN_DOMAIN or h.endswith("." + self.YOUTUBE_CDN_DOMAIN)
 
     def _is_videoplayback_request(self, flow: http.HTTPFlow) -> bool:
-        """True if the request path is /videoplayback (YouTube video stream)."""
+        """True if the request is a /videoplayback stream with ctier=sh (short-form video)."""
         path = flow.request.path or ""
         # path may include query string; check the path component only
-        return path.split("?")[0] == self.YOUTUBE_VIDEOPLAYBACK_PATH
+        if path.split("?")[0] != self.YOUTUBE_VIDEOPLAYBACK_PATH:
+            return False
+        # Only block short-form video (Shorts). ctier=A is normal video; ctier=sh is Shorts.
+        ctier = flow.request.query.get("ctier", "").lower()
+        return ctier == "sh"
 
     def _is_kalshi_domain(self, host: str) -> bool:
         """True for kalshi.com or any subdomain (e.g. api.elections.kalshi.com)."""
@@ -89,22 +87,28 @@ class VeilHeuristicBlocker:
             return True
         return any(h == d or h.endswith("." + d) for d in self.INSTAGRAM_CDN_DOMAINS)
 
-    def _is_large_video_response(self, flow: http.HTTPFlow) -> bool:
-        """Check response headers for video content above the size threshold."""
-        resp = flow.response
-        if not resp or not resp.headers:
-            return False
+    def _decode_vencode_tag(self, flow: http.HTTPFlow) -> str | None:
+        """Decode the base64 ``efg`` query parameter and return the vencode_tag.
 
-        content_type = (resp.headers.get("content-type", "") or "").lower().split(";")[0].strip()
-        if content_type not in self.VIDEO_CONTENT_TYPES:
-            return False
+        Instagram CDN video URLs carry an ``efg`` query parameter that is
+        base64-encoded JSON.  The ``vencode_tag`` field inside indicates the
+        content type — e.g. ``ig-xpvds.clips.…`` for Reels,
+        ``ig-xpvds.story.…`` for Stories.
 
+        Returns the vencode_tag string, or *None* if decoding fails or the
+        parameter is absent.
+        """
+        efg_b64 = flow.request.query.get("efg", "")
+        if not efg_b64:
+            return None
         try:
-            content_length = int(resp.headers.get("content-length", "0"))
-        except ValueError:
-            content_length = 0
-
-        return content_length > self.VIDEO_SIZE_THRESHOLD
+            # The value may already be properly padded, but add padding to be safe.
+            padded = efg_b64 + "=" * (-len(efg_b64) % 4)
+            decoded = base64.b64decode(padded)
+            data = json.loads(decoded)
+            return data.get("vencode_tag")
+        except Exception:
+            return None
 
     # ---- mitmproxy hooks ----
 
@@ -139,22 +143,28 @@ class VeilHeuristicBlocker:
             flow.kill()
             return
 
-    def responseheaders(self, flow: http.HTTPFlow) -> None:
-        """Kill large video responses from Instagram CDNs before body downloads."""
-        host = flow.request.pretty_host or ""
-        if not self._is_instagram_domain(host):
-            return
-        if not self._is_large_video_response(flow):
-            return
-
-        content_length = flow.response.headers.get("content-length", "?")
-        logger.info(
-            "block(size): video %s bytes from %s%s",
-            content_length,
-            host,
-            (flow.request.path or "")[:60],
-        )
-        flow.kill()
+        # Instagram Reels & Ads — decode the efg param and block clips (reels)
+        # and ads, while allowing stories through.
+        if self._is_instagram_domain(host):
+            vencode_tag = self._decode_vencode_tag(flow)
+            if vencode_tag and ".clips." in vencode_tag:
+                logger.info(
+                    "block(reel): vencode_tag=%s from %s%s",
+                    vencode_tag,
+                    host,
+                    (flow.request.path or "")[:60],
+                )
+                flow.kill()
+                return
+            if vencode_tag and vencode_tag.startswith("ads_"):
+                logger.info(
+                    "block(ad): vencode_tag=%s from %s%s",
+                    vencode_tag,
+                    host,
+                    (flow.request.path or "")[:60],
+                )
+                flow.kill()
+                return
 
 
 addons = [VeilHeuristicBlocker()]
