@@ -51,9 +51,6 @@ struct BubbleApp: App {
             .task {
                 SVGCache.shared.preload(svgNames: ["instagram", "kalshi", "fanduel"])
             }
-            .task {
-                await authStore.listenForAuthChanges()
-            }
         }
     }
 }
