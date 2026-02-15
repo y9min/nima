@@ -20,11 +20,13 @@
 		3D7AB805F68314992E3A9ACE /* settings.local.json in Resources */ = {isa = PBXBuildFile; fileRef = 4FCEA58022A4F0F927779C3E /* settings.local.json */; };
 		3EBF87D830A1629BCEB7B827 /* BubbleSpacing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2657A23991F8E73241EC8D2A /* BubbleSpacing.swift */; };
 		4CBD13A9A63EB6FFDE23B67B /* SVGCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30EEB2AB48FAE0B765F046C /* SVGCache.swift */; };
+		500F83671A2ED73A3C38D9CA /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 065627B19E991EA9FDC0DEE2 /* Supabase */; };
 		55B0C1B5A6CF3AA8C6AEF432 /* AppOptionArcs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B4EC3C0F908E65D671403F /* AppOptionArcs.swift */; };
 		55B9C498EF03C4B9380E9BA0 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E46F6CBC4504443A3E050DE /* AppStore.swift */; };
 		5C89AF10E0C29C7AD7F8F06B /* generate_app_icons.sh in Resources */ = {isa = PBXBuildFile; fileRef = FD7690CC40D5611A9C232A9E /* generate_app_icons.sh */; };
 		63985968494496186AAAAE97 /* SocialMediaIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 221C01C91E8FC62806530668 /* SocialMediaIcon.swift */; };
 		63FA599ABB0F0D47230364C1 /* BubbleButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 884244700EF00F59FE7F49D1 /* BubbleButton.swift */; };
+		6AB0C375DDD14ACE8678338E /* SupabaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3EF496D1E6382443B39705A /* SupabaseClient.swift */; };
 		6C7C6CFB4CD7288B0D1F0A69 /* BlockingOptionsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB2E25C599188EFFAA656AA /* BlockingOptionsScreen.swift */; };
 		7187CAA7759A0FB102770E7D /* SVGView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11372BC005F536F03A206A0C /* SVGView.swift */; };
 		7ACC24B7F11F3FEB7E430EFF /* MagicSignInScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E171A52D23611FA571259FA /* MagicSignInScreen.swift */; };
@@ -50,6 +52,7 @@
 		DA022CE2410220BBEB0EFC55 /* SkyBackgroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F1CE437AADFB2D399B4E4CD /* SkyBackgroundView.swift */; };
 		EE5AF52C3094005B17EF5118 /* HexGridLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3288B67D55E1FF065382E8E9 /* HexGridLayoutManager.swift */; };
 		EFEC044BD16A58AABFD1B820 /* app_options.json in Resources */ = {isa = PBXBuildFile; fileRef = ADF713ED6242175766746424 /* app_options.json */; };
+		F4B56F9A3A941A0C2EBDADE7 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 931B0AF1A32A039B27B089E5 /* AuthStore.swift */; };
 		F7CE98EF49A4DE02A3635406 /* Coolvetica Rg.otf in Resources */ = {isa = PBXBuildFile; fileRef = E061A1FE54985A17E5E84E2E /* Coolvetica Rg.otf */; };
 /* End PBXBuildFile section */
 
@@ -77,6 +80,7 @@
 		5F0388BBA774E17DCA5497C6 /* BubbleFonts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleFonts.swift; sourceTree = "<group>"; };
 		5F112CC7035E04A18029EC82 /* clouds.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = clouds.png; sourceTree = "<group>"; };
 		64DB7E7C0A427B4897386603 /* BlockedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockedApp.swift; sourceTree = "<group>"; };
+		6861881C70CB1784E39EE930 /* .env */ = {isa = PBXFileReference; path = .env; sourceTree = "<group>"; };
 		6A14727AF55B2D6A666F3D1B /* icon_rect.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon_rect.png; sourceTree = "<group>"; };
 		6E171A52D23611FA571259FA /* MagicSignInScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicSignInScreen.swift; sourceTree = "<group>"; };
 		74330F9AFC4182AB67F02F83 /* BubbleColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleColors.swift; sourceTree = "<group>"; };
@@ -84,6 +88,8 @@
 		8240EBF328085BD8C6215C5B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		884244700EF00F59FE7F49D1 /* BubbleButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleButton.swift; sourceTree = "<group>"; };
 		8A1AF9CB0269E85989CE0DC6 /* AppIconCircle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconCircle.swift; sourceTree = "<group>"; };
+		91196A152CB612FF5D9144D3 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
+		931B0AF1A32A039B27B089E5 /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
 		9432F97BCE16A023A0A8E1EC /* HexCoordinate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HexCoordinate.swift; sourceTree = "<group>"; };
 		97236875B7F5FA2B9FE201A3 /* HomeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScreen.swift; sourceTree = "<group>"; };
 		9D9EE6D24AD0B696F8DCB904 /* MagicSignInService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicSignInService.swift; sourceTree = "<group>"; };
@@ -96,11 +102,23 @@
 		BB94751122DA9ADC81F89EE3 /* Bubble.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Bubble.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8F7AEAFA028F049E6650638 /* instagram.svg */ = {isa = PBXFileReference; path = instagram.svg; sourceTree = "<group>"; };
 		E061A1FE54985A17E5E84E2E /* Coolvetica Rg.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Coolvetica Rg.otf"; sourceTree = "<group>"; };
+		E3EF496D1E6382443B39705A /* SupabaseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseClient.swift; sourceTree = "<group>"; };
 		EFBD2984D0510752BD1D03BD /* background.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = background.png; sourceTree = "<group>"; };
 		F0B814D56804DA2A853F0CC7 /* PageIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageIndicator.swift; sourceTree = "<group>"; };
 		F96DCEEE446F160532470E8D /* GridPositionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridPositionStore.swift; sourceTree = "<group>"; };
 		FD7690CC40D5611A9C232A9E /* generate_app_icons.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = generate_app_icons.sh; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AB99948DC644C5E05FC587CE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				500F83671A2ED73A3C38D9CA /* Supabase in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		1483554F60FA7FE0E51245E7 /* .claude */ = {
@@ -146,19 +164,31 @@
 			children = (
 				3A500B91AAD8FCE188E83A9D /* AppOptionsService.swift */,
 				5E46F6CBC4504443A3E050DE /* AppStore.swift */,
+				931B0AF1A32A039B27B089E5 /* AuthStore.swift */,
 				64DB7E7C0A427B4897386603 /* BlockedApp.swift */,
 				F96DCEEE446F160532470E8D /* GridPositionStore.swift */,
 				9432F97BCE16A023A0A8E1EC /* HexCoordinate.swift */,
 				3288B67D55E1FF065382E8E9 /* HexGridLayoutManager.swift */,
 				9D9EE6D24AD0B696F8DCB904 /* MagicSignInService.swift */,
 				4F5A0931BEF4F3F4B1BF8741 /* Route.swift */,
+				E3EF496D1E6382443B39705A /* SupabaseClient.swift */,
 			);
 			path = Models;
+			sourceTree = "<group>";
+		};
+		81963D340B5EC930C5D33CC5 /* ios */ = {
+			isa = PBXGroup;
+			children = (
+				91196A152CB612FF5D9144D3 /* Secrets.xcconfig */,
+			);
+			name = ios;
+			path = .;
 			sourceTree = "<group>";
 		};
 		842218BB42D46926DC9271FC /* Bubble */ = {
 			isa = PBXGroup;
 			children = (
+				6861881C70CB1784E39EE930 /* .env */,
 				8240EBF328085BD8C6215C5B /* Assets.xcassets */,
 				51B12D2A976C53EEB139FC50 /* BubbleApp.swift */,
 				FD7690CC40D5611A9C232A9E /* generate_app_icons.sh */,
@@ -187,6 +217,7 @@
 			isa = PBXGroup;
 			children = (
 				842218BB42D46926DC9271FC /* Bubble */,
+				81963D340B5EC930C5D33CC5 /* ios */,
 				62B9B96E3C62769CA4B70E8B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -244,6 +275,7 @@
 			buildPhases = (
 				BA386D7A56178599483A405D /* Sources */,
 				7ED6C886919E610BC9322D6C /* Resources */,
+				AB99948DC644C5E05FC587CE /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -251,6 +283,7 @@
 			);
 			name = Bubble;
 			packageProductDependencies = (
+				065627B19E991EA9FDC0DEE2 /* Supabase */,
 			);
 			productName = Bubble;
 			productReference = BB94751122DA9ADC81F89EE3 /* Bubble.app */;
@@ -280,6 +313,9 @@
 			);
 			mainGroup = B327284E55C5CB5F30B80CE8;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				0D5A816901074CD6C9DB1462 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
@@ -323,6 +359,7 @@
 				55B0C1B5A6CF3AA8C6AEF432 /* AppOptionArcs.swift in Sources */,
 				8F0D57C9A6E3045BBE001928 /* AppOptionsService.swift in Sources */,
 				55B9C498EF03C4B9380E9BA0 /* AppStore.swift in Sources */,
+				F4B56F9A3A941A0C2EBDADE7 /* AuthStore.swift in Sources */,
 				9549542D2E57B4C55511D581 /* BackArrowView.swift in Sources */,
 				175B55D8F51D048B9FEFF95B /* BlockedApp.swift in Sources */,
 				6C7C6CFB4CD7288B0D1F0A69 /* BlockingOptionsScreen.swift in Sources */,
@@ -348,6 +385,7 @@
 				7187CAA7759A0FB102770E7D /* SVGView.swift in Sources */,
 				DA022CE2410220BBEB0EFC55 /* SkyBackgroundView.swift in Sources */,
 				63985968494496186AAAAE97 /* SocialMediaIcon.swift in Sources */,
+				6AB0C375DDD14ACE8678338E /* SupabaseClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -356,6 +394,7 @@
 /* Begin XCBuildConfiguration section */
 		15DA1B8466F8B1F076243B95 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 91196A152CB612FF5D9144D3 /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -429,6 +468,7 @@
 		};
 		52400EE2E7E22F4B9825814E /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 91196A152CB612FF5D9144D3 /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -529,6 +569,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		0D5A816901074CD6C9DB1462 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		065627B19E991EA9FDC0DEE2 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0D5A816901074CD6C9DB1462 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B741CA0B5636C16D2FF1843B /* Project object */;
 }

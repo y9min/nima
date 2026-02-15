@@ -5,12 +5,23 @@ options:
     iOS: "17.0"
   xcodeVersion: "16.0"
 
+configFiles:
+  Debug: Secrets.xcconfig
+  Release: Secrets.xcconfig
+
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: "2.0.0"
+
 targets:
   Bubble:
     type: application
     platform: iOS
     sources:
       - Bubble
+    dependencies:
+      - package: Supabase
     resources:
       - Bubble/Resources/background.png
       - Bubble/Resources/clouds.png
@@ -29,6 +40,8 @@ targets:
         UIViewControllerBasedStatusBarAppearance: false
         UIStatusBarStyle: UIStatusBarStyleLightContent
         UILaunchScreen: {}
+        SUPABASE_URL: $(SUPABASE_URL)
+        SUPABASE_KEY: $(SUPABASE_KEY)
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.bubble.Bubble
       INFOPLIST_FILE: Bubble/Info.plist
