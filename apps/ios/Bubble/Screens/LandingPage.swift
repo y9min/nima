@@ -23,17 +23,36 @@ struct LandingPage: View {
                         .foregroundStyle(.white)
                         .padding(.leading, 4)
                 }
-                .padding(.leading, BubbleSpacing.xl)
+                .padding(.leading, BubbleSpacing.xxl)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
-
-                // GO button - matching the design with blue background and white border
-                BubbleButton(title: "GO", action: onGo)
-                    .padding(.bottom, BubbleSpacing.xxl)
+            }
+            
+            // Forward arrow button in bottom right corner
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button {
+                        onGo()
+                    } label: {
+                        BackArrowView(size: 34, color: .white)
+                            .rotationEffect(.degrees(180))
+                            .frame(width: 44, height: 44)
+                            .background(BubbleColors.skyBlue)
+                            .clipShape(Circle())
+                    }
+                    .padding(.trailing, BubbleSpacing.xl + 10)
+                    .padding(.bottom, 14)
+                }
             }
         }
         .navigationBarBackButtonHidden(true)
+        .onAppear {
+            // Preload SVG icons for faster loading
+            SVGCache.shared.preload(svgNames: ["kalshi", "instagram", "fanduel"])
+        }
     }
 }
 

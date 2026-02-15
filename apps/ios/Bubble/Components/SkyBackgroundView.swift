@@ -65,10 +65,10 @@ struct SkyBackgroundView: View {
                         // With negative spacing, each image starts at: previousImageStart + scaledWidth - overlap
                         let actualSpacing = scaledWidth - overlap
                         
-                        // Use scaledWidth directly for cycle width - better frame rate performance
-                        // This creates a continuous scroll that loops after one image width
-                        let desiredImageWidths: CGFloat = 1
-                        let cycleWidth = desiredImageWidths * scaledWidth
+                        // Use actualSpacing for cycle width to match where images actually repeat
+                        // This prevents jumping by ensuring the wrap aligns with the image pattern
+                        // Note: Using actualSpacing instead of scaledWidth for visual correctness
+                        let cycleWidth = actualSpacing
                         
                         HStack(spacing: -overlap) {
                             // Multiple copies for seamless infinite scroll
@@ -91,12 +91,11 @@ struct SkyBackgroundView: View {
                             print("Scale factor: \(scaleFactor)")
                             print("Scaled width (display): \(scaledWidth)")
                             print("Actual spacing between images: \(actualSpacing)")
-                            print("Desired image widths: \(desiredImageWidths)")
                             print("Cycle width: \(cycleWidth)")
                             print("Cycle width in image widths: \(cycleWidth / scaledWidth)")
                             
                             // Start seamless infinite scroll - wrap at cycle width
-                            // Using scaledWidth directly for better frame rate performance
+                            // Using actualSpacing to match where images actually repeat (prevents jumping)
                             // Duration is 10.0 seconds (twice as slow as before)
                             startSeamlessScroll(cycleWidth: cycleWidth, duration: 10.0)
                         }

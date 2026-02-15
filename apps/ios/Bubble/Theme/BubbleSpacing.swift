@@ -25,7 +25,7 @@ enum BubbleSpacing {
     // Button
     static let buttonHeight: CGFloat = 56
     static let buttonCornerRadius: CGFloat = 28
-    static let buttonHorizontalPadding: CGFloat = 48
+    static let buttonHorizontalPadding: CGFloat = 100
 
     // Profile avatar
     static let avatarSize: CGFloat = 36

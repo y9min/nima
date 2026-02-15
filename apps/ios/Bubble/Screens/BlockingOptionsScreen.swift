@@ -49,8 +49,8 @@ struct BlockingOptionsScreen: View {
                             .background(BubbleColors.skyBlue)
                             .clipShape(Circle())
                     }
-                    .padding(.leading, BubbleSpacing.lg)
-                    .padding(.bottom, BubbleSpacing.xxl)
+                    .padding(.leading, BubbleSpacing.lg + 5)
+                    .padding(.bottom, BubbleSpacing.xxl - 10)
 
                     Spacer()
                 }

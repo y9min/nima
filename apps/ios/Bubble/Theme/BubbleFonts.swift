@@ -22,7 +22,7 @@ enum BubbleFonts {
     static let titleSmall = pupok(size: 24)
     static let subtitle = coolvetica(size: 28)
     static let subtitleItalic = coolveticaItalic(size: 28)
-    static let buttonText = pupok(size: 28)
+    static let buttonText = pupok(size: 36)
     static let optionLabel = coolvetica(size: 16)
     static let appLabel = pupok(size: 18)
     static let headerTitle = pupok(size: 32)

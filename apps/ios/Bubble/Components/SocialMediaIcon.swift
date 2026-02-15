@@ -13,6 +13,8 @@ struct SocialMediaIcon: View {
                 FacebookIcon(size: size)
             case "kalshi":
                 KalshiIcon(size: size)
+            case "fanduel":
+                FanduelIcon(size: size)
             default:
                 Image(systemName: "app.fill")
                     .font(.system(size: size * 0.4))
@@ -26,29 +28,8 @@ struct InstagramIcon: View {
     let size: CGFloat
     
     var body: some View {
-        ZStack {
-            // Instagram camera icon - square with rounded corners
-            // Outer square
-            RoundedRectangle(cornerRadius: size * 0.18)
-                .strokeBorder(Color.black, lineWidth: size * 0.05)
-                .frame(width: size * 0.75, height: size * 0.75)
-            
-            // Inner circle
-            Circle()
-                .strokeBorder(Color.black, lineWidth: size * 0.05)
-                .frame(width: size * 0.5, height: size * 0.5)
-            
-            // Center dot
-            Circle()
-                .fill(Color.black)
-                .frame(width: size * 0.1, height: size * 0.1)
-            
-            // Top right corner dot (lens indicator)
-            Circle()
-                .fill(Color.black)
-                .frame(width: size * 0.08, height: size * 0.08)
-                .offset(x: size * 0.2, y: -size * 0.2)
-        }
+        SVGView(svgName: "instagram")
+            .frame(width: size, height: size)
     }
 }
 
@@ -91,9 +72,17 @@ struct KalshiIcon: View {
     let size: CGFloat
     
     var body: some View {
-        Text("Kalshi")
-            .font(.system(size: size * 0.25, weight: .semibold))
-            .foregroundStyle(BubbleColors.skyBlue)
+        SVGView(svgName: "kalshi")
+            .frame(width: size * 0.9, height: size * 0.4)
+    }
+}
+
+struct FanduelIcon: View {
+    let size: CGFloat
+    
+    var body: some View {
+        SVGView(svgName: "fanduel")
+            .frame(width: size, height: size)
     }
 }
 
@@ -104,6 +93,7 @@ struct KalshiIcon: View {
             SocialMediaIcon(platform: "instagram")
             SocialMediaIcon(platform: "facebook")
             SocialMediaIcon(platform: "kalshi")
+            SocialMediaIcon(platform: "fanduel")
         }
     }
 }
