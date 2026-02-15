@@ -1,0 +1,48 @@
+name: Bubble
+options:
+  bundleIdPrefix: com.bubble
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+
+configFiles:
+  Debug: Secrets.xcconfig
+  Release: Secrets.xcconfig
+
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: "2.0.0"
+
+targets:
+  Bubble:
+    type: application
+    platform: iOS
+    sources:
+      - Bubble
+    dependencies:
+      - package: Supabase
+    resources:
+      - Bubble/Resources/background.png
+      - Bubble/Resources/clouds.png
+      - Bubble/Resources/clouds_continous.png
+      - Bubble/Resources/kalshi.svg
+      - Bubble/Resources/instagram.svg
+      - Bubble/Resources/fanduel.svg
+      - Bubble/Resources/Fonts
+    info:
+      path: Bubble/Info.plist
+      properties:
+        UIAppFonts:
+          - SK Pupok Solid 400.ttf
+          - Coolvetica Rg.otf
+          - Coolvetica Rg It.otf
+        UIViewControllerBasedStatusBarAppearance: false
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UILaunchScreen: {}
+        SUPABASE_URL: $(SUPABASE_URL)
+        SUPABASE_KEY: $(SUPABASE_KEY)
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bubble.Bubble
+      INFOPLIST_FILE: Bubble/Info.plist
+      DEVELOPMENT_TEAM: ""
