@@ -3,12 +3,13 @@ VeilHeuristicBlocker - mitmproxy addon for application-layer filtering.
 
 Blocks Instagram Reels by killing large video responses from Instagram / its
 CDNs before the body is downloaded (checked in responseheaders).
-Blocks YouTube Shorts by dropping googlevideo.com requests whose query
-string contains ctier=SH (Shorts content tier).
+Blocks YouTube video playback by dropping all googlevideo.com/videoplayback
+requests (the CDN endpoint for all YouTube video streams).
+Blocks Kalshi order placement by killing POST requests to the orders API.
 Passes through TLS for hosts with certificate pinning (e.g. Cursor).
 """
 import os
-from urllib.parse import parse_qs, urlparse
+import re
 from mitmproxy import http, tls
 import logging
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class VeilHeuristicBlocker:
-    PASSTHROUGH_HOSTS = {".cursor.sh"}
+    PASSTHROUGH_HOSTS = {".cursor.sh", ".icloud.com", ".apple.com"}
 
     # --- Content-attribute blocking ---
     # Instagram and its CDN domains (where media is served)
@@ -38,15 +39,17 @@ class VeilHeuristicBlocker:
     # Content-Types treated as video
     VIDEO_CONTENT_TYPES = {"video/mp4", "video/webm", "video/ogg", "video/quicktime"}
 
-    # --- YouTube Shorts blocking ---
+    # --- YouTube video blocking ---
     # googlevideo.com CDN domain where YouTube video chunks are served.
     YOUTUBE_CDN_DOMAIN = "googlevideo.com"
-    # Content-tier query parameter values to block (SH = Shorts).
-    YOUTUBE_BLOCKED_CTIERS = {
-        s.strip().upper()
-        for s in os.environ.get("YT_BLOCKED_CTIERS", "SH").split(",")
-        if s.strip()
-    }
+    # The path used for all YouTube video stream requests.
+    YOUTUBE_VIDEOPLAYBACK_PATH = "/videoplayback"
+
+    # --- Kalshi order blocking ---
+    # Block POST requests to the Kalshi orders API to prevent placing bets.
+    # Matches: /v1/users/{uuid}/orders and /trade-api/v2/portfolio/orders etc.
+    KALSHI_DOMAIN = "kalshi.com"
+    KALSHI_ORDERS_PATTERN = re.compile(r"/(?:v\d+/users/[^/]+/orders|trade-api/v\d+/portfolio/orders)")
 
     # ---- helpers ----
 
@@ -57,14 +60,25 @@ class VeilHeuristicBlocker:
         h = host.lower()
         return h == self.YOUTUBE_CDN_DOMAIN or h.endswith("." + self.YOUTUBE_CDN_DOMAIN)
 
-    def _has_blocked_ctier(self, url: str) -> bool:
-        """True if the URL query string contains a blocked ctier value."""
-        try:
-            qs = parse_qs(urlparse(url).query)
-            ctier_values = qs.get("ctier", [])
-            return any(v.upper() in self.YOUTUBE_BLOCKED_CTIERS for v in ctier_values)
-        except Exception:
+    def _is_videoplayback_request(self, flow: http.HTTPFlow) -> bool:
+        """True if the request path is /videoplayback (YouTube video stream)."""
+        path = flow.request.path or ""
+        # path may include query string; check the path component only
+        return path.split("?")[0] == self.YOUTUBE_VIDEOPLAYBACK_PATH
+
+    def _is_kalshi_domain(self, host: str) -> bool:
+        """True for kalshi.com or any subdomain (e.g. api.elections.kalshi.com)."""
+        if not host:
             return False
+        h = host.lower()
+        return h == self.KALSHI_DOMAIN or h.endswith("." + self.KALSHI_DOMAIN)
+
+    def _is_kalshi_order_post(self, flow: http.HTTPFlow) -> bool:
+        """True if this is a POST to a Kalshi orders endpoint."""
+        if flow.request.method.upper() != "POST":
+            return False
+        path = (flow.request.path or "").split("?")[0]
+        return bool(self.KALSHI_ORDERS_PATTERN.search(path))
 
     def _is_instagram_domain(self, host: str) -> bool:
         """True for any Instagram or Instagram-CDN host."""
@@ -102,19 +116,28 @@ class VeilHeuristicBlocker:
             data.ignore_connection = True
 
     def request(self, flow: http.HTTPFlow) -> None:
-        """Kill YouTube Shorts video requests before any data is fetched."""
+        """Kill blocked requests before any data is fetched."""
         host = flow.request.pretty_host or ""
-        if not self._is_googlevideo_domain(host):
-            return
-        if not self._has_blocked_ctier(flow.request.url):
+
+        # YouTube video playback
+        if self._is_googlevideo_domain(host) and self._is_videoplayback_request(flow):
+            logger.info(
+                "block(yt): YouTube video from %s%s",
+                host,
+                (flow.request.path or "")[:80],
+            )
+            flow.kill()
             return
 
-        logger.info(
-            "block(ctier): YouTube Shorts from %s%s",
-            host,
-            (flow.request.path or "")[:80],
-        )
-        flow.kill()
+        # Kalshi order placement
+        if self._is_kalshi_domain(host) and self._is_kalshi_order_post(flow):
+            logger.info(
+                "block(kalshi): POST order to %s%s",
+                host,
+                (flow.request.path or "")[:80],
+            )
+            flow.kill()
+            return
 
     def responseheaders(self, flow: http.HTTPFlow) -> None:
         """Kill large video responses from Instagram CDNs before body downloads."""
