@@ -5,12 +5,19 @@ options:
     iOS: "17.0"
   xcodeVersion: "16.0"
 
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: "2.0.0"
+
 targets:
   Bubble:
     type: application
     platform: iOS
     sources:
       - Bubble
+    dependencies:
+      - package: Supabase
     resources:
       - Bubble/Resources/background.png
       - Bubble/Resources/clouds.png
