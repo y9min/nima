@@ -1,17 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-
-const APP_META: Record<string, { name: string; icon: string }> = {
-  instagram: { name: "Instagram", icon: "/images/instagram.svg" },
-  fanduel: { name: "FanDuel", icon: "/images/fanduel.svg" },
-  kalshi: { name: "Kalshi", icon: "/images/kalshi.svg" },
-  tiktok: { name: "TikTok", icon: "T" },
-  youtube: { name: "YouTube", icon: "Y" },
-  twitter: { name: "Twitter", icon: "X" },
-  reddit: { name: "Reddit", icon: "R" },
-  snapchat: { name: "Snapchat", icon: "S" },
-  other: { name: "Other", icon: "?" },
-};
+import { APP_META } from "@/lib/app-meta";
 
 interface RouteContext {
   params: Promise<{ slug: string }>;

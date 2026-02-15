@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Domain → app_category mapping
 # ---------------------------------------------------------------------------
 DOMAIN_CATEGORIES: dict[str, str] = {
+    # Social media
     "instagram": "instagram",
     "cdninstagram": "instagram",
     "fbcdn.net": "instagram",
@@ -33,8 +34,6 @@ DOMAIN_CATEGORIES: dict[str, str] = {
     "youtube.com": "youtube",
     "ytimg.com": "youtube",
     "youtu.be": "youtube",
-    "fanduel.com": "fanduel",
-    "kalshi.com": "kalshi",
     "twitter.com": "twitter",
     "x.com": "twitter",
     "twimg.com": "twitter",
@@ -44,6 +43,51 @@ DOMAIN_CATEGORIES: dict[str, str] = {
     "snapchat.com": "snapchat",
     "snap.com": "snapchat",
     "sc-cdn.net": "snapchat",
+    # Betting
+    "fanduel.com": "fanduel",
+    "kalshi.com": "kalshi",
+    # Google workspace (must come after googlevideo/youtube)
+    "google.com": "google",
+    "googleapis.com": "google",
+    "gstatic.com": "google",
+    "googleusercontent.com": "google",
+    "gmail.com": "google",
+    "google-analytics.com": "analytics",
+    # Education
+    "canvas": "education",
+    "harvard.edu": "education",
+    "instructure.com": "education",
+    ".edu": "education",
+    # Infrastructure
+    "supabase": "infrastructure",
+    "vercel": "infrastructure",
+    "cloudflare": "infrastructure",
+    "amazonaws.com": "infrastructure",
+    "netlify": "infrastructure",
+    "github.com": "infrastructure",
+    "githubusercontent.com": "infrastructure",
+    # Analytics & monitoring
+    "datadog": "analytics",
+    "sentry": "analytics",
+    "mixpanel": "analytics",
+    "amplitude": "analytics",
+    "segment": "analytics",
+    "hotjar": "analytics",
+    # Productivity
+    "slack": "productivity",
+    "notion.so": "productivity",
+    "notion.site": "productivity",
+    "linear.app": "productivity",
+    "figma": "productivity",
+    "zoom.us": "productivity",
+    "microsoft.com": "productivity",
+    "office.com": "productivity",
+    "outlook.com": "productivity",
+    # AI
+    "openai.com": "ai",
+    "anthropic.com": "ai",
+    "claude.ai": "ai",
+    "chatgpt.com": "ai",
 }
 
 
