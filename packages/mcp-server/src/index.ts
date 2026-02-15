@@ -1,13 +1,26 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { FastMCP } from "fastmcp";
 import { registerTools } from "./tools.js";
 
-const server = new McpServer({
+const server = new FastMCP({
   name: "bubble",
-  version: "0.0.0",
+  version: "0.1.0",
+  authenticate: async (request) => {
+    const token = request.headers["authorization"];
+    if (!token || token !== `Bearer ${process.env.MCP_API_KEY}`) {
+      throw new Error("Unauthorized");
+    }
+    return { authenticated: true };
+  },
 });
 
 registerTools(server);
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+const transport =
+  process.env.MCP_TRANSPORT === "stdio" ? "stdio" : "httpStream";
+const port = parseInt(process.env.MCP_PORT || "8080", 10);
+
+if (transport === "httpStream") {
+  server.start({ transportType: "httpStream", httpStream: { port } });
+} else {
+  server.start({ transportType: "stdio" });
+}
