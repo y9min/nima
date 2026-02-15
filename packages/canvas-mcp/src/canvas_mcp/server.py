@@ -39,7 +39,12 @@ from .tools import (
 def create_server() -> FastMCP:
     """Create and configure the Canvas MCP server."""
     config = get_config()
-    mcp = FastMCP(config.mcp_server_name)
+    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    if transport == "http":
+        port = int(os.environ.get("PORT", os.environ.get("MCP_PORT", "8080")))
+        mcp = FastMCP(config.mcp_server_name, host="0.0.0.0", port=port)
+    else:
+        mcp = FastMCP(config.mcp_server_name)
     return mcp
 
 
@@ -181,11 +186,10 @@ def main() -> None:
     register_all_tools(mcp)
 
     try:
-        # Run the server — support HTTP transport for remote deployment
+        # Run the server — transport configured via MCP_TRANSPORT env var
         transport = os.environ.get("MCP_TRANSPORT", "stdio")
         if transport == "http":
-            port = int(os.environ.get("PORT", os.environ.get("MCP_PORT", "8080")))
-            mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
+            mcp.run(transport="streamable-http")
         else:
             mcp.run()
     except KeyboardInterrupt:
