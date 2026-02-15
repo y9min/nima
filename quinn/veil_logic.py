@@ -11,9 +11,13 @@ Passes through TLS for hosts with certificate pinning (e.g. Cursor).
 """
 import base64
 import json
+import os
 import re
+import time
 from mitmproxy import http, tls
 import logging
+
+from analytics import AnalyticsClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,6 +25,12 @@ logger = logging.getLogger(__name__)
 
 class VeilHeuristicBlocker:
     PASSTHROUGH_HOSTS = {".cursor.sh", ".icloud.com", ".apple.com"}
+
+    def __init__(self):
+        self.analytics = AnalyticsClient(
+            flush_interval=float(os.environ.get("ANALYTICS_FLUSH_INTERVAL", "10")),
+            flush_size=int(os.environ.get("ANALYTICS_FLUSH_SIZE", "50")),
+        )
 
     # --- Instagram Reels blocking (vencode_tag-based) ---
     # Instagram and its CDN domains (where media is served)
@@ -123,6 +133,9 @@ class VeilHeuristicBlocker:
         """Kill blocked requests before any data is fetched."""
         host = flow.request.pretty_host or ""
 
+        # Store request start time for duration tracking
+        flow.metadata["_start_time"] = time.time()
+
         # YouTube video playback
         if self._is_googlevideo_domain(host) and self._is_videoplayback_request(flow):
             logger.info(
@@ -130,6 +143,7 @@ class VeilHeuristicBlocker:
                 host,
                 (flow.request.path or "")[:80],
             )
+            self.analytics.record(flow, blocked=True, block_reason="youtube_video")
             flow.kill()
             return
 
@@ -140,6 +154,7 @@ class VeilHeuristicBlocker:
                 host,
                 (flow.request.path or "")[:80],
             )
+            self.analytics.record(flow, blocked=True, block_reason="kalshi_order")
             flow.kill()
             return
 
@@ -154,6 +169,7 @@ class VeilHeuristicBlocker:
                     host,
                     (flow.request.path or "")[:60],
                 )
+                self.analytics.record(flow, blocked=True, block_reason="instagram_reel")
                 flow.kill()
                 return
             if vencode_tag and vencode_tag.startswith("ads_"):
@@ -163,8 +179,29 @@ class VeilHeuristicBlocker:
                     host,
                     (flow.request.path or "")[:60],
                 )
+                self.analytics.record(flow, blocked=True, block_reason="instagram_ad")
                 flow.kill()
                 return
+
+    def response(self, flow: http.HTTPFlow) -> None:
+        """Record allowed (non-killed) traffic after response completes."""
+        if flow.response is None:
+            return
+
+        start = flow.metadata.get("_start_time")
+        duration_ms = int((time.time() - start) * 1000) if start else None
+
+        bytes_in = len(flow.request.content) if flow.request.content else 0
+        bytes_out = len(flow.response.content) if flow.response.content else 0
+
+        self.analytics.record(
+            flow,
+            blocked=False,
+            status_code=flow.response.status_code,
+            bytes_in=bytes_in,
+            bytes_out=bytes_out,
+            duration_ms=duration_ms,
+        )
 
 
 addons = [VeilHeuristicBlocker()]
