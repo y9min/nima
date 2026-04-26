@@ -1,16 +1,17 @@
-name: chungus
+name: Bubble
 options:
-  bundleIdPrefix: com.arjun.chungus.merge
+  bundleIdPrefix: com.yamin.nimademo
   deploymentTarget:
     iOS: "17.0"
   xcodeVersion: "16.0"
 
 configFiles:
-  Debug: Secrets.xcconfig
-  Release: Secrets.xcconfig
+  Debug: Secrets.xcconfig.example
+  Release: Secrets.xcconfig.example
 
 packages:
   Tun2SocksKit:
+    # Keep exact pin aligned with UDP decoder framing assumptions.
     url: https://github.com/EbrahimTahernejad/Tun2SocksKit
     exactVersion: "5.14.4"
   Supabase:
@@ -18,17 +19,17 @@ packages:
     from: "2.0.0"
 
 targets:
-  chungus:
+  Bubble:
     type: application
     platform: iOS
     sources:
-      - path: chungus
+      - path: Bubble
     dependencies:
       - package: Supabase
-      - target: chungusTunnel
+      - target: BubbleTunnel
       - sdk: NetworkExtension.framework
     info:
-      path: chungus/Info.plist
+      path: Bubble/Info.plist
       properties:
         UIAppFonts:
           - SK Pupok Solid 400.ttf
@@ -40,33 +41,55 @@ targets:
         SUPABASE_URL: $(SUPABASE_URL)
         SUPABASE_KEY: $(SUPABASE_KEY)
     entitlements:
-      path: chungus/chungus.entitlements
+      path: Bubble/chungus.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.yamin.nimademo
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.arjun.chungus.merge
-        INFOPLIST_FILE: chungus/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo
+        INFOPLIST_FILE: Bubble/Info.plist
         DEVELOPMENT_TEAM: KSW886X5UX
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
         ENABLE_USER_SCRIPT_SANDBOXING: YES
 
-  chungusTunnel:
+  BubbleTunnel:
     type: app-extension
     platform: iOS
     sources:
-      - chungusTunnel
+      - BubbleTunnel
     dependencies:
       - package: Tun2SocksKit
       - sdk: NetworkExtension.framework
     info:
-      path: chungusTunnel/Info.plist
+      path: BubbleTunnel/Info.plist
       properties:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
     entitlements:
-      path: chungusTunnel/chungusTunnel.entitlements
+      path: BubbleTunnel/chungusTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.yamin.nimademo
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.arjun.chungus.merge.chungusTunnel
+        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.BubbleTunnel
+        DEVELOPMENT_TEAM: KSW886X5UX
+
+  BubbleTunnelTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - BubbleTunnelTests
+    dependencies:
+      - target: BubbleTunnel
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.BubbleTunnelTests
         DEVELOPMENT_TEAM: KSW886X5UX

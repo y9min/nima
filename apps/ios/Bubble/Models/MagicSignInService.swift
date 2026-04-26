@@ -20,6 +20,12 @@ class MagicSignInService {
             throw MagicSignInError.invalidEmail
         }
 
+        guard let supabaseClient else {
+            errorMessage = "Email sign-in is unavailable in local demo mode"
+            isLoading = false
+            throw MagicSignInError.unavailable
+        }
+
         do {
             try await supabaseClient.auth.signInWithOTP(email: email)
             self.email = email
@@ -42,6 +48,12 @@ class MagicSignInService {
             errorMessage = "Please enter a valid 6-digit code"
             isLoading = false
             throw MagicSignInError.invalidCode
+        }
+
+        guard let supabaseClient else {
+            errorMessage = "Email sign-in is unavailable in local demo mode"
+            isLoading = false
+            throw MagicSignInError.unavailable
         }
 
         do {
@@ -79,6 +91,7 @@ enum MagicSignInError: LocalizedError {
     case invalidEmail
     case invalidCode
     case networkError
+    case unavailable
     
     var errorDescription: String? {
         switch self {
@@ -88,6 +101,8 @@ enum MagicSignInError: LocalizedError {
             return "Please enter a valid 6-digit code"
         case .networkError:
             return "Network error. Please try again."
+        case .unavailable:
+            return "Email sign-in is unavailable in local demo mode."
         }
     }
 }

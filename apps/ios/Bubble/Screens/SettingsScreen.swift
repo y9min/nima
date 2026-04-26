@@ -9,6 +9,10 @@ struct SettingsScreen: View {
                 store: UserDefaults(suiteName: BubbleConstants.appGroupID))
     private var blockReelsEnabled: Bool = true
 
+    @AppStorage(BubbleConstants.strictUDPBlockEnabledKey,
+                store: UserDefaults(suiteName: BubbleConstants.appGroupID))
+    private var strictUDPBlockEnabled: Bool = false
+
     @StateObject private var domainThresholds = DomainThresholdsStore()
 
     @State private var showExtensionLog = false
@@ -30,6 +34,7 @@ struct SettingsScreen: View {
 
                     // Domain Thresholds
                     if blockReelsEnabled {
+                        strictUDPSection
                         domainThresholdsSection
                     }
 
@@ -117,12 +122,41 @@ struct SettingsScreen: View {
 
     // MARK: - Domain Thresholds
 
+    private var strictUDPSection: some View {
+        HStack {
+            Text("Strict QUIC/UDP Block")
+                .font(BubbleFonts.coolvetica(size: 16))
+                .foregroundColor(.white)
+            Spacer()
+            Toggle("", isOn: $strictUDPBlockEnabled)
+                .labelsHidden()
+        }
+        .padding(.horizontal, BubbleSpacing.md)
+        .padding(.vertical, BubbleSpacing.sm)
+        .background(Color.white.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     private var domainThresholdsSection: some View {
         VStack(spacing: BubbleSpacing.sm) {
             Text("Per-Domain Thresholds")
                 .font(BubbleFonts.coolvetica(size: 16))
                 .foregroundColor(BubbleColors.white60)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: BubbleSpacing.sm) {
+                Button("Apply Demo Preset") {
+                    domainThresholds.applyDemoPreset()
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Set No Limits") {
+                    domainThresholds.setNoLimits()
+                }
+                .buttonStyle(.bordered)
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             ForEach(BubbleConstants.trackedDomains, id: \.self) { domain in
                 DomainThresholdRow(

@@ -11,7 +11,7 @@ final class VPNManager: ObservableObject {
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
-    private var autoConnect = true
+    private var autoConnect = false
 
     deinit {
         if let observer = statusObserver {
@@ -68,7 +68,19 @@ final class VPNManager: ObservableObject {
                 }
 
                 if let existingManagers = managers, !existingManagers.isEmpty {
-                    let mgr = existingManagers[0]
+                    let matchingManager = existingManagers.first { manager in
+                        let providerBundleID = (manager.protocolConfiguration as? NETunnelProviderProtocol)?
+                            .providerBundleIdentifier
+                        return providerBundleID == BubbleConstants.tunnelBundleID
+                    }
+
+                    guard let mgr = matchingManager else {
+                        self.appendLog("Found \(existingManagers.count) VPN profile(s), but none match \(BubbleConstants.tunnelBundleID)")
+                        self.appendLog("Creating a fresh profile for current extension ID")
+                        self.createVPNProfile()
+                        return
+                    }
+
                     self.manager = mgr
                     self.vpnStatus = mgr.connection.status
                     self.appendLog("Found existing profile. Status: \(self.statusString)")
@@ -115,6 +127,7 @@ final class VPNManager: ObservableObject {
         proto.serverAddress = BubbleConstants.vpnServerAddress
         newManager.protocolConfiguration = proto
         newManager.localizedDescription = BubbleConstants.vpnDescription
+        newManager.isEnabled = true
 
         newManager.saveToPreferences { [weak self] error in
             Task { @MainActor [weak self] in
@@ -167,14 +180,24 @@ final class VPNManager: ObservableObject {
                             return
                         }
 
-                        do {
-                            self.appendLog("Starting VPN tunnel...")
-                            try manager.connection.startVPNTunnel()
-                            self.appendLog("startVPNTunnel() called successfully")
-                        } catch {
-                            let nsError = error as NSError
-                            self.appendLog("ERROR starting: \(error.localizedDescription)")
-                            self.appendLog("Error details: \(nsError.domain) code \(nsError.code)")
+                        manager.loadFromPreferences { [weak self] reloadError in
+                            Task { @MainActor [weak self] in
+                                guard let self = self else { return }
+                                if let reloadError = reloadError {
+                                    self.appendLog("ERROR reloading after save: \(reloadError.localizedDescription)")
+                                    return
+                                }
+
+                                do {
+                                    self.appendLog("Starting VPN tunnel...")
+                                    try manager.connection.startVPNTunnel()
+                                    self.appendLog("startVPNTunnel() called successfully")
+                                } catch {
+                                    let nsError = error as NSError
+                                    self.appendLog("ERROR starting: \(error.localizedDescription)")
+                                    self.appendLog("Error details: \(nsError.domain) code \(nsError.code)")
+                                }
+                            }
                         }
                     }
                 }

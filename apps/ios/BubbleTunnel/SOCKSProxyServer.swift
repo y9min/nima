@@ -6,6 +6,7 @@ import os
 
 protocol ConnectionFilter {
     func shouldAllow(host: String, port: UInt16) -> FilterDecision
+    func shouldBlockUDP(host: String, port: UInt16) -> Bool
     func isStreamBlockTarget(_ domain: String) -> Bool
     func streamBlockThreshold(for sni: String) -> Int?
 }
@@ -45,7 +46,7 @@ final class SOCKSProxyServer {
 
     private var listener: NWListener?
     private let filter: ConnectionFilter
-    private let queue = DispatchQueue(label: "com.arjun.chungus.merge.socks5", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.yamin.nimademo.socks5", qos: .userInitiated)
     private let log = TunnelLogger.shared
     private var connectionCount = 0      // total connections ever (used as ID)
     private var activeConnectionCount = 0 // currently open connections
@@ -61,6 +62,14 @@ final class SOCKSProxyServer {
     private var statsBlocked = 0
     private var statsUDP = 0
     private var statsErrors = 0
+    private var activeUDPStreams = 0
+    private var totalUDPStreamsOpened = 0
+    private var totalUDPStreamsClosed = 0
+    private var udpDecodeBadPrefix = 0
+    private var udpDecodeBadLength = 0
+    private var udpDecodeBadPayload = 0
+    private var udpModePlain = 0
+    private var udpModeControlPrefixed = 0
     private var statsTimer: DispatchSourceTimer?
 
     // Active relay tracking for JSON stats
@@ -167,7 +176,7 @@ final class SOCKSProxyServer {
             let total = self.connectionCount
             guard total > 0 else { return }
             let memMB = Self.memoryUsageMB()
-            self.log.log("SOCKS5 STATS: \(total) total, \(self.activeConnectionCount) active, \(self.activeRelays.count) relays, \(self.statsAllowed) allowed, \(self.statsBlocked) blocked, \(self.statsUDP) UDP, \(self.statsErrors) errors, snapshots=\(self.snapshotHistory.count), mem=\(memMB)MB")
+            self.log.log("SOCKS5 STATS: \(total) total, \(self.activeConnectionCount) active, \(self.activeRelays.count) relays, \(self.statsAllowed) allowed, \(self.statsBlocked) blocked, \(self.statsUDP) UDP, \(self.statsErrors) errors, udpActive=\(self.activeUDPStreams), udpOpened=\(self.totalUDPStreamsOpened), udpClosed=\(self.totalUDPStreamsClosed), snapshots=\(self.snapshotHistory.count), mem=\(memMB)MB")
         }
         timer.resume()
         statsTimer = timer
@@ -226,7 +235,15 @@ final class SOCKSProxyServer {
             tcpAllowed: statsAllowed,
             tcpBlocked: statsBlocked,
             udpRelayed: statsUDP,
-            errors: statsErrors
+            errors: statsErrors,
+            udpActiveStreams: activeUDPStreams,
+            udpStreamsOpened: totalUDPStreamsOpened,
+            udpStreamsClosed: totalUDPStreamsClosed,
+            udpDecodeBadPrefix: udpDecodeBadPrefix,
+            udpDecodeBadLength: udpDecodeBadLength,
+            udpDecodeBadPayload: udpDecodeBadPayload,
+            udpModePlain: udpModePlain,
+            udpModeControlPrefixed: udpModeControlPrefixed
         )
 
         let topDomains = domainStats
@@ -456,159 +473,230 @@ final class SOCKSProxyServer {
 
     // MARK: - FWD_UDP (hev-socks5-tunnel custom command 0x05)
     //
-    // Protocol after SOCKS5 handshake + FWD_UDP accept:
-    //   Each UDP datagram is framed over TCP as:
-    //     [2-byte BE length N][N bytes of SOCKS5 UDP frame]
-    //   Where the SOCKS5 UDP frame is:
-    //     [RSV 2][FRAG 1][ATYP 1][DST.ADDR var][DST.PORT 2][UDP payload]
+    // Framing modes accepted by the decoder:
+    //  - [len16][payload]
+    //  - [0x0001][len16][payload]
+    //
+    // Mode is locked per stream after first valid frame and mirrored on responses.
+    // Parse errors are stream-local and never escalate to tunnel shutdown.
 
     private func handleFwdUDP(client: NWConnection, id: Int) {
         log.log("UDP #\(id): FWD_UDP accepted, starting frame relay")
+        let state = UDPStreamState(id: id, decoder: UDPControlStreamDecoder(maxFrameSize: BubbleConstants.maxUDPFrameSize))
+        activeUDPStreams += 1
+        totalUDPStreamsOpened += 1
+
         let reply = buildSocksReply(reply: 0x00, atyp: 0x01, addr: [0, 0, 0, 0], port: 0)
         client.send(content: reply, completion: .contentProcessed { [weak self] error in
+            guard let self = self else { return }
             if error != nil {
-                self?.log.log("UDP #\(id): Failed to send FWD_UDP reply: \(String(describing: error))")
-                client.cancel()
+                self.closeUDPControlStream(client: client, state: state, reason: "send_reply_failed")
                 return
             }
-            self?.readUDPFrameLength(client: client, id: id)
+            self.readUDPControlStream(client: client, state: state)
         })
     }
 
-    private func readUDPFrameLength(client: NWConnection, id: Int) {
-        client.receive(minimumIncompleteLength: 2, maximumLength: 2) { [weak self] data, _, isComplete, error in
-            guard let self = self else { return }
-            guard let data = data, data.count >= 2, error == nil else {
-                self.log.log("UDP #\(id): frame length read failed, isComplete=\(isComplete), error=\(String(describing: error))")
-                client.cancel()
+    private func readUDPControlStream(client: NWConnection, state: UDPStreamState) {
+        guard !state.closed, !state.processingFrame else { return }
+        if !state.pendingFrames.isEmpty {
+            processNextUDPFrame(client: client, state: state)
+            return
+        }
+
+        client.receive(minimumIncompleteLength: 1, maximumLength: BubbleConstants.maxUDPFrameSize + 8) { [weak self] data, _, isComplete, error in
+            guard let self = self, !state.closed else { return }
+
+            if let error = error {
+                self.closeUDPControlStream(client: client, state: state, reason: "read_error=\(error)")
                 return
             }
 
-            let bytes = [UInt8](data)
-            let frameLen = (Int(bytes[0]) << 8) | Int(bytes[1])
+            if let data, !data.isEmpty {
+                switch state.decoder.append(data) {
+                case .success(let frames):
+                    if let mode = state.decoder.currentMode, state.mode == nil {
+                        state.mode = mode
+                        if mode == .plain {
+                            self.udpModePlain += 1
+                        } else {
+                            self.udpModeControlPrefixed += 1
+                        }
+                        self.log.log("UDP_DECODER stream=\(state.id) event=mode_locked mode=\(mode.rawValue)")
+                    }
 
-            guard frameLen > 0, frameLen <= BubbleConstants.maxUDPFrameSize else {
-                self.log.log("UDP #\(id): invalid frame length \(frameLen), closing connection")
-                client.cancel()
+                    state.pendingFrames.append(contentsOf: frames)
+                    self.processNextUDPFrame(client: client, state: state)
+
+                case .failure(let decodeError):
+                    self.recordDecoderError(decodeError)
+                    self.log.log("UDP_DECODER stream=\(state.id) event=decode_error reason=\(self.decoderReasonCode(decodeError))")
+                    self.closeUDPControlStream(client: client, state: state, reason: "decode_\(self.decoderReasonCode(decodeError))")
+                }
                 return
             }
 
-            self.readUDPFrameData(client: client, id: id, frameLen: frameLen)
+            if isComplete {
+                self.closeUDPControlStream(client: client, state: state, reason: "control_stream_completed")
+            } else {
+                self.readUDPControlStream(client: client, state: state)
+            }
         }
     }
 
-    private func readUDPFrameData(client: NWConnection, id: Int, frameLen: Int) {
-        client.receive(minimumIncompleteLength: frameLen, maximumLength: frameLen) { [weak self] data, _, _, error in
-            guard let self = self else { return }
-            guard let data = data, data.count >= frameLen, error == nil else {
-                self.log.log("UDP #\(id): frame data read failed: \(String(describing: error))")
-                client.cancel()
-                return
+    private func processNextUDPFrame(client: NWConnection, state: UDPStreamState) {
+        guard !state.closed else { return }
+        guard !state.processingFrame else { return }
+
+        guard !state.pendingFrames.isEmpty else {
+            readUDPControlStream(client: client, state: state)
+            return
+        }
+
+        let decodedFrame = state.pendingFrames.removeFirst()
+        state.processingFrame = true
+
+        guard let parsed = parseUDPPayload(decodedFrame.payload, streamID: state.id) else {
+            udpDecodeBadPayload += 1
+            log.log("UDP_DECODER stream=\(state.id) event=decode_error reason=bad_payload")
+            closeUDPControlStream(client: client, state: state, reason: "decode_bad_payload")
+            return
+        }
+
+        statsUDP += 1
+        log.log("UDP #\(state.id): dest=\(parsed.addr.host):\(parsed.addr.port), payload=\(parsed.payload.count)B")
+
+        let decision = filter.shouldAllow(host: parsed.addr.host, port: parsed.addr.port)
+        if decision == .block {
+            statsBlocked += 1
+            state.processingFrame = false
+            processNextUDPFrame(client: client, state: state)
+            return
+        }
+
+        if filter.shouldBlockUDP(host: parsed.addr.host, port: parsed.addr.port) {
+            statsBlocked += 1
+            log.log("UDP #\(state.id): BLOCKED strict UDP policy for \(parsed.addr.host):\(parsed.addr.port)")
+            recordEvent(type: .blocked, connId: state.id, host: parsed.addr.host, port: parsed.addr.port, detail: "UDP blocked by strict policy")
+            state.processingFrame = false
+            processNextUDPFrame(client: client, state: state)
+            return
+        }
+
+        relayUDPDatagram(
+            streamID: state.id,
+            host: parsed.addr.host,
+            port: parsed.addr.port,
+            payload: parsed.payload,
+            headerBytes: parsed.headerBytes,
+            responseMode: decodedFrame.mode
+        ) { [weak self] responseFrame in
+            guard let self = self, !state.closed else { return }
+            state.processingFrame = false
+
+            if let responseFrame {
+                client.send(content: responseFrame, completion: .contentProcessed { [weak self] _ in
+                    self?.processNextUDPFrame(client: client, state: state)
+                })
+            } else {
+                self.processNextUDPFrame(client: client, state: state)
             }
+        }
+    }
 
-            let bytes = [UInt8](data)
-
-            #if DEBUG
-            let hexPrefix = bytes.prefix(20).map { String(format: "%02x", $0) }.joined(separator: " ")
-            self.log.log("UDP #\(id): frame data (\(bytes.count)B): \(hexPrefix)")
-            #endif
-
-            // hev-socks5 FWD_UDP frame format:
-            //   [1 byte][ATYP(1)][ADDR(var)][PORT(2)][payload]
-            // ATYP is at byte 1
-            guard let addr = self.parseSOCKSAddress(from: bytes, atypOffset: 1) else {
-                self.log.log("UDP #\(id): failed to parse UDP frame address")
-                self.readUDPFrameLength(client: client, id: id)
-                return
-            }
-
+    private func parseUDPPayload(_ bytes: [UInt8], streamID: Int) -> (addr: ParsedAddress, headerBytes: [UInt8], payload: Data)? {
+        // hev-socks5-tunnel payload:
+        // [0x0a][ATYP][DST.ADDR][DST.PORT][PAYLOAD]
+        if bytes.count >= 8, bytes[0] == 0x0a,
+           let addr = parseSOCKSAddress(from: bytes, atypOffset: 1), addr.headerEndOffset <= bytes.count {
             let headerBytes = Array(bytes[0..<addr.headerEndOffset])
             let payload = addr.headerEndOffset < bytes.count ? Data(bytes[addr.headerEndOffset...]) : Data()
-
-            self.statsUDP += 1
-            self.log.log("UDP #\(id): dest=\(addr.host):\(addr.port), payload=\(payload.count)B")
-
-            // Apply filter to UDP destinations too
-            let decision = self.filter.shouldAllow(host: addr.host, port: addr.port)
-            if decision == .block {
-                self.statsBlocked += 1
-                self.readUDPFrameLength(client: client, id: id)
-                return
-            }
-
-            self.relayUDPDatagram(client: client, id: id, host: addr.host, port: addr.port,
-                                   payload: payload, headerBytes: headerBytes)
+            return (addr, headerBytes, payload)
         }
+
+        // SOCKS5 UDP fallback payload:
+        // [RSV 2][FRAG 1][ATYP][DST.ADDR][DST.PORT][PAYLOAD]
+        if bytes.count >= 10, bytes[0] == 0x00, bytes[1] == 0x00, bytes[2] == 0x00,
+           let addr = parseSOCKSAddress(from: bytes, atypOffset: 3), addr.headerEndOffset <= bytes.count {
+            log.log("UDP #\(streamID): parser fallback succeeded using SOCKS UDP offset 3")
+            let headerBytes = Array(bytes[0..<addr.headerEndOffset])
+            let payload = addr.headerEndOffset < bytes.count ? Data(bytes[addr.headerEndOffset...]) : Data()
+            return (addr, headerBytes, payload)
+        }
+
+        return nil
     }
 
-    private func relayUDPDatagram(client: NWConnection, id: Int, host: String, port: UInt16,
-                                   payload: Data, headerBytes: [UInt8]) {
+    private func relayUDPDatagram(
+        streamID: Int,
+        host: String,
+        port: UInt16,
+        payload: Data,
+        headerBytes: [UInt8],
+        responseMode: UDPControlFramingMode,
+        completion: @escaping (Data?) -> Void
+    ) {
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
-            self.log.log("UDP #\(id): invalid port \(port)")
-            self.statsErrors += 1
-            self.readUDPFrameLength(client: client, id: id)
+            log.log("UDP #\(streamID): invalid port \(port)")
+            statsErrors += 1
+            completion(nil)
             return
         }
 
         let udp = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .udp)
 
-        // Guard against double-continuation from timeout vs completion race
         var completed = false
         let complete: (Data?) -> Void = { [weak self] responseFrame in
             self?.queue.async {
-                guard let self = self, !completed else { return }
+                guard !completed else { return }
                 completed = true
                 udp.cancel()
-
-                if let frame = responseFrame {
-                    client.send(content: frame, completion: .contentProcessed { _ in
-                        self.readUDPFrameLength(client: client, id: id)
-                    })
-                } else {
-                    self.readUDPFrameLength(client: client, id: id)
-                }
+                completion(responseFrame)
             }
         }
 
-        // UDP response timeout
         queue.asyncAfter(deadline: .now() + BubbleConstants.udpRelayTimeout) { [weak self] in
-            self?.log.log("UDP #\(id): TIMEOUT for \(host):\(port)")
+            self?.log.log("UDP #\(streamID): TIMEOUT for \(host):\(port)")
             complete(nil)
         }
 
-        udp.stateUpdateHandler = { [weak self] state in
-            switch state {
+        udp.stateUpdateHandler = { [weak self] connState in
+            switch connState {
             case .ready:
-                self?.log.log("UDP #\(id): NWConnection ready to \(host):\(port), sending \(payload.count)B")
+                self?.log.log("UDP #\(streamID): NWConnection ready to \(host):\(port), sending \(payload.count)B")
                 udp.send(content: payload, completion: .contentProcessed { error in
-                    if let error = error {
-                        self?.log.log("UDP #\(id): send FAILED to \(host):\(port): \(error)")
+                    if let error {
+                        self?.log.log("UDP #\(streamID): send FAILED to \(host):\(port): \(error)")
                         complete(nil)
                         return
                     }
 
-                    udp.receiveMessage { respData, context, isComplete, recvError in
-                        if let respData = respData, !respData.isEmpty {
-                            self?.log.log("UDP #\(id): got \(respData.count)B response from \(host):\(port)")
+                    udp.receiveMessage { respData, _, _, recvError in
+                        if let respData, !respData.isEmpty {
+                            self?.log.log("UDP #\(streamID): got \(respData.count)B response from \(host):\(port)")
                             var frame = headerBytes
                             frame.append(contentsOf: [UInt8](respData))
                             let frameLen = frame.count
-                            var framedData: [UInt8] = [UInt8(frameLen >> 8), UInt8(frameLen & 0xFF)]
+                            var framedData: [UInt8] = []
+                            if responseMode == .controlPrefixed {
+                                framedData.append(contentsOf: [0x00, 0x01])
+                            }
+                            framedData.append(contentsOf: [UInt8(frameLen >> 8), UInt8(frameLen & 0xFF)])
                             framedData.append(contentsOf: frame)
                             complete(Data(framedData))
                         } else {
-                            self?.log.log("UDP #\(id): empty/nil response from \(host):\(port), error=\(String(describing: recvError))")
+                            self?.log.log("UDP #\(streamID): empty/nil response from \(host):\(port), error=\(String(describing: recvError))")
                             complete(nil)
                         }
                     }
                 })
 
             case .failed(let error):
-                self?.log.log("UDP #\(id): NWConnection FAILED to \(host):\(port): \(error)")
+                self?.log.log("UDP #\(streamID): NWConnection FAILED to \(host):\(port): \(error)")
                 complete(nil)
 
             case .waiting(let error):
-                self?.log.log("UDP #\(id): NWConnection WAITING to \(host):\(port): \(error)")
+                self?.log.log("UDP #\(streamID): NWConnection WAITING to \(host):\(port): \(error)")
 
             default:
                 break
@@ -616,6 +704,33 @@ final class SOCKSProxyServer {
         }
 
         udp.start(queue: queue)
+    }
+
+    private func closeUDPControlStream(client: NWConnection, state: UDPStreamState, reason: String) {
+        guard !state.closed else { return }
+        state.closed = true
+        activeUDPStreams = max(activeUDPStreams - 1, 0)
+        totalUDPStreamsClosed += 1
+        log.log("UDP_DECODER stream=\(state.id) event=close reason=\(reason) queued=\(state.pendingFrames.count)")
+        client.cancel()
+    }
+
+    private func decoderReasonCode(_ error: UDPControlDecoderError) -> String {
+        switch error {
+        case .badPrefix:
+            return "bad_prefix"
+        case .badLength:
+            return "bad_len"
+        }
+    }
+
+    private func recordDecoderError(_ error: UDPControlDecoderError) {
+        switch error {
+        case .badPrefix:
+            udpDecodeBadPrefix += 1
+        case .badLength:
+            udpDecodeBadLength += 1
+        }
     }
 
     // MARK: - Target Connection (TCP)
@@ -699,13 +814,27 @@ final class SOCKSProxyServer {
         var bytesDown: Int = 0
         var logged = false
         var sni: String?
-        var sniExtracted = false
+        var sniProbeAttempts = 0
         var loggedUntracked = false
 
         init(id: Int, host: String, port: UInt16) {
             self.id = id
             self.host = host
             self.port = port
+        }
+    }
+
+    private final class UDPStreamState {
+        let id: Int
+        let decoder: UDPControlStreamDecoder
+        var mode: UDPControlFramingMode?
+        var pendingFrames: [UDPControlFrame] = []
+        var processingFrame = false
+        var closed = false
+
+        init(id: Int, decoder: UDPControlStreamDecoder) {
+            self.id = id
+            self.decoder = decoder
         }
     }
 
@@ -818,9 +947,9 @@ final class SOCKSProxyServer {
                 switch direction {
                 case .upload:
                     tracker.bytesUp += data.count
-                    // Extract SNI from the first upload packet (TLS ClientHello)
-                    if !tracker.sniExtracted {
-                        tracker.sniExtracted = true
+                    // Extract SNI from early upload packets (ClientHello can be fragmented).
+                    if tracker.sni == nil && tracker.sniProbeAttempts < BubbleConstants.maxSNIProbePackets {
+                        tracker.sniProbeAttempts += 1
                         if let sni = self.extractSNI(from: data) {
                             tracker.sni = sni
                             self.log.logConnection("TCP #\(tracker.id): SNI=\(sni) IP=\(tracker.host):\(tracker.port)")
@@ -830,21 +959,24 @@ final class SOCKSProxyServer {
                 case .download:
                     tracker.bytesDown += data.count
 
-                    // Stream blocking: per-domain byte thresholds
-                    if let sni = tracker.sni {
-                        if let threshold = self.filter.streamBlockThreshold(for: sni),
-                           tracker.bytesDown > threshold {
-                            self.log.log("STREAM BLOCK #\(tracker.id): killed \(sni) at \(tracker.bytesDown)B (threshold: \(threshold)B)")
-                            self.recordEvent(type: .streamBlocked, connId: tracker.id, host: tracker.host, port: tracker.port, sni: sni, detail: "Killed at \(tracker.bytesDown)B (threshold: \(threshold)B)", bytesDown: tracker.bytesDown)
+                    let domainForRules = tracker.sni ?? (Self.looksLikeDomainName(tracker.host) ? tracker.host : nil)
+
+                    // Stream blocking: per-domain byte thresholds (SNI first, then SOCKS host fallback).
+                    if let domainForRules = domainForRules {
+                        let threshold = self.filter.streamBlockThreshold(for: domainForRules)
+                        if let threshold, tracker.bytesDown > threshold {
+                            self.statsBlocked += 1
+                            self.log.log("STREAM BLOCK #\(tracker.id): killed \(domainForRules) at \(tracker.bytesDown)B (threshold: \(threshold)B)")
+                            self.recordEvent(type: .streamBlocked, connId: tracker.id, host: tracker.host, port: tracker.port, sni: tracker.sni ?? domainForRules, detail: "Killed at \(tracker.bytesDown)B (threshold: \(threshold)B)", bytesDown: tracker.bytesDown)
                             self.logRelayEnd(tracker: tracker, reason: "stream-blocked")
                             source.cancel()
                             destination.cancel()
                             return
                         }
                         // Log untracked domains receiving large downloads (potential failover)
-                        if self.filter.streamBlockThreshold(for: sni) == nil && tracker.bytesDown > 100_000 && !tracker.loggedUntracked {
+                        if threshold == nil && tracker.bytesDown > 100_000 && !tracker.loggedUntracked {
                             tracker.loggedUntracked = true
-                            TunnelLogger.connectionLog.log("[UNTRACKED-LARGE] \(sni, privacy: .public) \(tracker.bytesDown, privacy: .public)B+ (no blocking rule)")
+                            TunnelLogger.connectionLog.log("[UNTRACKED-LARGE] \(domainForRules, privacy: .public) \(tracker.bytesDown, privacy: .public)B+ (no blocking rule)")
                         }
                     }
                 }
@@ -905,5 +1037,11 @@ final class SOCKSProxyServer {
         response.append(UInt8(port >> 8))
         response.append(UInt8(port & 0xFF))
         return Data(response)
+    }
+
+    private static func looksLikeDomainName(_ host: String) -> Bool {
+        guard host.contains(".") else { return false }
+        guard !host.contains(":") else { return false } // likely IPv6
+        return host.rangeOfCharacter(from: .letters) != nil
     }
 }

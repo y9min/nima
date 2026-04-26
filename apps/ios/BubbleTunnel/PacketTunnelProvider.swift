@@ -1,3 +1,4 @@
+import Foundation
 import NetworkExtension
 import Tun2SocksKit
 
@@ -6,12 +7,22 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private let log = TunnelLogger.shared
     private var proxyServer: SOCKSProxyServer?
     private let filter = ReelsBlockFilter()
+    private let tunnelStateLock = NSLock()
+    private var tunnelStopping = false
+    private var didRequestCancel = false
 
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+        tunnelStateLock.lock()
+        tunnelStopping = false
+        didRequestCancel = false
+        tunnelStateLock.unlock()
+
         log.clear()
         log.log("========== TUNNEL STARTING ==========")
         log.log("Bundle ID: \(Bundle.main.bundleIdentifier ?? "nil")")
         log.log("Process ID: \(ProcessInfo.processInfo.processIdentifier)")
+        let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "unknown"
+        log.log("UDP_DECODER selfcheck modes=len16,control-prefixed build=\(build)")
 
         // Step 1: Network settings
         log.log("STEP 1: Setting tunnel network settings...")
@@ -72,6 +83,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                     if exitCode == -1 {
                         self.log.log("STEP 3: exit code -1 means utun fd was NOT found!")
                     }
+                    self.handleTun2SocksExit(exitCode: exitCode)
                 }
 
                 DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) {
@@ -87,6 +99,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        tunnelStateLock.lock()
+        tunnelStopping = true
+        tunnelStateLock.unlock()
+
         let reasonName: String
         switch reason {
         case .none: reasonName = "none"
@@ -116,6 +132,33 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         proxyServer?.stop()
         proxyServer = nil
         completionHandler()
+    }
+
+    private func handleTun2SocksExit(exitCode: Int32) {
+        tunnelStateLock.lock()
+        let isStopping = tunnelStopping
+        if !isStopping && didRequestCancel {
+            tunnelStateLock.unlock()
+            return
+        }
+        if !isStopping {
+            didRequestCancel = true
+        }
+        tunnelStateLock.unlock()
+
+        if isStopping {
+            log.log("STEP 3: tun2socks exit observed during tunnel stop sequence")
+            return
+        }
+
+        let reason = "tun2socks exited unexpectedly with code \(exitCode)"
+        log.log("STEP 3 FAILED: \(reason)")
+        let error = NSError(
+            domain: "BubbleTunnel.PacketTunnel",
+            code: Int(exitCode),
+            userInfo: [NSLocalizedDescriptionKey: reason]
+        )
+        cancelTunnelWithError(error)
     }
 
     private static func memoryUsageMB() -> String {

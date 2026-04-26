@@ -10,7 +10,11 @@ struct BubbleApp: App {
 
     init() {
         UserDefaults(suiteName: BubbleConstants.appGroupID)?
-            .register(defaults: [BubbleConstants.blockReelsEnabledKey: true])
+            .register(defaults: [
+                BubbleConstants.blockReelsEnabledKey: true,
+                BubbleConstants.strictUDPBlockEnabledKey: true,
+            ])
+        DomainThresholdsStore.ensureDemoDefaultsIfNeeded()
     }
 
     var body: some Scene {

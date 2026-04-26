@@ -16,7 +16,7 @@ final class AuthStore {
 
     func logout() async {
         if !isDemo {
-            try? await supabaseClient.auth.signOut()
+            try? await supabaseClient?.auth.signOut()
         }
         isLoggedIn = false
         isDemo = false
@@ -24,6 +24,7 @@ final class AuthStore {
     }
 
     func listenForAuthChanges() async {
+        guard let supabaseClient else { return }
         for await state in supabaseClient.auth.authStateChanges {
             if isDemo { continue }
             if [.initialSession, .signedIn, .signedOut].contains(state.event) {

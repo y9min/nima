@@ -68,9 +68,11 @@ final class TunnelLogger {
 
     /// Log connection-level data to the "connection" category for filtering
     func logConnection(_ message: String) {
+        #if DEBUG
         Self.connectionLog.log("\(message, privacy: .public)")
         // Also write to file for in-app viewing
         log(message)
+        #endif
     }
 
     func clear() {

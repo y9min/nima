@@ -2,8 +2,8 @@ import Foundation
 
 enum BubbleConstants {
     // MARK: - Identifiers
-    static let appGroupID = "group.com.arjun.chungus.merge"
-    static let tunnelBundleID = "com.arjun.chungus.merge.chungusTunnel"
+    static let appGroupID = "group.com.yamin.nimademo"
+    static let tunnelBundleID = "com.yamin.nimademo.BubbleTunnel"
 
     // MARK: - Network Settings
     static let tunnelRemoteAddress = "198.18.0.1"
@@ -31,12 +31,13 @@ enum BubbleConstants {
     static let logFileName = "tunnel_log.txt"
     static let maxLogSizeBytes = 512 * 1024
     static let maxStatusLogEntries = 200
-    static let logSubsystem = "com.arjun.chungus.merge.chungusTunnel"
+    static let logSubsystem = "com.yamin.nimademo.BubbleTunnel"
     static let statsFileName = "traffic_stats.json"
 
     // MARK: - Stream Blocking
     static let streamBlockDefaultThreshold = 512 * 1024  // 0.5 MB
     static let noLimitThreshold = -1
+    static let maxSNIProbePackets = 6
     static let trackedDomains = [
         "cdninstagram.com",
         "i.instagram.com",
@@ -49,9 +50,22 @@ enum BubbleConstants {
         "fbsbx.com",
         "instagram.net",
     ]
+    static let reelsDemoDomainThresholds: [String: Int] = {
+        var thresholds: [String: Int] = [:]
+        for domain in trackedDomains {
+            thresholds[domain] = noLimitThreshold
+        }
+        // Hard-block media-serving domains; keep service/API domains unrestricted.
+        thresholds["fbvideo.net"] = 0
+        thresholds["fbcdn.net"] = 0
+        thresholds["cdninstagram.com"] = 0
+        thresholds["instagram.net"] = 0
+        return thresholds
+    }()
 
     // MARK: - UserDefaults Keys
     static let blockReelsEnabledKey = "blockReelsEnabled"
+    static let strictUDPBlockEnabledKey = "strictUDPBlockEnabled"
     static let domainThresholdsKey = "domainThresholds"
     static let optionStatesKey = "optionStates"
 

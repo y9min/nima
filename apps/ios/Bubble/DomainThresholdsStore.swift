@@ -9,13 +9,20 @@ class DomainThresholdsStore: ObservableObject {
 
     init() { load() }
 
+    static func ensureDemoDefaultsIfNeeded() {
+        guard let defaults = UserDefaults(suiteName: BubbleConstants.appGroupID) else { return }
+        guard defaults.object(forKey: BubbleConstants.domainThresholdsKey) == nil else { return }
+        guard let data = try? JSONEncoder().encode(BubbleConstants.reelsDemoDomainThresholds) else { return }
+        defaults.set(data, forKey: BubbleConstants.domainThresholdsKey)
+    }
+
     func load() {
         guard let data = defaults?.data(forKey: BubbleConstants.domainThresholdsKey),
               let dict = try? JSONDecoder().decode([String: Int].self, from: data) else {
-            thresholds = [:]
+            thresholds = BubbleConstants.reelsDemoDomainThresholds
             return
         }
-        thresholds = dict
+        thresholds = BubbleConstants.reelsDemoDomainThresholds.merging(dict) { _, new in new }
     }
 
     func save() {
@@ -25,12 +32,30 @@ class DomainThresholdsStore: ObservableObject {
 
     func binding(for domain: String) -> Binding<Int> {
         Binding(
-            get: { self.thresholds[domain] ?? BubbleConstants.noLimitThreshold },
+            get: {
+                self.thresholds[domain]
+                ?? BubbleConstants.reelsDemoDomainThresholds[domain]
+                ?? BubbleConstants.noLimitThreshold
+            },
             set: { newValue in
                 self.thresholds[domain] = newValue
                 self.save()
             }
         )
+    }
+
+    func applyDemoPreset() {
+        thresholds = BubbleConstants.reelsDemoDomainThresholds
+        save()
+    }
+
+    func setNoLimits() {
+        var allNoLimit: [String: Int] = [:]
+        for domain in BubbleConstants.trackedDomains {
+            allNoLimit[domain] = BubbleConstants.noLimitThreshold
+        }
+        thresholds = allNoLimit
+        save()
     }
 }
 
