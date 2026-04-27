@@ -521,12 +521,12 @@ struct AppCluster: View {
     var onTapAdd: () -> Void = {}
     var showAddButton: Bool = true
 
+    @Environment(AppStore.self) private var store
     @Environment(GridPositionStore.self) private var positionStore
     @State private var engine = ClusterPhysicsEngine()
     @State private var selectedApp: BlockedApp? = nil
     @State private var isEditMode = false
     @State private var hoveredHexSlot: HexCoordinate? = nil
-    @State private var optionsService = AppOptionsService.shared
     @State private var lastToggledOptionId: String? = nil
 
     private let layoutManager = HexGridLayoutManager()
@@ -981,7 +981,7 @@ struct AppCluster: View {
                     let generator = UIImpactFeedbackGenerator(style: .medium)
                     generator.impactOccurred()
                     
-                    optionsService.toggleOption(appId: appId, optionId: option.id)
+                    store.toggleOption(appId: appId, optionId: option.id)
                     lastToggledOptionId = option.id
                 }
                 break
@@ -991,7 +991,7 @@ struct AppCluster: View {
     
     @ViewBuilder
     private func enlargedAppView(app: BlockedApp, center: CGPoint, geometry: GeometryProxy) -> some View {
-        let allOptions = optionsService.getAllOptions(for: app.id)
+        let allOptions = appOptions(for: app.id)
         
         ZStack {
             // Arcs around the icon
@@ -1005,7 +1005,7 @@ struct AppCluster: View {
                         let generator = UIImpactFeedbackGenerator(style: .medium)
                         generator.impactOccurred()
                         
-                        optionsService.toggleOption(appId: app.id, optionId: optionId)
+                        store.toggleOption(appId: app.id, optionId: optionId)
                     }
                 )
                 .frame(width: 300, height: 300)
@@ -1062,6 +1062,13 @@ struct AppCluster: View {
                     Spacer()
                 }
             }
+        }
+    }
+
+    private func appOptions(for appId: String) -> [AppOption] {
+        let options = store.app(for: appId)?.options ?? []
+        return options.map { option in
+            AppOption(id: option.id, label: option.label, isSelected: option.isEnabled)
         }
     }
 }

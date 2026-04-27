@@ -5,15 +5,9 @@ struct SettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var vpnManager: VPNManager
 
-    @AppStorage(BubbleConstants.blockReelsEnabledKey,
-                store: UserDefaults(suiteName: BubbleConstants.appGroupID))
-    private var blockReelsEnabled: Bool = true
-
     @AppStorage(BubbleConstants.strictUDPBlockEnabledKey,
                 store: UserDefaults(suiteName: BubbleConstants.appGroupID))
     private var strictUDPBlockEnabled: Bool = false
-
-    @StateObject private var domainThresholds = DomainThresholdsStore()
 
     @State private var showExtensionLog = false
 
@@ -29,14 +23,8 @@ struct SettingsScreen: View {
                     // VPN Toggle Button
                     vpnToggleButton
 
-                    // Block Reels Toggle
-                    blockReelsSection
-
-                    // Domain Thresholds
-                    if blockReelsEnabled {
-                        strictUDPSection
-                        domainThresholdsSection
-                    }
+                    // Advanced networking toggle
+                    strictUDPSection
 
                     // App Log
                     appLogSection
@@ -89,7 +77,7 @@ struct SettingsScreen: View {
 
     private var vpnToggleButton: some View {
         Button(action: { vpnManager.toggleVPN() }) {
-            Text(vpnManager.vpnStatus == .connected ? "STOP bubs" : "START bubs")
+            Text(vpnManager.vpnStatus == .connected ? "VPN Enabled" : "VPN Disabled")
                 .font(BubbleFonts.pupok(size: 24))
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
@@ -103,24 +91,7 @@ struct SettingsScreen: View {
         }
     }
 
-    // MARK: - Block Reels
-
-    private var blockReelsSection: some View {
-        HStack {
-            Text("Block Reels")
-                .font(BubbleFonts.coolvetica(size: 18))
-                .foregroundColor(.white)
-            Spacer()
-            Toggle("", isOn: $blockReelsEnabled)
-                .labelsHidden()
-        }
-        .padding(.horizontal, BubbleSpacing.md)
-        .padding(.vertical, BubbleSpacing.sm)
-        .background(Color.white.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    // MARK: - Domain Thresholds
+    // MARK: - Advanced Controls
 
     private var strictUDPSection: some View {
         HStack {
@@ -133,39 +104,6 @@ struct SettingsScreen: View {
         }
         .padding(.horizontal, BubbleSpacing.md)
         .padding(.vertical, BubbleSpacing.sm)
-        .background(Color.white.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    private var domainThresholdsSection: some View {
-        VStack(spacing: BubbleSpacing.sm) {
-            Text("Per-Domain Thresholds")
-                .font(BubbleFonts.coolvetica(size: 16))
-                .foregroundColor(BubbleColors.white60)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: BubbleSpacing.sm) {
-                Button("Apply Demo Preset") {
-                    domainThresholds.applyDemoPreset()
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button("Set No Limits") {
-                    domainThresholds.setNoLimits()
-                }
-                .buttonStyle(.bordered)
-            }
-            .font(.system(size: 13, weight: .semibold))
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            ForEach(BubbleConstants.trackedDomains, id: \.self) { domain in
-                DomainThresholdRow(
-                    domain: domain,
-                    threshold: domainThresholds.binding(for: domain)
-                )
-            }
-        }
-        .padding(BubbleSpacing.md)
         .background(Color.white.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }

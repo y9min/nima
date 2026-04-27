@@ -36,37 +36,11 @@ enum BubbleConstants {
 
     // MARK: - Stream Blocking
     static let streamBlockDefaultThreshold = 512 * 1024  // 0.5 MB
-    static let noLimitThreshold = -1
-    static let trackedDomains = [
-        "cdninstagram.com",
-        "i.instagram.com",
-        "graph.instagram.com",
-        "gateway.instagram.com",
-        "test-gateway.instagram.com",
-        "edge-mqtt.facebook.com",
-        "fbcdn.net",
-        "fbvideo.net",
-        "fbsbx.com",
-        "instagram.net",
-    ]
-    static let reelsDemoDomainThresholds: [String: Int] = {
-        var thresholds: [String: Int] = [:]
-        for domain in trackedDomains {
-            thresholds[domain] = noLimitThreshold
-        }
-        // Hard-block media-serving domains; keep service/API domains unrestricted.
-        thresholds["fbvideo.net"] = 0
-        thresholds["fbcdn.net"] = 0
-        thresholds["cdninstagram.com"] = 0
-        thresholds["instagram.net"] = 0
-        return thresholds
-    }()
 
     // MARK: - UserDefaults Keys
-    static let blockReelsEnabledKey = "blockReelsEnabled"
     static let strictUDPBlockEnabledKey = "strictUDPBlockEnabled"
-    static let domainThresholdsKey = "domainThresholds"
-    static let optionStatesKey = "optionStates"
+    static let featurePolicyKey = "featurePolicyV1"
+    static let classifierTuningKey = "classifierTuningV1"
 
     // MARK: - VPN
     static let vpnDescription = "Bubble Blocker"

@@ -178,7 +178,7 @@ struct ArcTapShape: Shape {
             options: [
                 AppOption(id: "1", label: "reels", isSelected: true),
                 AppOption(id: "2", label: "msgs", isSelected: true),
-                AppOption(id: "3", label: "ex-gf", isSelected: false),
+                AppOption(id: "3", label: "stories", isSelected: false),
                 AppOption(id: "4", label: "explore", isSelected: false)
             ],
             radius: 140

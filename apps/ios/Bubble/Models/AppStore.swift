@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import NetworkExtension
 
 @Observable
 final class AppStore {
@@ -10,48 +11,18 @@ final class AppStore {
             iconName: "camera.fill",
             platform: "instagram",
             options: [
-                BlockingOption(id: "reels", label: "reels", isEnabled: false),
-                BlockingOption(id: "msgs", label: "msgs", isEnabled: false),
-                BlockingOption(id: "ex-gf", label: "ex-gf", isEnabled: false),
-                BlockingOption(id: "explore", label: "explore", isEnabled: false)
-            ]
-        ),
-        BlockedApp(
-            id: "shield",
-            name: "SHIELD",
-            iconName: "shield.fill",
-            platform: "facebook",
-            options: [
-                BlockingOption(id: "alerts", label: "alerts", isEnabled: false),
-                BlockingOption(id: "feeds", label: "feeds", isEnabled: false)
-            ]
-        ),
-        BlockedApp(
-            id: "kalshi",
-            name: "KALSHI",
-            iconName: "chart.bar.fill",
-            platform: "kalshi",
-            options: [
-                BlockingOption(id: "trades", label: "trades", isEnabled: false),
-                BlockingOption(id: "notifs", label: "notifs", isEnabled: false)
-            ]
-        ),
-        BlockedApp(
-            id: "fanduel",
-            name: "FANDUEL",
-            iconName: "sportscourt.fill",
-            platform: "fanduel",
-            options: [
-                BlockingOption(id: "bets", label: "bets", isEnabled: false),
-                BlockingOption(id: "notifs", label: "notifs", isEnabled: false)
+                BlockingOption(id: "reels", label: "reels", isEnabled: false)
             ]
         )
     ]
 
-    private let defaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
+    private let optionsService = AppOptionsService.shared
+    @ObservationIgnored private var vpnStartHandler: (() -> Void)?
+    @ObservationIgnored private var vpnStatusProvider: (() -> NEVPNStatus)?
+    @ObservationIgnored private var vpnStartInFlight = false
 
     init() {
-        loadOptionStates()
+        refreshFromOptionsService()
     }
 
     func app(for id: String) -> BlockedApp? {
@@ -59,39 +30,54 @@ final class AppStore {
     }
 
     func toggleOption(appId: String, optionId: String) {
-        guard let appIndex = apps.firstIndex(where: { $0.id == appId }),
-              let optIndex = apps[appIndex].options.firstIndex(where: { $0.id == optionId }) else { return }
-        apps[appIndex].options[optIndex].isEnabled.toggle()
-        saveOptionStates()
+        optionsService.toggleOption(appId: appId, optionId: optionId)
+        refreshFromOptionsService()
+        maybeAutoStartVPNAfterToggle()
     }
 
-    private func loadOptionStates() {
-        guard let data = defaults?.data(forKey: BubbleConstants.optionStatesKey),
-              let saved = try? JSONDecoder().decode([String: [String: Bool]].self, from: data) else { return }
+    func configureVPNAutostart(startVPN: @escaping () -> Void, vpnStatus: @escaping () -> NEVPNStatus) {
+        vpnStartHandler = startVPN
+        vpnStatusProvider = vpnStatus
+    }
 
+    private func refreshFromOptionsService() {
         for appIndex in apps.indices {
             let appId = apps[appIndex].id
-            guard let appStates = saved[appId] else { continue }
             for optIndex in apps[appIndex].options.indices {
                 let optId = apps[appIndex].options[optIndex].id
-                if let isEnabled = appStates[optId] {
-                    apps[appIndex].options[optIndex].isEnabled = isEnabled
+                apps[appIndex].options[optIndex].isEnabled = optionsService.isOptionSelected(appId: appId, optionId: optId)
+            }
+        }
+    }
+
+    private func maybeAutoStartVPNAfterToggle() {
+        guard hasAnyEnabledBlockingOption else { return }
+        guard let vpnStartHandler, let vpnStatusProvider else { return }
+
+        let status = vpnStatusProvider()
+        let isAlreadyConnected = status == .connected || status == .connecting || status == .reasserting
+        if isAlreadyConnected || vpnStartInFlight {
+            return
+        }
+
+        vpnStartInFlight = true
+        vpnStartHandler()
+
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await MainActor.run {
+                let latestStatus = vpnStatusProvider()
+                let stillConnecting = latestStatus == .connected || latestStatus == .connecting || latestStatus == .reasserting
+                if !stillConnecting {
+                    vpnStartInFlight = false
                 }
             }
         }
     }
 
-    private func saveOptionStates() {
-        var states: [String: [String: Bool]] = [:]
-        for app in apps {
-            var appStates: [String: Bool] = [:]
-            for option in app.options {
-                appStates[option.id] = option.isEnabled
-            }
-            states[app.id] = appStates
-        }
-        if let data = try? JSONEncoder().encode(states) {
-            defaults?.set(data, forKey: BubbleConstants.optionStatesKey)
+    private var hasAnyEnabledBlockingOption: Bool {
+        apps.contains { app in
+            app.options.contains { $0.isEnabled }
         }
     }
 }

@@ -1,103 +1,242 @@
 import Foundation
 
+enum ContentBucket: String, Codable, CaseIterable {
+    case reels
+    case messages
+    case unknown
+}
+
+struct FeaturePolicyV1: Codable {
+    let version: Int
+    var appToggles: [String: [String: Bool]]
+
+    init(
+        version: Int = 1,
+        appToggles: [String: [String: Bool]] = FeaturePolicyV1.defaultToggles
+    ) {
+        self.version = version
+        self.appToggles = appToggles
+    }
+
+    static let defaultToggles: [String: [String: Bool]] = [
+        "instagram": [
+            "reels": false,
+        ]
+    ]
+
+    static func defaultPolicy() -> FeaturePolicyV1 {
+        FeaturePolicyV1()
+    }
+
+    mutating func set(appId: String, optionId: String, isEnabled: Bool) {
+        if appToggles[appId] == nil {
+            appToggles[appId] = [:]
+        }
+        appToggles[appId]?[optionId] = isEnabled
+    }
+
+    mutating func mergeDefaults() {
+        for (appId, defaults) in Self.defaultToggles {
+            if appToggles[appId] == nil {
+                appToggles[appId] = defaults
+                continue
+            }
+            for (optionId, value) in defaults where appToggles[appId]?[optionId] == nil {
+                appToggles[appId]?[optionId] = value
+            }
+        }
+    }
+}
+
 final class ReelsBlockFilter: ConnectionFilter {
 
-    private let sharedDefaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
+    private let sharedDefaults: UserDefaults?
+    private var cachedPolicy: FeaturePolicyV1 = .defaultPolicy()
+    private var lastPolicyReload = Date.distantPast
+    private let policyReloadInterval: TimeInterval = 1.0
 
-    var isEnabled: Bool {
-        guard let defaults = sharedDefaults else { return true }
-        guard defaults.object(forKey: BubbleConstants.blockReelsEnabledKey) != nil else {
-            return true
-        }
-        return defaults.bool(forKey: BubbleConstants.blockReelsEnabledKey)
+    init(sharedDefaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID)) {
+        self.sharedDefaults = sharedDefaults
+        reloadPolicyIfNeeded(force: true)
     }
 
     // MARK: - ConnectionFilter
 
-    func shouldAllow(host: String, port: UInt16) -> FilterDecision {
-        guard isEnabled else { return .allow }
+    func evaluateConnection(host: String, port: UInt16) -> PolicyDecision {
+        reloadPolicyIfNeeded(force: false)
+        return evaluateHostPolicy(host: host, port: port, isStreamEvaluation: false)
+    }
+
+    func evaluateUDP(host: String, port: UInt16, payloadBytes: Int) -> PolicyDecision {
+        reloadPolicyIfNeeded(force: false)
+        return evaluateHostPolicy(host: host, port: port, isStreamEvaluation: false)
+    }
+
+    func evaluateStream(host: String, sni: String?, port: UInt16, bytesDown: Int, connectionAge: TimeInterval, parallelConnections: Int) -> PolicyDecision {
+        reloadPolicyIfNeeded(force: false)
+        let domain = (sni ?? host).lowercased()
+        return evaluateHostPolicy(host: domain, port: port, isStreamEvaluation: true)
+    }
+
+    // MARK: - Deterministic Policy
+
+    private func evaluateHostPolicy(host: String, port: UInt16, isStreamEvaluation: Bool) -> PolicyDecision {
         let lowerHost = host.lowercased()
-        if looksLikeDomain(lowerHost),
-           let threshold = streamBlockThreshold(for: lowerHost),
-           threshold == 0 {
-            return .block
+        let toggles = instagramToggleSnapshot()
+        let classification = classify(host: lowerHost, port: port)
+
+        if classification.bucket == .messages {
+            return allowDecision(classification: classification, toggles: toggles, reason: "messages_allow")
         }
-        return .allow
+
+        if toggles["reels"] != true {
+            return allowDecision(classification: classification, toggles: toggles, reason: "reels_toggle_off")
+        }
+
+        guard shouldEvaluateInstagram(host: lowerHost) else {
+            return allowDecision(classification: classification, toggles: toggles, reason: "non_instagram_traffic")
+        }
+
+        if isMediaDomain(lowerHost) {
+            return buildDecision(
+                action: .blockNow,
+                classification: classification,
+                reason: "reels_media_block_now",
+                toggles: toggles,
+                host: lowerHost
+            )
+        }
+
+        if isControlPlaneDomain(lowerHost) {
+            return buildDecision(
+                action: .blockNow,
+                classification: classification,
+                reason: "reels_control_block_now",
+                toggles: toggles,
+                host: lowerHost
+            )
+        }
+
+        let reason = isStreamEvaluation ? "policy_allow_stream" : "policy_allow"
+        return allowDecision(classification: classification, toggles: toggles, reason: reason)
     }
 
-    func shouldBlockUDP(host: String, port: UInt16) -> Bool {
-        guard isEnabled else { return false }
-        guard isStrictUDPBlockingEnabled else { return false }
-        guard port == 443 else { return false }
+    private func allowDecision(classification: FlowClassification, toggles: [String: Bool], reason: String) -> PolicyDecision {
+        PolicyDecision.allow(
+            reason: reason,
+            classification: classification,
+            toggles: toggles,
+            policyVersion: cachedPolicy.version
+        )
+    }
 
-        let lowerHost = host.lowercased()
+    private func buildDecision(
+        action: PolicyAction,
+        classification: FlowClassification,
+        reason: String,
+        toggles: [String: Bool],
+        host: String
+    ) -> PolicyDecision {
+        TunnelLogger.shared.log(
+            "POLICY DECISION: rule=\(reason) action=\(action.rawValue) reason=\(reason) host=\(host) " +
+            "bucket=\(classification.bucket.rawValue) confidence=\(String(format: "%.2f", classification.confidence))"
+        )
 
-        // If host is a domain, block likely Instagram media domains in strict mode.
-        if looksLikeDomain(lowerHost) {
-            for (domain, threshold) in loadDomainThresholds() where threshold != BubbleConstants.noLimitThreshold {
-                if lowerHost.contains(domain.lowercased()) {
-                    return true
-                }
+        return PolicyDecision(
+            action: action,
+            blockAfterBytes: nil,
+            classification: classification,
+            reason: reason,
+            toggleSnapshot: toggles,
+            policyVersion: cachedPolicy.version,
+            intendedAction: nil
+        )
+    }
+
+    // MARK: - Classification
+
+    private func classify(host: String, port: UInt16) -> FlowClassification {
+        if isMessageHost(host, port: port) {
+            return FlowClassification(bucket: .messages, confidence: 0.99, reasons: ["message_transport"])
+        }
+
+        if isMediaDomain(host) {
+            return FlowClassification(bucket: .reels, confidence: 0.99, reasons: ["reels_media_domain"])
+        }
+
+        if isControlPlaneDomain(host) {
+            return FlowClassification(bucket: .reels, confidence: 0.95, reasons: ["reels_control_domain"])
+        }
+
+        return FlowClassification(bucket: .unknown, confidence: 0.0, reasons: ["non_reels_domain"])
+    }
+
+    // MARK: - Helpers
+
+    private func instagramToggleSnapshot() -> [String: Bool] {
+        var toggles = FeaturePolicyV1.defaultToggles["instagram"] ?? [:]
+        for (key, value) in cachedPolicy.appToggles["instagram"] ?? [:] {
+            toggles[key] = value
+        }
+        return toggles
+    }
+
+    private func shouldEvaluateInstagram(host: String) -> Bool {
+        host.contains("instagram") || host.contains("facebook") || host.contains("fbcdn") || host.contains("fbvideo")
+    }
+
+    private func isMediaDomain(_ host: String) -> Bool {
+        host.contains("scontent-")
+            || host.contains(".cdninstagram.com")
+            || host.contains("cdninstagram.com")
+            || host.contains("fbcdn.net")
+            || host.contains("fbvideo.net")
+    }
+
+    private func isControlPlaneDomain(_ host: String) -> Bool {
+        host.contains("i.instagram.com")
+            || host.contains("gateway.instagram.com")
+            || host.contains("test-gateway.instagram.com")
+    }
+
+    private func isMessageHost(_ host: String, port: UInt16) -> Bool {
+        if port == 5222 {
+            return true
+        }
+        return host.contains("edge-mqtt.facebook.com") || host.contains("mqtt")
+    }
+
+    private func reloadPolicyIfNeeded(force: Bool) {
+        let now = Date()
+        if !force, now.timeIntervalSince(lastPolicyReload) < policyReloadInterval {
+            return
+        }
+        lastPolicyReload = now
+
+        var policySource = "cached"
+        if let data = sharedDefaults?.data(forKey: BubbleConstants.featurePolicyKey) {
+            if let decoded = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) {
+                var merged = decoded
+                merged.mergeDefaults()
+                cachedPolicy = merged
+                policySource = "featurePolicyV1"
+            } else {
+                TunnelLogger.shared.log("POLICY RELOAD: featurePolicyV1 decode failed; keeping cached policy")
             }
-            if lowerHost.contains("instagram.com") || lowerHost.contains("facebook.com") {
-                return true
+        } else {
+            if force {
+                cachedPolicy = .defaultPolicy()
+                policySource = "default_policy"
+            } else {
+                TunnelLogger.shared.log("POLICY RELOAD: featurePolicyV1 missing; keeping cached policy")
             }
         }
 
-        return false
-    }
-
-    /// Returns the byte threshold for a given SNI domain.
-    /// - Returns `nil` if no blocking rule matches (allow unlimited).
-    /// - Returns `0` to block immediately.
-    /// - Returns `>0` to block after that many bytes.
-    func streamBlockThreshold(for sni: String) -> Int? {
-        guard isEnabled else { return nil }
-
-        let thresholds = loadDomainThresholds()
-        let lower = sni.lowercased()
-
-        // Check each tracked domain — match if the SNI contains it
-        for (domain, threshold) in thresholds {
-            if lower.contains(domain.lowercased()) {
-                if threshold == BubbleConstants.noLimitThreshold {
-                    return nil // no limit for this domain
-                }
-                return threshold
-            }
-        }
-
-        return nil // no matching rule → allow
-    }
-
-    func isStreamBlockTarget(_ domain: String) -> Bool {
-        return streamBlockThreshold(for: domain) != nil
-    }
-
-    // MARK: - Private
-
-    private func loadDomainThresholds() -> [String: Int] {
-        var thresholds = BubbleConstants.reelsDemoDomainThresholds
-        guard let defaults = sharedDefaults,
-              let data = defaults.data(forKey: BubbleConstants.domainThresholdsKey),
-              let dict = try? JSONDecoder().decode([String: Int].self, from: data) else {
-            return thresholds
-        }
-        thresholds.merge(dict) { _, new in new }
-        return thresholds
-    }
-
-    private var isStrictUDPBlockingEnabled: Bool {
-        guard let defaults = sharedDefaults else { return false }
-        guard defaults.object(forKey: BubbleConstants.strictUDPBlockEnabledKey) != nil else {
-            return false
-        }
-        return defaults.bool(forKey: BubbleConstants.strictUDPBlockEnabledKey)
-    }
-
-    private func looksLikeDomain(_ host: String) -> Bool {
-        guard host.contains(".") else { return false }
-        guard !host.contains(":") else { return false } // likely IPv6
-        return host.rangeOfCharacter(from: .letters) != nil
+        let toggles = instagramToggleSnapshot()
+        TunnelLogger.shared.log(
+            "POLICY SNAPSHOT: instagram toggles " +
+            "reels=\(toggles["reels"] == true) " +
+            "source=\(policySource)"
+        )
     }
 }

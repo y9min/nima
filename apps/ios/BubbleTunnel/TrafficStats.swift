@@ -43,6 +43,9 @@ struct StatsSnapshot: Codable {
     let udpDecodeBadPayload: Int
     let udpModePlain: Int
     let udpModeControlPrefixed: Int
+    let attemptedByBucket: [String: Int]
+    let blockedByBucket: [String: Int]
+    let possibleFalsePositiveRetries: Int
 
     init(
         totalConns: Int,
@@ -57,7 +60,10 @@ struct StatsSnapshot: Codable {
         udpDecodeBadLength: Int,
         udpDecodeBadPayload: Int,
         udpModePlain: Int,
-        udpModeControlPrefixed: Int
+        udpModeControlPrefixed: Int,
+        attemptedByBucket: [String: Int] = [:],
+        blockedByBucket: [String: Int] = [:],
+        possibleFalsePositiveRetries: Int = 0
     ) {
         self.totalConns = totalConns
         self.tcpAllowed = tcpAllowed
@@ -72,6 +78,9 @@ struct StatsSnapshot: Codable {
         self.udpDecodeBadPayload = udpDecodeBadPayload
         self.udpModePlain = udpModePlain
         self.udpModeControlPrefixed = udpModeControlPrefixed
+        self.attemptedByBucket = attemptedByBucket
+        self.blockedByBucket = blockedByBucket
+        self.possibleFalsePositiveRetries = possibleFalsePositiveRetries
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -88,6 +97,9 @@ struct StatsSnapshot: Codable {
         case udpDecodeBadPayload
         case udpModePlain
         case udpModeControlPrefixed
+        case attemptedByBucket
+        case blockedByBucket
+        case possibleFalsePositiveRetries
     }
 
     init(from decoder: Decoder) throws {
@@ -105,6 +117,9 @@ struct StatsSnapshot: Codable {
         udpDecodeBadPayload = try c.decodeIfPresent(Int.self, forKey: .udpDecodeBadPayload) ?? 0
         udpModePlain = try c.decodeIfPresent(Int.self, forKey: .udpModePlain) ?? 0
         udpModeControlPrefixed = try c.decodeIfPresent(Int.self, forKey: .udpModeControlPrefixed) ?? 0
+        attemptedByBucket = try c.decodeIfPresent([String: Int].self, forKey: .attemptedByBucket) ?? [:]
+        blockedByBucket = try c.decodeIfPresent([String: Int].self, forKey: .blockedByBucket) ?? [:]
+        possibleFalsePositiveRetries = try c.decodeIfPresent(Int.self, forKey: .possibleFalsePositiveRetries) ?? 0
     }
 }
 
@@ -134,4 +149,11 @@ struct TrafficEvent: Codable, Identifiable {
     let sni: String?
     let detail: String
     let bytesDown: Int?
+    let bucket: String?
+    let confidence: Double?
+    let policyAction: String?
+    let reasons: [String]?
+    let toggleSnapshot: [String: Bool]?
+    let policyVersion: Int?
+    let decisionReason: String?
 }

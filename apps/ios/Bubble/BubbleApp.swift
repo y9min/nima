@@ -11,10 +11,9 @@ struct BubbleApp: App {
     init() {
         UserDefaults(suiteName: BubbleConstants.appGroupID)?
             .register(defaults: [
-                BubbleConstants.blockReelsEnabledKey: true,
                 BubbleConstants.strictUDPBlockEnabledKey: true,
             ])
-        DomainThresholdsStore.ensureDemoDefaultsIfNeeded()
+        _ = AppOptionsService.shared
     }
 
     var body: some Scene {
@@ -83,6 +82,10 @@ struct BubbleApp: App {
             }
             .onAppear {
                 vpnManager.setup()
+                store.configureVPNAutostart(
+                    startVPN: { vpnManager.startVPN() },
+                    vpnStatus: { vpnManager.vpnStatus }
+                )
             }
         }
     }

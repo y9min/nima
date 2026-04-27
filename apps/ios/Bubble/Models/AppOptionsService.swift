@@ -1,6 +1,54 @@
 import Foundation
 import Observation
 
+struct FeaturePolicyV1: Codable {
+    let version: Int
+    var profile: String
+    var shadowModeEnabled: Bool
+    var appToggles: [String: [String: Bool]]
+
+    init(
+        version: Int = 1,
+        profile: String = "minimal-impact",
+        shadowModeEnabled: Bool = false,
+        appToggles: [String: [String: Bool]] = FeaturePolicyV1.defaultToggles
+    ) {
+        self.version = version
+        self.profile = profile
+        self.shadowModeEnabled = shadowModeEnabled
+        self.appToggles = appToggles
+    }
+
+    static let defaultToggles: [String: [String: Bool]] = [
+        "instagram": [
+            "reels": false
+        ]
+    ]
+
+    static func defaultPolicy() -> FeaturePolicyV1 {
+        FeaturePolicyV1()
+    }
+
+    mutating func set(appId: String, optionId: String, isEnabled: Bool) {
+        if appToggles[appId] == nil {
+            appToggles[appId] = [:]
+        }
+        appToggles[appId]?[optionId] = isEnabled
+    }
+
+    mutating func mergeDefaults() {
+        for (appId, defaults) in Self.defaultToggles {
+            if appToggles[appId] == nil {
+                appToggles[appId] = defaults
+                continue
+            }
+            for (optionId, value) in defaults where appToggles[appId]?[optionId] == nil {
+                appToggles[appId]?[optionId] = value
+            }
+        }
+    }
+}
+
 struct AppOption: Codable, Identifiable {
     let id: String
     let label: String
@@ -36,6 +84,7 @@ final class AppOptionsService {
     private init() {
         loadData()
         loadSavedStates()
+        syncFeaturePolicy()
     }
 
     func loadData() {
@@ -57,23 +106,43 @@ final class AppOptionsService {
     }
 
     private func loadSavedStates() {
-        guard let data = defaults?.data(forKey: BubbleConstants.optionStatesKey),
-              let saved = try? JSONDecoder().decode([String: [String: Bool]].self, from: data) else { return }
-
-        for (appId, appStates) in saved {
-            if optionStates[appId] == nil {
-                optionStates[appId] = [:]
+        if let policyData = defaults?.data(forKey: BubbleConstants.featurePolicyKey),
+           let policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: policyData) {
+            var mergedPolicy = policy
+            mergedPolicy.mergeDefaults()
+            for (appId, states) in mergedPolicy.appToggles {
+                if optionStates[appId] == nil {
+                    optionStates[appId] = [:]
+                }
+                for (optionId, isSelected) in states {
+                    optionStates[appId]?[optionId] = isSelected
+                }
             }
-            for (optionId, isSelected) in appStates {
-                optionStates[appId]?[optionId] = isSelected
-            }
+            return
         }
     }
 
-    private func saveStates() {
-        if let data = try? JSONEncoder().encode(optionStates) {
-            defaults?.set(data, forKey: BubbleConstants.optionStatesKey)
+    private func syncFeaturePolicy() {
+        var policy = loadFeaturePolicy()
+        for (appId, appStates) in optionStates {
+            for (optionId, isSelected) in appStates {
+                policy.set(appId: appId, optionId: optionId, isEnabled: isSelected)
+            }
         }
+        policy.mergeDefaults()
+        if let data = try? JSONEncoder().encode(policy) {
+            defaults?.set(data, forKey: BubbleConstants.featurePolicyKey)
+        }
+    }
+
+    private func loadFeaturePolicy() -> FeaturePolicyV1 {
+        guard let data = defaults?.data(forKey: BubbleConstants.featurePolicyKey),
+              let decoded = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
+            return .defaultPolicy()
+        }
+        var policy = decoded
+        policy.mergeDefaults()
+        return policy
     }
 
     func getOptions(for appId: String) -> AppOptionsData? {
@@ -99,7 +168,7 @@ final class AppOptionsService {
         }
         let currentState = optionStates[appId]?[optionId] ?? false
         optionStates[appId]?[optionId] = !currentState
-        saveStates()
+        syncFeaturePolicy()
     }
 
     func isOptionSelected(appId: String, optionId: String) -> Bool {

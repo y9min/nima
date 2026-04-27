@@ -5,15 +5,44 @@ import os
 // MARK: - Connection Filter Protocol
 
 protocol ConnectionFilter {
-    func shouldAllow(host: String, port: UInt16) -> FilterDecision
-    func shouldBlockUDP(host: String, port: UInt16) -> Bool
-    func isStreamBlockTarget(_ domain: String) -> Bool
-    func streamBlockThreshold(for sni: String) -> Int?
+    func evaluateConnection(host: String, port: UInt16) -> PolicyDecision
+    func evaluateUDP(host: String, port: UInt16, payloadBytes: Int) -> PolicyDecision
+    func evaluateStream(host: String, sni: String?, port: UInt16, bytesDown: Int, connectionAge: TimeInterval, parallelConnections: Int) -> PolicyDecision
 }
 
-enum FilterDecision {
+enum PolicyAction: String, Codable {
     case allow
-    case block
+    case blockNow = "block_now"
+    case blockAfterBytes = "block_after_bytes"
+    case shadowAllow = "shadow_allow"
+}
+
+struct FlowClassification {
+    let bucket: ContentBucket
+    let confidence: Double
+    let reasons: [String]
+}
+
+struct PolicyDecision {
+    let action: PolicyAction
+    let blockAfterBytes: Int?
+    let classification: FlowClassification
+    let reason: String
+    let toggleSnapshot: [String: Bool]
+    let policyVersion: Int
+    let intendedAction: PolicyAction?
+
+    static func allow(reason: String, classification: FlowClassification, toggles: [String: Bool], policyVersion: Int) -> PolicyDecision {
+        PolicyDecision(
+            action: .allow,
+            blockAfterBytes: nil,
+            classification: classification,
+            reason: reason,
+            toggleSnapshot: toggles,
+            policyVersion: policyVersion,
+            intendedAction: nil
+        )
+    }
 }
 
 // MARK: - SOCKS5 Errors
@@ -70,6 +99,10 @@ final class SOCKSProxyServer {
     private var udpDecodeBadPayload = 0
     private var udpModePlain = 0
     private var udpModeControlPrefixed = 0
+    private var attemptedByBucket: [String: Int] = [:]
+    private var blockedByBucket: [String: Int] = [:]
+    private var possibleFalsePositiveRetries = 0
+    private var recentBlockedByHost: [String: Date] = [:]
     private var statsTimer: DispatchSourceTimer?
 
     // Active relay tracking for JSON stats
@@ -184,8 +217,30 @@ final class SOCKSProxyServer {
 
     // MARK: - Event Recording
 
-    private func recordEvent(type: EventType, connId: Int, host: String, port: UInt16, sni: String? = nil, detail: String, bytesDown: Int? = nil) {
+    private func recordEvent(
+        type: EventType,
+        connId: Int,
+        host: String,
+        port: UInt16,
+        sni: String? = nil,
+        detail: String,
+        bytesDown: Int? = nil,
+        decision: PolicyDecision? = nil
+    ) {
         eventCounter += 1
+        if let decision {
+            attemptedByBucket[decision.classification.bucket.rawValue, default: 0] += 1
+            if type == .blocked || type == .streamBlocked {
+                blockedByBucket[decision.classification.bucket.rawValue, default: 0] += 1
+                recentBlockedByHost[(sni ?? host).lowercased()] = Date()
+            } else if type == .allowed || type == .completed {
+                let key = (sni ?? host).lowercased()
+                if let blockedAt = recentBlockedByHost[key],
+                   Date().timeIntervalSince(blockedAt) <= 5.0 {
+                    possibleFalsePositiveRetries += 1
+                }
+            }
+        }
         let event = TrafficEvent(
             id: eventCounter,
             timestamp: Date(),
@@ -194,7 +249,14 @@ final class SOCKSProxyServer {
             port: port,
             sni: sni,
             detail: detail,
-            bytesDown: bytesDown
+            bytesDown: bytesDown,
+            bucket: decision?.classification.bucket.rawValue,
+            confidence: decision?.classification.confidence,
+            policyAction: decision?.action.rawValue,
+            reasons: decision?.classification.reasons,
+            toggleSnapshot: decision?.toggleSnapshot,
+            policyVersion: decision?.policyVersion,
+            decisionReason: decision?.reason
         )
         eventLog.append(event)
         if eventLog.count > maxEvents {
@@ -243,7 +305,10 @@ final class SOCKSProxyServer {
             udpDecodeBadLength: udpDecodeBadLength,
             udpDecodeBadPayload: udpDecodeBadPayload,
             udpModePlain: udpModePlain,
-            udpModeControlPrefixed: udpModeControlPrefixed
+            udpModeControlPrefixed: udpModeControlPrefixed,
+            attemptedByBucket: attemptedByBucket,
+            blockedByBucket: blockedByBucket,
+            possibleFalsePositiveRetries: possibleFalsePositiveRetries
         )
 
         let topDomains = domainStats
@@ -454,19 +519,19 @@ final class SOCKSProxyServer {
     // MARK: - CONNECT (TCP)
 
     private func handleConnect(client: NWConnection, id: Int, host: String, port: UInt16) {
-        let decision = self.filter.shouldAllow(host: host, port: port)
+        let decision = self.filter.evaluateConnection(host: host, port: port)
 
-        switch decision {
-        case .block:
+        switch decision.action {
+        case .blockNow:
             self.statsBlocked += 1
             self.activeConnectionCount -= 1
             self.log.log("SOCKS5 #\(id): BLOCKED \(host):\(port)")
-            self.recordEvent(type: .blocked, connId: id, host: host, port: port, detail: "Connection blocked by filter")
+            self.recordEvent(type: .blocked, connId: id, host: host, port: port, detail: "Connection blocked by policy", decision: decision)
             self.sendSocksError(client: client, reply: 0x05)
 
-        case .allow:
+        case .allow, .blockAfterBytes, .shadowAllow:
             self.statsAllowed += 1
-            self.recordEvent(type: .allowed, connId: id, host: host, port: port, detail: "TCP CONNECT")
+            self.recordEvent(type: .allowed, connId: id, host: host, port: port, detail: "TCP CONNECT", decision: decision)
             self.connectToTarget(client: client, host: host, port: port, id: id)
         }
     }
@@ -566,18 +631,10 @@ final class SOCKSProxyServer {
         statsUDP += 1
         log.log("UDP #\(state.id): dest=\(parsed.addr.host):\(parsed.addr.port), payload=\(parsed.payload.count)B")
 
-        let decision = filter.shouldAllow(host: parsed.addr.host, port: parsed.addr.port)
-        if decision == .block {
+        let decision = filter.evaluateUDP(host: parsed.addr.host, port: parsed.addr.port, payloadBytes: parsed.payload.count)
+        if decision.action == .blockNow {
             statsBlocked += 1
-            state.processingFrame = false
-            processNextUDPFrame(client: client, state: state)
-            return
-        }
-
-        if filter.shouldBlockUDP(host: parsed.addr.host, port: parsed.addr.port) {
-            statsBlocked += 1
-            log.log("UDP #\(state.id): BLOCKED strict UDP policy for \(parsed.addr.host):\(parsed.addr.port)")
-            recordEvent(type: .blocked, connId: state.id, host: parsed.addr.host, port: parsed.addr.port, detail: "UDP blocked by strict policy")
+            recordEvent(type: .blocked, connId: state.id, host: parsed.addr.host, port: parsed.addr.port, detail: "UDP blocked by policy", decision: decision)
             state.processingFrame = false
             processNextUDPFrame(client: client, state: state)
             return
@@ -709,6 +766,7 @@ final class SOCKSProxyServer {
     private func closeUDPControlStream(client: NWConnection, state: UDPStreamState, reason: String) {
         guard !state.closed else { return }
         state.closed = true
+        activeConnectionCount = max(activeConnectionCount - 1, 0)
         activeUDPStreams = max(activeUDPStreams - 1, 0)
         totalUDPStreamsClosed += 1
         log.log("UDP_DECODER stream=\(state.id) event=close reason=\(reason) queued=\(state.pendingFrames.count)")
@@ -957,27 +1015,45 @@ final class SOCKSProxyServer {
                         }
                     }
                 case .download:
-                    tracker.bytesDown += data.count
+                    let projectedBytesDown = tracker.bytesDown + data.count
 
-                    let domainForRules = tracker.sni ?? (Self.looksLikeDomainName(tracker.host) ? tracker.host : nil)
+                    let streamDecision = self.filter.evaluateStream(
+                        host: tracker.host,
+                        sni: tracker.sni,
+                        port: tracker.port,
+                        bytesDown: projectedBytesDown,
+                        connectionAge: Date().timeIntervalSince(tracker.startTime),
+                        parallelConnections: self.activeRelays.count
+                    )
 
-                    // Stream blocking: per-domain byte thresholds (SNI first, then SOCKS host fallback).
-                    if let domainForRules = domainForRules {
-                        let threshold = self.filter.streamBlockThreshold(for: domainForRules)
-                        if let threshold, tracker.bytesDown > threshold {
-                            self.statsBlocked += 1
-                            self.log.log("STREAM BLOCK #\(tracker.id): killed \(domainForRules) at \(tracker.bytesDown)B (threshold: \(threshold)B)")
-                            self.recordEvent(type: .streamBlocked, connId: tracker.id, host: tracker.host, port: tracker.port, sni: tracker.sni ?? domainForRules, detail: "Killed at \(tracker.bytesDown)B (threshold: \(threshold)B)", bytesDown: tracker.bytesDown)
-                            self.logRelayEnd(tracker: tracker, reason: "stream-blocked")
-                            source.cancel()
-                            destination.cancel()
-                            return
-                        }
-                        // Log untracked domains receiving large downloads (potential failover)
-                        if threshold == nil && tracker.bytesDown > 100_000 && !tracker.loggedUntracked {
-                            tracker.loggedUntracked = true
-                            TunnelLogger.connectionLog.log("[UNTRACKED-LARGE] \(domainForRules, privacy: .public) \(tracker.bytesDown, privacy: .public)B+ (no blocking rule)")
-                        }
+                    let threshold = streamDecision.blockAfterBytes
+                    let shouldBlockNow = streamDecision.action == .blockNow
+                    let shouldBlockAfter = streamDecision.action == .blockAfterBytes && threshold != nil && projectedBytesDown > threshold!
+                    if shouldBlockNow || shouldBlockAfter {
+                        tracker.bytesDown = projectedBytesDown
+                        self.statsBlocked += 1
+                        let thresholdLabel = threshold.map { "\($0)B" } ?? "n/a"
+                        self.log.log("STREAM BLOCK #\(tracker.id): killed \((tracker.sni ?? tracker.host)) at \(tracker.bytesDown)B (threshold: \(thresholdLabel))")
+                        self.recordEvent(
+                            type: .streamBlocked,
+                            connId: tracker.id,
+                            host: tracker.host,
+                            port: tracker.port,
+                            sni: tracker.sni,
+                            detail: "Killed at \(tracker.bytesDown)B",
+                            bytesDown: tracker.bytesDown,
+                            decision: streamDecision
+                        )
+                        self.logRelayEnd(tracker: tracker, reason: "stream-blocked")
+                        source.cancel()
+                        destination.cancel()
+                        return
+                    }
+
+                    tracker.bytesDown = projectedBytesDown
+                    if streamDecision.action == .allow && tracker.bytesDown > 100_000 && !tracker.loggedUntracked {
+                        tracker.loggedUntracked = true
+                        TunnelLogger.connectionLog.log("[UNTRACKED-LARGE] \((tracker.sni ?? tracker.host), privacy: .public) \(tracker.bytesDown, privacy: .public)B+ (no blocking rule)")
                     }
                 }
                 destination.send(content: data, completion: .contentProcessed { sendError in
@@ -1039,9 +1115,4 @@ final class SOCKSProxyServer {
         return Data(response)
     }
 
-    private static func looksLikeDomainName(_ host: String) -> Bool {
-        guard host.contains(".") else { return false }
-        guard !host.contains(":") else { return false } // likely IPv6
-        return host.rangeOfCharacter(from: .letters) != nil
-    }
 }
