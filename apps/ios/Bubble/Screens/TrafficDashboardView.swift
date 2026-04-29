@@ -11,6 +11,8 @@ struct TrafficDashboardView: View {
 
             ScrollView {
                 VStack(spacing: BubbleSpacing.md) {
+                    HealthBannerView(stats: monitor.current?.stats)
+
                     // Section 1: Stats counters (tappable)
                     StatsCountersView(stats: monitor.current?.stats, events: monitor.events)
 
@@ -46,6 +48,47 @@ struct TrafficDashboardView: View {
         }
         .onAppear { monitor.startPolling() }
         .onDisappear { monitor.stopPolling() }
+    }
+}
+
+private struct HealthBannerView: View {
+    let stats: StatsSnapshot?
+
+    private var message: String {
+        switch stats?.healthState {
+        case "mitigating_retries":
+            return "Reducing reconnect loops to lower phone heat."
+        case "strict_udp_drop_mode":
+            return "Dropping malformed UDP control frames (strict mode)."
+        default:
+            return "Tunnel healthy."
+        }
+    }
+
+    private var color: Color {
+        switch stats?.healthState {
+        case "mitigating_retries":
+            return .yellow
+        case "strict_udp_drop_mode":
+            return BubbleColors.skyBlue
+        default:
+            return .green
+        }
+    }
+
+    var body: some View {
+        HStack {
+            Circle()
+                .fill(color)
+                .frame(width: 10, height: 10)
+            Text(message)
+                .font(BubbleFonts.coolvetica(size: 14))
+                .foregroundColor(.white)
+            Spacer()
+        }
+        .padding(BubbleSpacing.md)
+        .background(Color.white.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 

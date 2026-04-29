@@ -1,0 +1,4 @@
+module Tun2SocksKitC {
+umbrella header "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/Sources/Tun2SocksKitC/Tun2SocksKitC.h"
+export *
+}

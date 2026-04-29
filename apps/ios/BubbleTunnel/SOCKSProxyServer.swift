@@ -7,7 +7,35 @@ import os
 protocol ConnectionFilter {
     func evaluateConnection(host: String, port: UInt16) -> PolicyDecision
     func evaluateUDP(host: String, port: UInt16, payloadBytes: Int) -> PolicyDecision
+    func evaluateEarlyTLS(host: String, sni: String, port: UInt16) -> PolicyDecision
     func evaluateStream(host: String, sni: String?, port: UInt16, bytesDown: Int, connectionAge: TimeInterval, parallelConnections: Int) -> PolicyDecision
+    func healthMetrics() -> FilterHealthMetrics
+    func runtimePolicy() -> RuntimePolicyTuning
+}
+
+enum UDPDecodeMode: String, Codable {
+    case strict
+    case adaptive
+    case off
+}
+
+enum QUICHandlingMode: String, Codable {
+    case classifyOnly = "classify_only"
+    case blockMetaReelsOnly = "block_meta_reels_only"
+}
+
+enum MetaIPGuardMode: String, Codable {
+    case fallbackOnly = "fallback_only"
+}
+
+struct RuntimePolicyTuning {
+    let udpDecodeMode: UDPDecodeMode
+    let udpCircuitBreakerThreshold: Int
+    let udpCircuitBreakerWindowSec: Int
+    let udpCircuitBreakerCooldownSec: Int
+    let quicHandling: QUICHandlingMode
+    let metaIPGuardMode: MetaIPGuardMode
+    let thermalGuardEnabled: Bool
 }
 
 enum PolicyAction: String, Codable {
@@ -103,7 +131,38 @@ final class SOCKSProxyServer {
     private var blockedByBucket: [String: Int] = [:]
     private var possibleFalsePositiveRetries = 0
     private var recentBlockedByHost: [String: Date] = [:]
+    private var retryStormEvents = 0
+    private var backoffActiveHosts = 0
+    private var udpDecodeStrictDropCount = 0
+    private var udpDecodeStrictDropDebouncedReopens = 0
+    private var udpStreamReopenDebounceUntilByPeer: [String: Date] = [:]
+    private var udpDecodeBypassedFrames = 0
+    private var udpCircuitOpenPeers = 0
+    private var decisionDedupHits = 0
+    private var policyEvalMicrosSamples: [Double] = []
+    private var policyEvalMicrosP95: Double = 0
+    private var blockedReelsAttempts = 0
+    private var totalReelsAttempts = 0
+    private var playbackBlockRateEstimate = 0.0
+    private var udpDecodeErrHighIntervals = 0
+    private var udpDecodeErrLowIntervals = 0
+    private var thermalForcedAdaptive = false
+    private var effectiveUDPDecodeMode: UDPDecodeMode = .adaptive
+    private var udpPeerStateByPeer: [String: UDPPeerState] = [:]
+    private var decisionDedupUntilByPeer: [String: Date] = [:]
+    private var udpDecoderLogLastByReason: [String: Date] = [:]
+    private var udpDecoderLogSuppressedByReason: [String: Int] = [:]
+    private let udpDecoderLogInterval: TimeInterval = 2.0
     private var statsTimer: DispatchSourceTimer?
+    private var lastStatsSampleDate: Date?
+    private var lastStatsTotalConnections = 0
+    private var lastStatsBlocked = 0
+    private var lastStatsUDPDecodeErrors = 0
+    private var lastStatsHotPathLoggedAt: Date = .distantPast
+    private var latestConnRatePerSec: Double = 0
+    private var latestBlockRatePerSec: Double = 0
+    private var latestUDPDecodeErrorRatePerSec: Double = 0
+    private var latestMemMB: Double = 0
 
     // Active relay tracking for JSON stats
     private var activeRelays: [Int: RelayTracker] = [:]
@@ -208,11 +267,100 @@ final class SOCKSProxyServer {
             guard let self = self else { return }
             let total = self.connectionCount
             guard total > 0 else { return }
-            let memMB = Self.memoryUsageMB()
-            self.log.log("SOCKS5 STATS: \(total) total, \(self.activeConnectionCount) active, \(self.activeRelays.count) relays, \(self.statsAllowed) allowed, \(self.statsBlocked) blocked, \(self.statsUDP) UDP, \(self.statsErrors) errors, udpActive=\(self.activeUDPStreams), udpOpened=\(self.totalUDPStreamsOpened), udpClosed=\(self.totalUDPStreamsClosed), snapshots=\(self.snapshotHistory.count), mem=\(memMB)MB")
+            let now = Date()
+            let interval = max(now.timeIntervalSince(self.lastStatsSampleDate ?? now), 1.0)
+            let currentUDPDecodeErrors = self.udpDecodeBadPrefix + self.udpDecodeBadLength + self.udpDecodeBadPayload
+            let connDelta = max(0, total - self.lastStatsTotalConnections)
+            let blockedDelta = max(0, self.statsBlocked - self.lastStatsBlocked)
+            let udpDecodeDelta = max(0, currentUDPDecodeErrors - self.lastStatsUDPDecodeErrors)
+
+            self.latestConnRatePerSec = Double(connDelta) / interval
+            self.latestBlockRatePerSec = Double(blockedDelta) / interval
+            self.latestUDPDecodeErrorRatePerSec = Double(udpDecodeDelta) / interval
+            self.latestMemMB = Self.memoryUsageMBValue()
+            let memMB = String(format: "%.1f", self.latestMemMB)
+            let filterHealth = self.filter.healthMetrics()
+            let runtime = self.filter.runtimePolicy()
+            self.retryStormEvents = filterHealth.retryStormEvents
+            self.backoffActiveHosts = filterHealth.backoffActiveHosts
+            self.effectiveUDPDecodeMode = runtime.udpDecodeMode
+
+            if runtime.thermalGuardEnabled {
+                if self.latestUDPDecodeErrorRatePerSec > 1.0 {
+                    self.udpDecodeErrHighIntervals += 1
+                    self.udpDecodeErrLowIntervals = 0
+                } else if self.latestUDPDecodeErrorRatePerSec < 0.2 {
+                    self.udpDecodeErrLowIntervals += 1
+                    self.udpDecodeErrHighIntervals = 0
+                } else {
+                    self.udpDecodeErrHighIntervals = 0
+                    self.udpDecodeErrLowIntervals = 0
+                }
+
+                if self.udpDecodeErrHighIntervals >= 3, runtime.udpDecodeMode == .strict {
+                    self.thermalForcedAdaptive = true
+                    self.effectiveUDPDecodeMode = .adaptive
+                } else if self.thermalForcedAdaptive, self.udpDecodeErrLowIntervals >= 5 {
+                    self.thermalForcedAdaptive = false
+                    self.effectiveUDPDecodeMode = runtime.udpDecodeMode
+                } else if self.thermalForcedAdaptive {
+                    self.effectiveUDPDecodeMode = .adaptive
+                }
+            } else {
+                self.thermalForcedAdaptive = false
+                self.udpDecodeErrHighIntervals = 0
+                self.udpDecodeErrLowIntervals = 0
+            }
+
+            self.cleanupUDPPeerCircuitState(now: now)
+            self.udpCircuitOpenPeers = self.udpPeerStateByPeer.values.filter { state in
+                guard let until = state.opaqueUntil else { return false }
+                return until > now
+            }.count
+
+            self.log.log(
+                "SOCKS5 STATS: \(total) total, \(self.activeConnectionCount) active, \(self.activeRelays.count) relays, " +
+                "\(self.statsAllowed) allowed, \(self.statsBlocked) blocked, \(self.statsUDP) UDP, \(self.statsErrors) errors, " +
+                "udpActive=\(self.activeUDPStreams), udpOpened=\(self.totalUDPStreamsOpened), udpClosed=\(self.totalUDPStreamsClosed), " +
+                "snapshots=\(self.snapshotHistory.count), mem=\(memMB)MB, connRate=\(String(format: "%.2f", self.latestConnRatePerSec))/s, " +
+                "blockRate=\(String(format: "%.2f", self.latestBlockRatePerSec))/s, udpDecodeErrRate=\(String(format: "%.2f", self.latestUDPDecodeErrorRatePerSec))/s"
+            )
+            self.log.log(
+                "SOCKS5 MITIGATION: backoffHosts=\(self.backoffActiveHosts), retryStormEvents=\(self.retryStormEvents), " +
+                "udpStrictDrops=\(self.udpDecodeStrictDropCount), udpStrictDropDebouncedReopens=\(self.udpDecodeStrictDropDebouncedReopens), " +
+                "udpMode=\(self.effectiveUDPDecodeMode.rawValue), circuitPeers=\(self.udpCircuitOpenPeers), bypassed=\(self.udpDecodeBypassedFrames)"
+            )
+
+            self.logHotPathIfNeeded(now: now)
+            self.lastStatsSampleDate = now
+            self.lastStatsTotalConnections = total
+            self.lastStatsBlocked = self.statsBlocked
+            self.lastStatsUDPDecodeErrors = currentUDPDecodeErrors
         }
         timer.resume()
         statsTimer = timer
+    }
+
+    private func logHotPathIfNeeded(now: Date) {
+        let highConnRate = latestConnRatePerSec >= 15
+        let highBlockRate = latestBlockRatePerSec >= 10
+        let highUDPDecodeRate = latestUDPDecodeErrorRatePerSec >= 3
+
+        guard highConnRate || highBlockRate || highUDPDecodeRate else { return }
+        guard now.timeIntervalSince(lastStatsHotPathLoggedAt) >= 10 else { return }
+
+        let connLabel = highConnRate ? "high_conn_churn" : "normal_conn_churn"
+        let blockLabel = highBlockRate ? "high_block_churn" : "normal_block_churn"
+        let udpLabel = highUDPDecodeRate ? "high_udp_decode" : "normal_udp_decode"
+
+        log.log(
+            "SOCKS5 HOT PATH: \(connLabel), \(blockLabel), \(udpLabel), " +
+            "connRate=\(String(format: "%.2f", latestConnRatePerSec))/s, " +
+            "blockRate=\(String(format: "%.2f", latestBlockRatePerSec))/s, " +
+            "udpDecodeErrRate=\(String(format: "%.2f", latestUDPDecodeErrorRatePerSec))/s, " +
+            "active=\(activeConnectionCount), relays=\(activeRelays.count), mem=\(String(format: "%.1f", latestMemMB))MB"
+        )
+        lastStatsHotPathLoggedAt = now
     }
 
     // MARK: - Event Recording
@@ -308,7 +456,21 @@ final class SOCKSProxyServer {
             udpModeControlPrefixed: udpModeControlPrefixed,
             attemptedByBucket: attemptedByBucket,
             blockedByBucket: blockedByBucket,
-            possibleFalsePositiveRetries: possibleFalsePositiveRetries
+            possibleFalsePositiveRetries: possibleFalsePositiveRetries,
+            healthState: currentHealthState(),
+            retryStormEvents: retryStormEvents,
+            backoffActiveHosts: backoffActiveHosts,
+            udpDecodeStrictDropCount: udpDecodeStrictDropCount,
+            udpDecodeStrictDropDebouncedReopens: udpDecodeStrictDropDebouncedReopens,
+            udpCircuitOpenPeers: udpCircuitOpenPeers,
+            udpDecodeBypassedFrames: udpDecodeBypassedFrames,
+            decisionDedupHits: decisionDedupHits,
+            policyEvalMicrosP95: policyEvalMicrosP95,
+            playbackBlockRateEstimate: playbackBlockRateEstimate,
+            connRatePerSec: latestConnRatePerSec,
+            blockRatePerSec: latestBlockRatePerSec,
+            udpDecodeErrorRatePerSec: latestUDPDecodeErrorRatePerSec,
+            memoryMB: latestMemMB
         )
 
         let topDomains = domainStats
@@ -519,7 +681,9 @@ final class SOCKSProxyServer {
     // MARK: - CONNECT (TCP)
 
     private func handleConnect(client: NWConnection, id: Int, host: String, port: UInt16) {
-        let decision = self.filter.evaluateConnection(host: host, port: port)
+        let decision = self.evaluatePolicy(kind: "tcp_connect") {
+            self.filter.evaluateConnection(host: host, port: port)
+        }
 
         switch decision.action {
         case .blockNow:
@@ -547,7 +711,23 @@ final class SOCKSProxyServer {
 
     private func handleFwdUDP(client: NWConnection, id: Int) {
         log.log("UDP #\(id): FWD_UDP accepted, starting frame relay")
-        let state = UDPStreamState(id: id, decoder: UDPControlStreamDecoder(maxFrameSize: BubbleConstants.maxUDPFrameSize))
+        let peerKey = peerKey(for: client)
+        if let blockedUntil = udpStreamReopenDebounceUntilByPeer[peerKey], blockedUntil > Date() {
+            udpDecodeStrictDropDebouncedReopens += 1
+            log.log("UDP #\(id): FWD_UDP debounced for peer=\(peerKey)")
+            activeConnectionCount = max(activeConnectionCount - 1, 0)
+            client.cancel()
+            return
+        }
+
+        let state = UDPStreamState(id: id, peerKey: peerKey, decoder: UDPControlStreamDecoder(maxFrameSize: BubbleConstants.maxUDPFrameSize))
+        let now = Date()
+        if effectiveUDPDecodeMode == .off || isUDPCircuitOpen(peerKey: peerKey, now: now) {
+            state.opaqueMode = true
+            if isUDPCircuitOpen(peerKey: peerKey, now: now) {
+                maybeLogDecisionDedup(peerKey: peerKey, action: "opaque_mode_reuse")
+            }
+        }
         activeUDPStreams += 1
         totalUDPStreamsOpened += 1
 
@@ -578,10 +758,15 @@ final class SOCKSProxyServer {
             }
 
             if let data, !data.isEmpty {
+                if state.opaqueMode {
+                    self.handleOpaqueUDPChunk(client: client, state: state, data: data)
+                    return
+                }
                 switch state.decoder.append(data) {
                 case .success(let frames):
                     if let mode = state.decoder.currentMode, state.mode == nil {
                         state.mode = mode
+                        self.markValidatedMode(peerKey: state.peerKey, mode: mode)
                         if mode == .plain {
                             self.udpModePlain += 1
                         } else {
@@ -595,8 +780,31 @@ final class SOCKSProxyServer {
 
                 case .failure(let decodeError):
                     self.recordDecoderError(decodeError)
-                    self.log.log("UDP_DECODER stream=\(state.id) event=decode_error reason=\(self.decoderReasonCode(decodeError))")
-                    self.closeUDPControlStream(client: client, state: state, reason: "decode_\(self.decoderReasonCode(decodeError))")
+                    self.udpDecodeStrictDropCount += 1
+                    self.logUDPDecoderError(streamID: state.id, reason: self.decoderReasonCode(decodeError))
+                    let decodeReason = "decode_\(self.decoderReasonCode(decodeError))"
+                    if self.effectiveUDPDecodeMode == .strict {
+                        let openedCircuit = self.shouldOpenUDPCircuit(peerKey: state.peerKey, now: Date())
+                        if openedCircuit {
+                            state.opaqueMode = true
+                            self.udpDecodeBypassedFrames += 1
+                            self.log.log("UDP_DECODER stream=\(state.id) event=strict_degrade_bypass reason=\(decodeReason)")
+                            self.readUDPControlStream(client: client, state: state)
+                        } else {
+                            self.log.log("UDP_DECODER stream=\(state.id) event=strict_drop reason=\(decodeReason)")
+                            self.closeUDPControlStream(client: client, state: state, reason: decodeReason)
+                        }
+                    } else {
+                        let openedCircuit = self.shouldOpenUDPCircuit(peerKey: state.peerKey, now: Date())
+                        if openedCircuit || self.effectiveUDPDecodeMode == .off {
+                            state.opaqueMode = true
+                            self.log.log("UDP_DECODER stream=\(state.id) event=udp_decode_bypass reason=\(decodeReason)")
+                            self.readUDPControlStream(client: client, state: state)
+                        } else {
+                            self.log.log("UDP_DECODER stream=\(state.id) event=strict_drop reason=\(decodeReason)")
+                            self.closeUDPControlStream(client: client, state: state, reason: decodeReason)
+                        }
+                    }
                 }
                 return
             }
@@ -623,7 +831,10 @@ final class SOCKSProxyServer {
 
         guard let parsed = parseUDPPayload(decodedFrame.payload, streamID: state.id) else {
             udpDecodeBadPayload += 1
-            log.log("UDP_DECODER stream=\(state.id) event=decode_error reason=bad_payload")
+            udpDecodeStrictDropCount += 1
+            logUDPDecoderError(streamID: state.id, reason: "bad_payload")
+            log.log("UDP_DECODER stream=\(state.id) event=strict_drop reason=decode_bad_payload")
+            state.processingFrame = false
             closeUDPControlStream(client: client, state: state, reason: "decode_bad_payload")
             return
         }
@@ -631,7 +842,9 @@ final class SOCKSProxyServer {
         statsUDP += 1
         log.log("UDP #\(state.id): dest=\(parsed.addr.host):\(parsed.addr.port), payload=\(parsed.payload.count)B")
 
-        let decision = filter.evaluateUDP(host: parsed.addr.host, port: parsed.addr.port, payloadBytes: parsed.payload.count)
+        let decision = evaluatePolicy(kind: "udp") {
+            filter.evaluateUDP(host: parsed.addr.host, port: parsed.addr.port, payloadBytes: parsed.payload.count)
+        }
         if decision.action == .blockNow {
             statsBlocked += 1
             recordEvent(type: .blocked, connId: state.id, host: parsed.addr.host, port: parsed.addr.port, detail: "UDP blocked by policy", decision: decision)
@@ -657,6 +870,52 @@ final class SOCKSProxyServer {
                 })
             } else {
                 self.processNextUDPFrame(client: client, state: state)
+            }
+        }
+    }
+
+    private func handleOpaqueUDPChunk(client: NWConnection, state: UDPStreamState, data: Data) {
+        guard !state.closed else { return }
+        guard !state.processingFrame else { return }
+        state.processingFrame = true
+        defer { state.processingFrame = false }
+
+        let bytes = [UInt8](data)
+        guard let parsed = parseUDPPayload(bytes, streamID: state.id) else {
+            udpDecodeBypassedFrames += 1
+            maybeLogDecisionDedup(peerKey: state.peerKey, action: "drop_unparseable_opaque")
+            readUDPControlStream(client: client, state: state)
+            return
+        }
+
+        udpDecodeBypassedFrames += 1
+        log.log("udp_decode_bypass stream=\(state.id) dest=\(parsed.addr.host):\(parsed.addr.port) payload=\(parsed.payload.count)B")
+        let decision = evaluatePolicy(kind: "udp_opaque") {
+            filter.evaluateUDP(host: parsed.addr.host, port: parsed.addr.port, payloadBytes: parsed.payload.count)
+        }
+        if decision.action == .blockNow {
+            statsBlocked += 1
+            recordEvent(type: .blocked, connId: state.id, host: parsed.addr.host, port: parsed.addr.port, detail: "UDP opaque blocked by policy", decision: decision)
+            maybeLogDecisionDedup(peerKey: state.peerKey, action: "opaque_blocked")
+            readUDPControlStream(client: client, state: state)
+            return
+        }
+
+        relayUDPDatagram(
+            streamID: state.id,
+            host: parsed.addr.host,
+            port: parsed.addr.port,
+            payload: parsed.payload,
+            headerBytes: parsed.headerBytes,
+            responseMode: .plain
+        ) { [weak self] responseFrame in
+            guard let self = self, !state.closed else { return }
+            if let responseFrame {
+                client.send(content: responseFrame, completion: .contentProcessed { _ in
+                    self.readUDPControlStream(client: client, state: state)
+                })
+            } else {
+                self.readUDPControlStream(client: client, state: state)
             }
         }
     }
@@ -766,6 +1025,13 @@ final class SOCKSProxyServer {
     private func closeUDPControlStream(client: NWConnection, state: UDPStreamState, reason: String) {
         guard !state.closed else { return }
         state.closed = true
+        if effectiveUDPDecodeMode == .strict,
+           (reason.contains("decode_bad_len") || reason.contains("decode_bad_payload")) {
+            let now = Date()
+            if !isUDPCircuitOpen(peerKey: state.peerKey, now: now) {
+                udpStreamReopenDebounceUntilByPeer[state.peerKey] = now.addingTimeInterval(2.0)
+            }
+        }
         activeConnectionCount = max(activeConnectionCount - 1, 0)
         activeUDPStreams = max(activeUDPStreams - 1, 0)
         totalUDPStreamsClosed += 1
@@ -873,6 +1139,7 @@ final class SOCKSProxyServer {
         var logged = false
         var sni: String?
         var sniProbeAttempts = 0
+        var sniProbeBuffer = Data()
         var loggedUntracked = false
 
         init(id: Int, host: String, port: UInt16) {
@@ -884,16 +1151,169 @@ final class SOCKSProxyServer {
 
     private final class UDPStreamState {
         let id: Int
+        let peerKey: String
         let decoder: UDPControlStreamDecoder
+        var opaqueMode: Bool = false
         var mode: UDPControlFramingMode?
         var pendingFrames: [UDPControlFrame] = []
         var processingFrame = false
         var closed = false
 
-        init(id: Int, decoder: UDPControlStreamDecoder) {
+        init(id: Int, peerKey: String, decoder: UDPControlStreamDecoder) {
             self.id = id
+            self.peerKey = peerKey
             self.decoder = decoder
         }
+    }
+
+    private enum UDPPeerStreamMode: String {
+        case unknown
+        case validatedPlain
+        case validatedControlPrefixed
+        case opaqueQuicOrUnparseable
+    }
+
+    private struct UDPPeerState {
+        var mode: UDPPeerStreamMode = .unknown
+        var decodeErrors: [Date] = []
+        var opaqueUntil: Date?
+    }
+
+    private func peerKey(for client: NWConnection) -> String {
+        String(describing: client.endpoint)
+    }
+
+    private func cleanupUDPPeerCircuitState(now: Date) {
+        let tuning = filter.runtimePolicy()
+        let window = TimeInterval(max(tuning.udpCircuitBreakerWindowSec, 1))
+        var updated: [String: UDPPeerState] = [:]
+        for (key, state) in udpPeerStateByPeer {
+            var next = state
+            next.decodeErrors = next.decodeErrors.filter { now.timeIntervalSince($0) <= window }
+            if let until = next.opaqueUntil, until <= now {
+                next.opaqueUntil = nil
+                if next.mode == .opaqueQuicOrUnparseable {
+                    next.mode = .unknown
+                    log.log("udp_circuit_close peer=\(key)")
+                }
+            }
+            let hasOpaque = next.opaqueUntil != nil
+            let hasRecentErrors = !next.decodeErrors.isEmpty
+            if hasOpaque || hasRecentErrors || next.mode != .unknown {
+                updated[key] = next
+            }
+        }
+        udpPeerStateByPeer = updated
+        decisionDedupUntilByPeer = decisionDedupUntilByPeer.filter { _, until in until > now }
+    }
+
+    private func markValidatedMode(peerKey: String, mode: UDPControlFramingMode) {
+        var state = udpPeerStateByPeer[peerKey] ?? UDPPeerState()
+        switch mode {
+        case .plain:
+            state.mode = .validatedPlain
+        case .controlPrefixed:
+            state.mode = .validatedControlPrefixed
+        }
+        state.opaqueUntil = nil
+        udpPeerStateByPeer[peerKey] = state
+    }
+
+    private func shouldOpenUDPCircuit(peerKey: String, now: Date) -> Bool {
+        let tuning = filter.runtimePolicy()
+        var state = udpPeerStateByPeer[peerKey] ?? UDPPeerState()
+        let window = TimeInterval(max(tuning.udpCircuitBreakerWindowSec, 1))
+        state.decodeErrors = state.decodeErrors.filter { now.timeIntervalSince($0) <= window }
+        state.decodeErrors.append(now)
+        let threshold = max(tuning.udpCircuitBreakerThreshold, 1)
+        guard state.decodeErrors.count >= threshold else {
+            udpPeerStateByPeer[peerKey] = state
+            return false
+        }
+        let cooldown = TimeInterval(max(tuning.udpCircuitBreakerCooldownSec, 1))
+        state.mode = .opaqueQuicOrUnparseable
+        state.opaqueUntil = now.addingTimeInterval(cooldown)
+        state.decodeErrors.removeAll()
+        udpPeerStateByPeer[peerKey] = state
+        log.log("udp_circuit_open peer=\(peerKey) cooldown=\(Int(cooldown))s")
+        return true
+    }
+
+    private func isUDPCircuitOpen(peerKey: String, now: Date) -> Bool {
+        guard let state = udpPeerStateByPeer[peerKey], let until = state.opaqueUntil else { return false }
+        return state.mode == .opaqueQuicOrUnparseable && until > now
+    }
+
+    private func maybeLogDecisionDedup(peerKey: String, action: String) {
+        let now = Date()
+        if let until = decisionDedupUntilByPeer[peerKey], until > now {
+            decisionDedupHits += 1
+            return
+        }
+        decisionDedupUntilByPeer[peerKey] = now.addingTimeInterval(1.0)
+        log.log("decision_dedup peer=\(peerKey) action=\(action)")
+    }
+
+    private func logUDPDecoderError(streamID: Int, reason: String) {
+        let now = Date()
+        let lastLog = udpDecoderLogLastByReason[reason] ?? .distantPast
+        let intervalElapsed = now.timeIntervalSince(lastLog) >= udpDecoderLogInterval
+
+        if !intervalElapsed {
+            udpDecoderLogSuppressedByReason[reason, default: 0] += 1
+            return
+        }
+
+        let suppressed = udpDecoderLogSuppressedByReason[reason] ?? 0
+        udpDecoderLogSuppressedByReason[reason] = 0
+        udpDecoderLogLastByReason[reason] = now
+
+        if suppressed > 0 {
+            log.log("UDP_DECODER stream=\(streamID) event=decode_error reason=\(reason) suppressed=\(suppressed)")
+        } else {
+            log.log("UDP_DECODER stream=\(streamID) event=decode_error reason=\(reason)")
+        }
+    }
+
+    private func currentHealthState() -> String {
+        if thermalForcedAdaptive {
+            return "thermal_guard_adaptive"
+        }
+        if backoffActiveHosts > 0 {
+            return "mitigating_retries"
+        }
+        if latestUDPDecodeErrorRatePerSec >= 1.0 || udpDecodeStrictDropCount > 0 {
+            return "strict_udp_drop_mode"
+        }
+        return "healthy"
+    }
+
+    private func evaluatePolicy(kind: String, evaluator: () -> PolicyDecision) -> PolicyDecision {
+        let start = DispatchTime.now().uptimeNanoseconds
+        let decision = evaluator()
+        let elapsedMicros = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000.0
+        policyEvalMicrosSamples.append(elapsedMicros)
+        if policyEvalMicrosSamples.count > 500 {
+            policyEvalMicrosSamples.removeFirst(policyEvalMicrosSamples.count - 500)
+        }
+        if !policyEvalMicrosSamples.isEmpty {
+            let sorted = policyEvalMicrosSamples.sorted()
+            let idx = max(0, min(sorted.count - 1, Int(Double(sorted.count - 1) * 0.95)))
+            policyEvalMicrosP95 = sorted[idx]
+        }
+        if decision.classification.bucket == .reels {
+            totalReelsAttempts += 1
+            if decision.action == .blockNow {
+                blockedReelsAttempts += 1
+            }
+            if totalReelsAttempts > 0 {
+                playbackBlockRateEstimate = Double(blockedReelsAttempts) / Double(totalReelsAttempts)
+            }
+        }
+        if kind == "opaque_dedup" {
+            decisionDedupHits += 1
+        }
+        return decision
     }
 
     private func logRelayEnd(tracker: RelayTracker, reason: String) {
@@ -1008,23 +1428,49 @@ final class SOCKSProxyServer {
                     // Extract SNI from early upload packets (ClientHello can be fragmented).
                     if tracker.sni == nil && tracker.sniProbeAttempts < BubbleConstants.maxSNIProbePackets {
                         tracker.sniProbeAttempts += 1
-                        if let sni = self.extractSNI(from: data) {
+                        if tracker.sniProbeBuffer.count < 16 * 1024 {
+                            tracker.sniProbeBuffer.append(data)
+                        }
+                        if let sni = self.extractSNI(from: tracker.sniProbeBuffer) {
                             tracker.sni = sni
                             self.log.logConnection("TCP #\(tracker.id): SNI=\(sni) IP=\(tracker.host):\(tracker.port)")
                             TunnelLogger.connectionLog.log("[SNI] \(sni, privacy: .public)")
+                            let earlyDecision = self.evaluatePolicy(kind: "early_tls") {
+                                self.filter.evaluateEarlyTLS(host: tracker.host, sni: sni, port: tracker.port)
+                            }
+                            if earlyDecision.action == .blockNow {
+                                self.statsBlocked += 1
+                                self.log.log("EARLY TLS BLOCK #\(tracker.id): killed \(sni)")
+                                self.recordEvent(
+                                    type: .streamBlocked,
+                                    connId: tracker.id,
+                                    host: tracker.host,
+                                    port: tracker.port,
+                                    sni: tracker.sni,
+                                    detail: "Blocked during ClientHello",
+                                    bytesDown: tracker.bytesDown,
+                                    decision: earlyDecision
+                                )
+                                self.logRelayEnd(tracker: tracker, reason: "stream-blocked")
+                                source.cancel()
+                                destination.cancel()
+                                return
+                            }
                         }
                     }
                 case .download:
                     let projectedBytesDown = tracker.bytesDown + data.count
 
-                    let streamDecision = self.filter.evaluateStream(
-                        host: tracker.host,
-                        sni: tracker.sni,
-                        port: tracker.port,
-                        bytesDown: projectedBytesDown,
-                        connectionAge: Date().timeIntervalSince(tracker.startTime),
-                        parallelConnections: self.activeRelays.count
-                    )
+                    let streamDecision = self.evaluatePolicy(kind: "stream") {
+                        self.filter.evaluateStream(
+                            host: tracker.host,
+                            sni: tracker.sni,
+                            port: tracker.port,
+                            bytesDown: projectedBytesDown,
+                            connectionAge: Date().timeIntervalSince(tracker.startTime),
+                            parallelConnections: self.activeRelays.count
+                        )
+                    }
 
                     let threshold = streamDecision.blockAfterBytes
                     let shouldBlockNow = streamDecision.action == .blockNow
@@ -1089,6 +1535,10 @@ final class SOCKSProxyServer {
     }
 
     private static func memoryUsageMB() -> String {
+        String(format: "%.1f", memoryUsageMBValue())
+    }
+
+    private static func memoryUsageMBValue() -> Double {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
         let result = withUnsafeMutablePointer(to: &info) {
@@ -1097,9 +1547,9 @@ final class SOCKSProxyServer {
             }
         }
         if result == KERN_SUCCESS {
-            return String(format: "%.1f", Double(info.resident_size) / 1_048_576)
+            return Double(info.resident_size) / 1_048_576
         }
-        return "?"
+        return 0
     }
 
     private func buildSocksReply(reply: UInt8, atyp: UInt8, addr: [UInt8], port: UInt16) -> Data {

@@ -40,6 +40,8 @@ enum BubbleConstants {
 
     // MARK: - UserDefaults Keys
     static let strictUDPBlockEnabledKey = "strictUDPBlockEnabled"
+    static let adaptiveBackoffEnabledKey = "adaptiveBackoffEnabled"
+    static let udpDecoderFailOpenEnabledKey = "udpDecoderFailOpenEnabled"
     static let featurePolicyKey = "featurePolicyV1"
     static let classifierTuningKey = "classifierTuningV1"
 

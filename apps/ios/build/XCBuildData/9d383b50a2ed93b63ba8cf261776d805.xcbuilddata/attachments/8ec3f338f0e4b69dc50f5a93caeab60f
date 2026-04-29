@@ -1,0 +1,4 @@
+module Tun2SocksKit {
+header "Tun2SocksKit-Swift.h"
+export *
+}

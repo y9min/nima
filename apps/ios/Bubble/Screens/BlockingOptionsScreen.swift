@@ -30,6 +30,11 @@ struct BlockingOptionsScreen: View {
                         .font(BubbleFonts.headerTitle)
                         .foregroundStyle(.white)
                         .padding(.top, BubbleSpacing.xl)
+
+                    Text("Changes apply on next VPN reconnect")
+                        .font(BubbleFonts.coolvetica(size: 13))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .padding(.top, BubbleSpacing.sm)
                 }
 
                 Spacer()

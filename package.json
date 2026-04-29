@@ -7,7 +7,10 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "clean": "turbo run clean"
+    "clean": "turbo run clean",
+    "safe-fix": "bash ./scripts/safe-fix.sh",
+    "quality-gate": "bash ./scripts/quality-gate.sh",
+    "smoke-ios": "bash ./scripts/smoke-ios-filter.sh"
   },
   "devDependencies": {
     "turbo": "^2"

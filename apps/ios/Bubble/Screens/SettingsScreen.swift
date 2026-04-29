@@ -7,7 +7,13 @@ struct SettingsScreen: View {
 
     @AppStorage(BubbleConstants.strictUDPBlockEnabledKey,
                 store: UserDefaults(suiteName: BubbleConstants.appGroupID))
-    private var strictUDPBlockEnabled: Bool = false
+    private var strictUDPBlockEnabled: Bool = true
+    @AppStorage(BubbleConstants.adaptiveBackoffEnabledKey,
+                store: UserDefaults(suiteName: BubbleConstants.appGroupID))
+    private var adaptiveBackoffEnabled: Bool = true
+    @AppStorage(BubbleConstants.udpDecoderFailOpenEnabledKey,
+                store: UserDefaults(suiteName: BubbleConstants.appGroupID))
+    private var udpDecoderFailOpenEnabled: Bool = true
 
     @State private var showExtensionLog = false
 
@@ -25,6 +31,8 @@ struct SettingsScreen: View {
 
                     // Advanced networking toggle
                     strictUDPSection
+                    adaptiveStabilitySection
+                    udpCompatibilitySection
 
                     // App Log
                     appLogSection
@@ -49,6 +57,16 @@ struct SettingsScreen: View {
         }
         .sheet(isPresented: $showExtensionLog) {
             extensionLogSheet
+        }
+        .onAppear {
+            AppOptionsService.shared.setAdaptiveBackoffEnabled(adaptiveBackoffEnabled)
+            AppOptionsService.shared.setUDPDecoderFailOpenEnabled(udpDecoderFailOpenEnabled)
+        }
+        .onChange(of: adaptiveBackoffEnabled) { _, value in
+            AppOptionsService.shared.setAdaptiveBackoffEnabled(value)
+        }
+        .onChange(of: udpDecoderFailOpenEnabled) { _, value in
+            AppOptionsService.shared.setUDPDecoderFailOpenEnabled(value)
         }
     }
 
@@ -95,12 +113,59 @@ struct SettingsScreen: View {
 
     private var strictUDPSection: some View {
         HStack {
-            Text("Strict QUIC/UDP Block")
-                .font(BubbleFonts.coolvetica(size: 16))
-                .foregroundColor(.white)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Strict QUIC/UDP Block")
+                    .font(BubbleFonts.coolvetica(size: 16))
+                    .foregroundColor(.white)
+                Text("Drop malformed UDP control frames. Applies on next VPN reconnect.")
+                    .font(BubbleFonts.coolvetica(size: 12))
+                    .foregroundColor(BubbleColors.white60)
+            }
             Spacer()
             Toggle("", isOn: $strictUDPBlockEnabled)
                 .labelsHidden()
+                .disabled(true)
+        }
+        .padding(.horizontal, BubbleSpacing.md)
+        .padding(.vertical, BubbleSpacing.sm)
+        .background(Color.white.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var adaptiveStabilitySection: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Adaptive Stability")
+                    .font(BubbleFonts.coolvetica(size: 16))
+                    .foregroundColor(.white)
+                Text("Reduces reconnect loops to lower phone heat.")
+                    .font(BubbleFonts.coolvetica(size: 12))
+                    .foregroundColor(BubbleColors.white60)
+            }
+            Spacer()
+            Toggle("", isOn: $adaptiveBackoffEnabled)
+                .labelsHidden()
+        }
+        .padding(.horizontal, BubbleSpacing.md)
+        .padding(.vertical, BubbleSpacing.sm)
+        .background(Color.white.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var udpCompatibilitySection: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("UDP Compatibility Mode")
+                    .font(BubbleFonts.coolvetica(size: 16))
+                    .foregroundColor(.white)
+                Text("Disabled in Zero Leak mode (strict drop is always enforced).")
+                    .font(BubbleFonts.coolvetica(size: 12))
+                    .foregroundColor(BubbleColors.white60)
+            }
+            Spacer()
+            Toggle("", isOn: $udpDecoderFailOpenEnabled)
+                .labelsHidden()
+                .disabled(true)
         }
         .padding(.horizontal, BubbleSpacing.md)
         .padding(.vertical, BubbleSpacing.sm)

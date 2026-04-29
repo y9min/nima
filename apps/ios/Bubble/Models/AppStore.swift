@@ -13,13 +13,25 @@ final class AppStore {
             options: [
                 BlockingOption(id: "reels", label: "reels", isEnabled: false)
             ]
+        ),
+        BlockedApp(
+            id: "facebook",
+            name: "FACEBOOK",
+            iconName: "shield.fill",
+            platform: "facebook",
+            options: [
+                BlockingOption(id: "reels", label: "reels", isEnabled: false)
+            ]
         )
     ]
 
     private let optionsService = AppOptionsService.shared
     @ObservationIgnored private var vpnStartHandler: (() -> Void)?
+    @ObservationIgnored private var vpnStopHandler: (() -> Void)?
     @ObservationIgnored private var vpnStatusProvider: (() -> NEVPNStatus)?
     @ObservationIgnored private var vpnStartInFlight = false
+    @ObservationIgnored private var pendingVPNStopTask: Task<Void, Never>?
+    @ObservationIgnored private let vpnAutoStopDebounceNanoseconds: UInt64 = 10_000_000_000
 
     init() {
         refreshFromOptionsService()
@@ -32,11 +44,16 @@ final class AppStore {
     func toggleOption(appId: String, optionId: String) {
         optionsService.toggleOption(appId: appId, optionId: optionId)
         refreshFromOptionsService()
-        maybeAutoStartVPNAfterToggle()
+        maybeAutoManageVPNAfterToggle()
     }
 
-    func configureVPNAutostart(startVPN: @escaping () -> Void, vpnStatus: @escaping () -> NEVPNStatus) {
+    func configureVPNAutostart(
+        startVPN: @escaping () -> Void,
+        stopVPN: @escaping () -> Void,
+        vpnStatus: @escaping () -> NEVPNStatus
+    ) {
         vpnStartHandler = startVPN
+        vpnStopHandler = stopVPN
         vpnStatusProvider = vpnStatus
     }
 
@@ -48,6 +65,16 @@ final class AppStore {
                 apps[appIndex].options[optIndex].isEnabled = optionsService.isOptionSelected(appId: appId, optionId: optId)
             }
         }
+    }
+
+    private func maybeAutoManageVPNAfterToggle() {
+        if hasAnyEnabledBlockingOption {
+            pendingVPNStopTask?.cancel()
+            pendingVPNStopTask = nil
+            maybeAutoStartVPNAfterToggle()
+            return
+        }
+        scheduleAutoStopVPNAfterDebounce()
     }
 
     private func maybeAutoStartVPNAfterToggle() {
@@ -71,6 +98,31 @@ final class AppStore {
                 if !stillConnecting {
                     vpnStartInFlight = false
                 }
+            }
+        }
+    }
+
+    private func scheduleAutoStopVPNAfterDebounce() {
+        guard let vpnStopHandler, let vpnStatusProvider else { return }
+        pendingVPNStopTask?.cancel()
+
+        pendingVPNStopTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: vpnAutoStopDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard !self.hasAnyEnabledBlockingOption else {
+                    self.pendingVPNStopTask = nil
+                    return
+                }
+
+                let status = vpnStatusProvider()
+                let shouldStop = status == .connected || status == .connecting || status == .reasserting
+                if shouldStop {
+                    self.vpnStartInFlight = false
+                    vpnStopHandler()
+                }
+                self.pendingVPNStopTask = nil
             }
         }
     }

@@ -8,5 +8,15 @@
         "isSelected": false
       }
     ]
+  },
+  "facebook": {
+    "appId": "facebook",
+    "options": [
+      {
+        "id": "reels",
+        "label": "reels",
+        "isSelected": false
+      }
+    ]
   }
 }

@@ -46,6 +46,15 @@ struct StatsSnapshot: Codable {
     let attemptedByBucket: [String: Int]
     let blockedByBucket: [String: Int]
     let possibleFalsePositiveRetries: Int
+    let healthState: String
+    let retryStormEvents: Int
+    let backoffActiveHosts: Int
+    let udpDecodeStrictDropCount: Int
+    let udpDecodeStrictDropDebouncedReopens: Int
+    let connRatePerSec: Double
+    let blockRatePerSec: Double
+    let udpDecodeErrorRatePerSec: Double
+    let memoryMB: Double
 
     init(
         totalConns: Int,
@@ -63,7 +72,16 @@ struct StatsSnapshot: Codable {
         udpModeControlPrefixed: Int,
         attemptedByBucket: [String: Int] = [:],
         blockedByBucket: [String: Int] = [:],
-        possibleFalsePositiveRetries: Int = 0
+        possibleFalsePositiveRetries: Int = 0,
+        healthState: String = "healthy",
+        retryStormEvents: Int = 0,
+        backoffActiveHosts: Int = 0,
+        udpDecodeStrictDropCount: Int = 0,
+        udpDecodeStrictDropDebouncedReopens: Int = 0,
+        connRatePerSec: Double = 0,
+        blockRatePerSec: Double = 0,
+        udpDecodeErrorRatePerSec: Double = 0,
+        memoryMB: Double = 0
     ) {
         self.totalConns = totalConns
         self.tcpAllowed = tcpAllowed
@@ -81,6 +99,15 @@ struct StatsSnapshot: Codable {
         self.attemptedByBucket = attemptedByBucket
         self.blockedByBucket = blockedByBucket
         self.possibleFalsePositiveRetries = possibleFalsePositiveRetries
+        self.healthState = healthState
+        self.retryStormEvents = retryStormEvents
+        self.backoffActiveHosts = backoffActiveHosts
+        self.udpDecodeStrictDropCount = udpDecodeStrictDropCount
+        self.udpDecodeStrictDropDebouncedReopens = udpDecodeStrictDropDebouncedReopens
+        self.connRatePerSec = connRatePerSec
+        self.blockRatePerSec = blockRatePerSec
+        self.udpDecodeErrorRatePerSec = udpDecodeErrorRatePerSec
+        self.memoryMB = memoryMB
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -100,10 +127,25 @@ struct StatsSnapshot: Codable {
         case attemptedByBucket
         case blockedByBucket
         case possibleFalsePositiveRetries
+        case healthState
+        case retryStormEvents
+        case backoffActiveHosts
+        case udpDecodeStrictDropCount
+        case udpDecodeStrictDropDebouncedReopens
+        case connRatePerSec
+        case blockRatePerSec
+        case udpDecodeErrorRatePerSec
+        case memoryMB
+    }
+
+    private enum LegacyCodingKeys: String, CodingKey {
+        case udpDecodeFailOpenCount
+        case udpDecodeDebouncedReopens
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
         totalConns = try c.decode(Int.self, forKey: .totalConns)
         tcpAllowed = try c.decode(Int.self, forKey: .tcpAllowed)
         tcpBlocked = try c.decode(Int.self, forKey: .tcpBlocked)
@@ -120,6 +162,19 @@ struct StatsSnapshot: Codable {
         attemptedByBucket = try c.decodeIfPresent([String: Int].self, forKey: .attemptedByBucket) ?? [:]
         blockedByBucket = try c.decodeIfPresent([String: Int].self, forKey: .blockedByBucket) ?? [:]
         possibleFalsePositiveRetries = try c.decodeIfPresent(Int.self, forKey: .possibleFalsePositiveRetries) ?? 0
+        healthState = try c.decodeIfPresent(String.self, forKey: .healthState) ?? "healthy"
+        retryStormEvents = try c.decodeIfPresent(Int.self, forKey: .retryStormEvents) ?? 0
+        backoffActiveHosts = try c.decodeIfPresent(Int.self, forKey: .backoffActiveHosts) ?? 0
+        udpDecodeStrictDropCount = try c.decodeIfPresent(Int.self, forKey: .udpDecodeStrictDropCount)
+            ?? legacy.decodeIfPresent(Int.self, forKey: .udpDecodeFailOpenCount)
+            ?? 0
+        udpDecodeStrictDropDebouncedReopens = try c.decodeIfPresent(Int.self, forKey: .udpDecodeStrictDropDebouncedReopens)
+            ?? legacy.decodeIfPresent(Int.self, forKey: .udpDecodeDebouncedReopens)
+            ?? 0
+        connRatePerSec = try c.decodeIfPresent(Double.self, forKey: .connRatePerSec) ?? 0
+        blockRatePerSec = try c.decodeIfPresent(Double.self, forKey: .blockRatePerSec) ?? 0
+        udpDecodeErrorRatePerSec = try c.decodeIfPresent(Double.self, forKey: .udpDecodeErrorRatePerSec) ?? 0
+        memoryMB = try c.decodeIfPresent(Double.self, forKey: .memoryMB) ?? 0
     }
 }
 

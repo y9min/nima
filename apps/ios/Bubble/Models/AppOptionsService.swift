@@ -2,25 +2,75 @@ import Foundation
 import Observation
 
 struct FeaturePolicyV1: Codable {
+    enum ReelsBlockMode: String, Codable {
+        case legacySafe = "legacy_safe"
+        case strict
+        case hardPreload = "hard_preload"
+    }
+
+    struct AppMetaIPGuardConfig: Codable {
+        var enabled: Bool
+    }
+
+    struct MetaIPGuardConfig: Codable {
+        var instagram: AppMetaIPGuardConfig
+        var facebook: AppMetaIPGuardConfig
+    }
+
+    struct ReelsPolicyConfig: Codable {
+        var instagramMode: ReelsBlockMode
+        var facebookMode: ReelsBlockMode
+    }
+
     let version: Int
     var profile: String
     var shadowModeEnabled: Bool
+    var adaptiveBackoffEnabled: Bool
+    var udpDecoderFailOpenEnabled: Bool
+    var retryStormThreshold: Int
+    var retryStormWindowSec: Int
+    var backoffMinSec: Int
+    var backoffMaxSec: Int
+    var metaIpGuard: MetaIPGuardConfig
+    var reelsPolicy: ReelsPolicyConfig
     var appToggles: [String: [String: Bool]]
 
     init(
         version: Int = 1,
         profile: String = "minimal-impact",
         shadowModeEnabled: Bool = false,
+        adaptiveBackoffEnabled: Bool = true,
+        udpDecoderFailOpenEnabled: Bool = true,
+        retryStormThreshold: Int = 8,
+        retryStormWindowSec: Int = 3,
+        backoffMinSec: Int = 10,
+        backoffMaxSec: Int = 30,
+        metaIpGuard: MetaIPGuardConfig = MetaIPGuardConfig(
+            instagram: AppMetaIPGuardConfig(enabled: true),
+            facebook: AppMetaIPGuardConfig(enabled: true)
+        ),
+        reelsPolicy: ReelsPolicyConfig = ReelsPolicyConfig(instagramMode: .legacySafe, facebookMode: .hardPreload),
         appToggles: [String: [String: Bool]] = FeaturePolicyV1.defaultToggles
     ) {
         self.version = version
         self.profile = profile
         self.shadowModeEnabled = shadowModeEnabled
+        self.adaptiveBackoffEnabled = adaptiveBackoffEnabled
+        self.udpDecoderFailOpenEnabled = udpDecoderFailOpenEnabled
+        self.retryStormThreshold = retryStormThreshold
+        self.retryStormWindowSec = retryStormWindowSec
+        self.backoffMinSec = backoffMinSec
+        self.backoffMaxSec = backoffMaxSec
+        self.metaIpGuard = metaIpGuard
+        self.reelsPolicy = reelsPolicy
         self.appToggles = appToggles
     }
 
     static let defaultToggles: [String: [String: Bool]] = [
         "instagram": [
+            "reels": false
+        ],
+        "facebook": [
             "reels": false
         ]
     ]
@@ -37,6 +87,10 @@ struct FeaturePolicyV1: Codable {
     }
 
     mutating func mergeDefaults() {
+        retryStormThreshold = max(retryStormThreshold, 1)
+        retryStormWindowSec = max(retryStormWindowSec, 1)
+        backoffMinSec = max(backoffMinSec, 1)
+        backoffMaxSec = max(backoffMaxSec, backoffMinSec)
         for (appId, defaults) in Self.defaultToggles {
             if appToggles[appId] == nil {
                 appToggles[appId] = defaults
@@ -46,6 +100,39 @@ struct FeaturePolicyV1: Codable {
                 appToggles[appId]?[optionId] = value
             }
         }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case profile
+        case shadowModeEnabled
+        case adaptiveBackoffEnabled
+        case udpDecoderFailOpenEnabled
+        case retryStormThreshold
+        case retryStormWindowSec
+        case backoffMinSec
+        case backoffMaxSec
+        case metaIpGuard
+        case reelsPolicy
+        case appToggles
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? "minimal-impact"
+        shadowModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .shadowModeEnabled) ?? false
+        adaptiveBackoffEnabled = try container.decodeIfPresent(Bool.self, forKey: .adaptiveBackoffEnabled) ?? true
+        udpDecoderFailOpenEnabled = try container.decodeIfPresent(Bool.self, forKey: .udpDecoderFailOpenEnabled) ?? true
+        retryStormThreshold = max(1, try container.decodeIfPresent(Int.self, forKey: .retryStormThreshold) ?? 8)
+        retryStormWindowSec = max(1, try container.decodeIfPresent(Int.self, forKey: .retryStormWindowSec) ?? 3)
+        backoffMinSec = max(1, try container.decodeIfPresent(Int.self, forKey: .backoffMinSec) ?? 10)
+        backoffMaxSec = max(backoffMinSec, try container.decodeIfPresent(Int.self, forKey: .backoffMaxSec) ?? 30)
+        metaIpGuard = try container.decodeIfPresent(MetaIPGuardConfig.self, forKey: .metaIpGuard)
+            ?? MetaIPGuardConfig(instagram: AppMetaIPGuardConfig(enabled: true), facebook: AppMetaIPGuardConfig(enabled: true))
+        reelsPolicy = try container.decodeIfPresent(ReelsPolicyConfig.self, forKey: .reelsPolicy)
+            ?? ReelsPolicyConfig(instagramMode: .legacySafe, facebookMode: .hardPreload)
+        appToggles = try container.decodeIfPresent([String: [String: Bool]].self, forKey: .appToggles) ?? FeaturePolicyV1.defaultToggles
     }
 }
 
@@ -129,6 +216,8 @@ final class AppOptionsService {
                 policy.set(appId: appId, optionId: optionId, isEnabled: isSelected)
             }
         }
+        policy.adaptiveBackoffEnabled = defaults?.bool(forKey: BubbleConstants.adaptiveBackoffEnabledKey) ?? policy.adaptiveBackoffEnabled
+        policy.udpDecoderFailOpenEnabled = defaults?.bool(forKey: BubbleConstants.udpDecoderFailOpenEnabledKey) ?? policy.udpDecoderFailOpenEnabled
         policy.mergeDefaults()
         if let data = try? JSONEncoder().encode(policy) {
             defaults?.set(data, forKey: BubbleConstants.featurePolicyKey)
@@ -143,6 +232,24 @@ final class AppOptionsService {
         var policy = decoded
         policy.mergeDefaults()
         return policy
+    }
+
+    func setAdaptiveBackoffEnabled(_ isEnabled: Bool) {
+        defaults?.set(isEnabled, forKey: BubbleConstants.adaptiveBackoffEnabledKey)
+        var policy = loadFeaturePolicy()
+        policy.adaptiveBackoffEnabled = isEnabled
+        if let data = try? JSONEncoder().encode(policy) {
+            defaults?.set(data, forKey: BubbleConstants.featurePolicyKey)
+        }
+    }
+
+    func setUDPDecoderFailOpenEnabled(_ isEnabled: Bool) {
+        defaults?.set(isEnabled, forKey: BubbleConstants.udpDecoderFailOpenEnabledKey)
+        var policy = loadFeaturePolicy()
+        policy.udpDecoderFailOpenEnabled = isEnabled
+        if let data = try? JSONEncoder().encode(policy) {
+            defaults?.set(data, forKey: BubbleConstants.featurePolicyKey)
+        }
     }
 
     func getOptions(for appId: String) -> AppOptionsData? {

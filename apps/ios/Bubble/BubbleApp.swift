@@ -12,6 +12,8 @@ struct BubbleApp: App {
         UserDefaults(suiteName: BubbleConstants.appGroupID)?
             .register(defaults: [
                 BubbleConstants.strictUDPBlockEnabledKey: true,
+                BubbleConstants.adaptiveBackoffEnabledKey: true,
+                BubbleConstants.udpDecoderFailOpenEnabledKey: true
             ])
         _ = AppOptionsService.shared
     }
@@ -84,6 +86,7 @@ struct BubbleApp: App {
                 vpnManager.setup()
                 store.configureVPNAutostart(
                     startVPN: { vpnManager.startVPN() },
+                    stopVPN: { vpnManager.stopVPN() },
                     vpnStatus: { vpnManager.vpnStatus }
                 )
             }
