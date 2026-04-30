@@ -61,13 +61,10 @@ final class UDPControlStreamDecoderTests: XCTestCase {
     func testInvalidLengthClosesOnlyStream() {
         let decoder = UDPControlStreamDecoder(maxFrameSize: maxFrame)
         let result = decoder.append(Data([0xff, 0xff]))
-
-        switch result {
-        case .success:
-            XCTFail("Expected badLength error")
-        case .failure(let err):
-            XCTAssertEqual(err, .badLength)
+        guard case .failed(let err) = result.status else {
+            return XCTFail("Expected hard badLength error")
         }
+        XCTAssertEqual(err, .badLength)
     }
 
     func testModeMismatchAfterControlLockFails() {
@@ -77,13 +74,10 @@ final class UDPControlStreamDecoderTests: XCTestCase {
 
         let plainFrame = Data([0x00, 0x08, 0x0a, 0x01, 0x08, 0x08, 0x04, 0x04, 0x00, 0x35])
         let result = decoder.append(plainFrame)
-
-        switch result {
-        case .success:
-            XCTFail("Expected badPrefix on mode mismatch")
-        case .failure(let err):
-            XCTAssertEqual(err, .badPrefix)
+        guard case .failed(let err) = result.status else {
+            return XCTFail("Expected hard badPrefix error")
         }
+        XCTAssertEqual(err, .badPrefix)
     }
 
     func testReplay636fPatternNoResyncSkip() {
@@ -99,20 +93,41 @@ final class UDPControlStreamDecoderTests: XCTestCase {
 
         let badTail = Data([0x63, 0x6f, 0x6d, 0x00])
         let second = decoder.append(badTail)
-
-        switch second {
-        case .success:
-            XCTFail("Expected badLength for 0x636f")
-        case .failure(let err):
-            XCTAssertEqual(err, .badLength)
+        guard case .recovered(let err) = second.status else {
+            return XCTFail("Expected recovered badLength for 0x636f")
         }
+        XCTAssertEqual(err, .badLength)
     }
 
-    private func tryUnwrapFrames(_ result: Result<[UDPControlFrame], UDPControlDecoderError>, file: StaticString = #filePath, line: UInt = #line) -> [UDPControlFrame] {
-        switch result {
-        case .success(let frames):
-            return frames
-        case .failure(let err):
+    func testResyncCanRecoverThenParseNextFrame() {
+        let decoder = UDPControlStreamDecoder(maxFrameSize: maxFrame)
+        let payload: [UInt8] = [0x0a, 0x01, 0x08, 0x08, 0x08, 0x08, 0x00, 0x35]
+        // invalid high byte followed by valid short frame length in low byte
+        let stream = Data([0x63, 0x08] + payload)
+        let result = decoder.append(stream)
+        guard case .recovered(let err) = result.status else {
+            return XCTFail("Expected recovered result")
+        }
+        XCTAssertEqual(err, .badLength)
+        XCTAssertEqual(result.frames.count, 1)
+        XCTAssertEqual(result.frames[0].payload, payload)
+    }
+
+    func testHardFailureAfterResyncBudgetExhausted() {
+        let decoder = UDPControlStreamDecoder(maxFrameSize: maxFrame, maxResyncAttempts: 1)
+        // two impossible prefixes without valid frame in-between
+        let result = decoder.append(Data([0x63, 0x6f, 0x70, 0x71]))
+        guard case .failed(let err) = result.status else {
+            return XCTFail("Expected hard failure after resync budget")
+        }
+        XCTAssertEqual(err, .badLength)
+    }
+
+    private func tryUnwrapFrames(_ result: UDPControlAppendResult, file: StaticString = #filePath, line: UInt = #line) -> [UDPControlFrame] {
+        switch result.status {
+        case .ok, .recovered:
+            return result.frames
+        case .failed(let err):
             XCTFail("Unexpected decoder failure: \(err)", file: file, line: line)
             return []
         }

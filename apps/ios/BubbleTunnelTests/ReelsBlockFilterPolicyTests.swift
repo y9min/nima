@@ -17,7 +17,8 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         return ReelsBlockFilter(sharedDefaults: defaults)
     }
 
-    func testReelsOnMediaHostBlocksNow() {
+    // Policy baseline: reels media block criteria must not regress.
+    func testPolicyBaselineReelsOnMediaHostBlocksNow() {
         var policy = FeaturePolicyV1.defaultPolicy()
         policy.set(appId: "instagram", optionId: "reels", isEnabled: true)
         let filter = makeFilter(policy: policy)
@@ -35,7 +36,53 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertEqual(decision.reason, "reels_media_block_now")
     }
 
-    func testReelsOnControlPlaneBlocksNow() {
+    func testPolicyBaselineReelsOffMediaHostAllows() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "reels", isEnabled: false)
+        let filter = makeFilter(policy: policy)
+
+        let decision = filter.evaluateStream(
+            host: "scontent-lhr8-1.cdninstagram.com",
+            sni: "scontent-lhr8-1.cdninstagram.com",
+            port: 443,
+            bytesDown: 3_000,
+            connectionAge: 0.2,
+            parallelConnections: 2
+        )
+
+        XCTAssertEqual(decision.action, .allow)
+        XCTAssertEqual(decision.reason, "reels_toggle_off")
+    }
+
+    func testReelsOnEssentialControlAllows() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        let iDecision = filter.evaluateStream(
+            host: "i.instagram.com",
+            sni: "i.instagram.com",
+            port: 443,
+            bytesDown: 4_000,
+            connectionAge: 0.3,
+            parallelConnections: 2
+        )
+        XCTAssertEqual(iDecision.action, .allow)
+        XCTAssertEqual(iDecision.reason, "essential_control_allow")
+
+        let testGatewayDecision = filter.evaluateStream(
+            host: "test-gateway.instagram.com",
+            sni: "test-gateway.instagram.com",
+            port: 443,
+            bytesDown: 4_000,
+            connectionAge: 0.3,
+            parallelConnections: 2
+        )
+        XCTAssertEqual(testGatewayDecision.action, .allow)
+        XCTAssertEqual(testGatewayDecision.reason, "essential_control_allow")
+    }
+
+    func testReelsOnNonEssentialControlStillBlocks() {
         var policy = FeaturePolicyV1.defaultPolicy()
         policy.set(appId: "instagram", optionId: "reels", isEnabled: true)
         let filter = makeFilter(policy: policy)

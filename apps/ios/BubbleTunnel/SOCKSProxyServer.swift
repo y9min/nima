@@ -99,10 +99,20 @@ final class SOCKSProxyServer {
     private var udpDecodeBadPayload = 0
     private var udpModePlain = 0
     private var udpModeControlPrefixed = 0
+    private var udpDecodeModeDetected = 0
+    private var udpDecodeResyncAttempted = 0
+    private var udpDecodeResyncSuccess = 0
+    private var udpDecodeBadLengthHardFail = 0
     private var attemptedByBucket: [String: Int] = [:]
     private var blockedByBucket: [String: Int] = [:]
     private var possibleFalsePositiveRetries = 0
     private var recentBlockedByHost: [String: Date] = [:]
+    private var blockedSuppressedTCP = 0
+    private var blockedSuppressedUDP = 0
+    private var blockedSuppression: [String: BlockSuppressionState] = [:]
+    private let blockSuppressionCooldown: TimeInterval = 1.5
+    private let blockSuppressionLogCap = 3
+    private let blockSuppressionSummaryEvery = 10
     private var statsTimer: DispatchSourceTimer?
 
     // Active relay tracking for JSON stats
@@ -209,7 +219,9 @@ final class SOCKSProxyServer {
             let total = self.connectionCount
             guard total > 0 else { return }
             let memMB = Self.memoryUsageMB()
-            self.log.log("SOCKS5 STATS: \(total) total, \(self.activeConnectionCount) active, \(self.activeRelays.count) relays, \(self.statsAllowed) allowed, \(self.statsBlocked) blocked, \(self.statsUDP) UDP, \(self.statsErrors) errors, udpActive=\(self.activeUDPStreams), udpOpened=\(self.totalUDPStreamsOpened), udpClosed=\(self.totalUDPStreamsClosed), snapshots=\(self.snapshotHistory.count), mem=\(memMB)MB")
+            self.log.log("SOCKS5 STATS: \(total) total, \(self.activeConnectionCount) active, \(self.activeRelays.count) relays, \(self.statsAllowed) allowed, \(self.statsBlocked) blocked, \(self.statsUDP) UDP, \(self.statsErrors) errors, udpActive=\(self.activeUDPStreams), udpOpened=\(self.totalUDPStreamsOpened), udpClosed=\(self.totalUDPStreamsClosed), modeDetected=\(self.udpDecodeModeDetected), resyncAttempts=\(self.udpDecodeResyncAttempted), resyncSuccess=\(self.udpDecodeResyncSuccess), badLenHardFail=\(self.udpDecodeBadLengthHardFail), snapshots=\(self.snapshotHistory.count), mem=\(memMB)MB")
+            self.log.log("SUPPRESSION STATS: tcp=\(self.blockedSuppressedTCP) udp=\(self.blockedSuppressedUDP) keys=\(self.blockedSuppression.count)")
+            self.pruneSuppressionState(now: Date())
         }
         timer.resume()
         statsTimer = timer
@@ -306,9 +318,16 @@ final class SOCKSProxyServer {
             udpDecodeBadPayload: udpDecodeBadPayload,
             udpModePlain: udpModePlain,
             udpModeControlPrefixed: udpModeControlPrefixed,
+            udpDecodeModeDetected: udpDecodeModeDetected,
+            udpDecodeResyncAttempted: udpDecodeResyncAttempted,
+            udpDecodeResyncSuccess: udpDecodeResyncSuccess,
+            udpDecodeBadLengthHardFail: udpDecodeBadLengthHardFail,
             attemptedByBucket: attemptedByBucket,
             blockedByBucket: blockedByBucket,
-            possibleFalsePositiveRetries: possibleFalsePositiveRetries
+            possibleFalsePositiveRetries: possibleFalsePositiveRetries,
+            blockedSuppressedTCP: blockedSuppressedTCP,
+            blockedSuppressedUDP: blockedSuppressedUDP,
+            suppressionKeysActive: blockedSuppression.count
         )
 
         let topDomains = domainStats
@@ -523,6 +542,12 @@ final class SOCKSProxyServer {
 
         switch decision.action {
         case .blockNow:
+            if shouldSuppressBlockedFlow(host: host, port: port, reason: decision.reason, transport: "tcp") {
+                blockedSuppressedTCP += 1
+                activeConnectionCount -= 1
+                sendSocksError(client: client, reply: 0x05)
+                return
+            }
             self.statsBlocked += 1
             self.activeConnectionCount -= 1
             self.log.log("SOCKS5 #\(id): BLOCKED \(host):\(port)")
@@ -578,23 +603,32 @@ final class SOCKSProxyServer {
             }
 
             if let data, !data.isEmpty {
-                switch state.decoder.append(data) {
-                case .success(let frames):
-                    if let mode = state.decoder.currentMode, state.mode == nil {
-                        state.mode = mode
-                        if mode == .plain {
-                            self.udpModePlain += 1
-                        } else {
-                            self.udpModeControlPrefixed += 1
-                        }
-                        self.log.log("UDP_DECODER stream=\(state.id) event=mode_locked mode=\(mode.rawValue)")
+                let appendResult = state.decoder.append(data)
+                if let mode = state.decoder.currentMode, state.mode == nil {
+                    state.mode = mode
+                    self.udpDecodeModeDetected += 1
+                    if mode == .plain {
+                        self.udpModePlain += 1
+                    } else {
+                        self.udpModeControlPrefixed += 1
                     }
+                    self.log.log("UDP_DECODER stream=\(state.id) event=mode_locked mode=\(mode.rawValue)")
+                }
+                let diagnostics = state.decoder.drainDiagnostics()
+                self.udpDecodeResyncAttempted += diagnostics.resyncAttempts
+                self.udpDecodeResyncSuccess += diagnostics.resyncSuccesses
 
-                    state.pendingFrames.append(contentsOf: frames)
+                state.pendingFrames.append(contentsOf: appendResult.frames)
+
+                switch appendResult.status {
+                case .ok:
                     self.processNextUDPFrame(client: client, state: state)
-
-                case .failure(let decodeError):
-                    self.recordDecoderError(decodeError)
+                case .recovered(let decodeError):
+                    self.recordDecoderError(decodeError, hardFailure: false)
+                    self.log.log("UDP_DECODER stream=\(state.id) event=decode_recovered reason=\(self.decoderReasonCode(decodeError))")
+                    self.processNextUDPFrame(client: client, state: state)
+                case .failed(let decodeError):
+                    self.recordDecoderError(decodeError, hardFailure: true)
                     self.log.log("UDP_DECODER stream=\(state.id) event=decode_error reason=\(self.decoderReasonCode(decodeError))")
                     self.closeUDPControlStream(client: client, state: state, reason: "decode_\(self.decoderReasonCode(decodeError))")
                 }
@@ -632,7 +666,14 @@ final class SOCKSProxyServer {
         log.log("UDP #\(state.id): dest=\(parsed.addr.host):\(parsed.addr.port), payload=\(parsed.payload.count)B")
 
         let decision = filter.evaluateUDP(host: parsed.addr.host, port: parsed.addr.port, payloadBytes: parsed.payload.count)
+        log.log("UDP_POLICY stream=\(state.id) host=\(parsed.addr.host) port=\(parsed.addr.port) action=\(decision.action.rawValue) reason=\(decision.reason) bucket=\(decision.classification.bucket.rawValue)")
         if decision.action == .blockNow {
+            if shouldSuppressBlockedFlow(host: parsed.addr.host, port: parsed.addr.port, reason: decision.reason, transport: "udp") {
+                blockedSuppressedUDP += 1
+                state.processingFrame = false
+                processNextUDPFrame(client: client, state: state)
+                return
+            }
             statsBlocked += 1
             recordEvent(type: .blocked, connId: state.id, host: parsed.addr.host, port: parsed.addr.port, detail: "UDP blocked by policy", decision: decision)
             state.processingFrame = false
@@ -782,12 +823,48 @@ final class SOCKSProxyServer {
         }
     }
 
-    private func recordDecoderError(_ error: UDPControlDecoderError) {
+    private struct BlockSuppressionState {
+        var lastSeen: Date
+        var suppressedHits: Int
+    }
+
+    private func suppressionKey(host: String, port: UInt16, reason: String) -> String {
+        "\(host.lowercased()):\(port):\(reason)"
+    }
+
+    private func shouldSuppressBlockedFlow(host: String, port: UInt16, reason: String, transport: String) -> Bool {
+        let now = Date()
+        let key = suppressionKey(host: host, port: port, reason: reason)
+        if var state = blockedSuppression[key] {
+            if now.timeIntervalSince(state.lastSeen) <= blockSuppressionCooldown {
+                state.lastSeen = now
+                state.suppressedHits += 1
+                blockedSuppression[key] = state
+                if state.suppressedHits >= blockSuppressionLogCap && state.suppressedHits % blockSuppressionSummaryEvery == 0 {
+                    log.log("POLICY_SUPPRESSION transport=\(transport) host=\(host.lowercased()) port=\(port) reason=\(reason) suppressed=\(state.suppressedHits)")
+                }
+                return true
+            }
+            blockedSuppression[key] = BlockSuppressionState(lastSeen: now, suppressedHits: 0)
+            return false
+        }
+        blockedSuppression[key] = BlockSuppressionState(lastSeen: now, suppressedHits: 0)
+        return false
+    }
+
+    private func pruneSuppressionState(now: Date) {
+        blockedSuppression = blockedSuppression.filter { now.timeIntervalSince($0.value.lastSeen) <= (blockSuppressionCooldown * 4.0) }
+    }
+
+    private func recordDecoderError(_ error: UDPControlDecoderError, hardFailure: Bool) {
         switch error {
         case .badPrefix:
             udpDecodeBadPrefix += 1
         case .badLength:
             udpDecodeBadLength += 1
+            if hardFailure {
+                udpDecodeBadLengthHardFail += 1
+            }
         }
     }
 

@@ -205,7 +205,7 @@ final class VPNManager: ObservableObject {
         }
     }
 
-    private func stopVPN() {
+    func stopVPN() {
         guard let manager = self.manager else {
             appendLog("ERROR: Manager not ready")
             return

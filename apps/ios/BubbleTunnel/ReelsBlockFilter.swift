@@ -108,6 +108,9 @@ final class ReelsBlockFilter: ConnectionFilter {
         }
 
         if isControlPlaneDomain(lowerHost) {
+            if isEssentialControlDomain(lowerHost) {
+                return allowDecision(classification: classification, toggles: toggles, reason: "essential_control_allow")
+            }
             return buildDecision(
                 action: .blockNow,
                 classification: classification,
@@ -196,6 +199,11 @@ final class ReelsBlockFilter: ConnectionFilter {
     private func isControlPlaneDomain(_ host: String) -> Bool {
         host.contains("i.instagram.com")
             || host.contains("gateway.instagram.com")
+            || host.contains("test-gateway.instagram.com")
+    }
+
+    private func isEssentialControlDomain(_ host: String) -> Bool {
+        host.contains("i.instagram.com")
             || host.contains("test-gateway.instagram.com")
     }
 

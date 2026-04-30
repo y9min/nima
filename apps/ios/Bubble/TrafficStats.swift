@@ -46,6 +46,9 @@ struct StatsSnapshot: Codable {
     let attemptedByBucket: [String: Int]
     let blockedByBucket: [String: Int]
     let possibleFalsePositiveRetries: Int
+    let blockedSuppressedTCP: Int
+    let blockedSuppressedUDP: Int
+    let suppressionKeysActive: Int
 
     init(
         totalConns: Int,
@@ -63,7 +66,10 @@ struct StatsSnapshot: Codable {
         udpModeControlPrefixed: Int,
         attemptedByBucket: [String: Int] = [:],
         blockedByBucket: [String: Int] = [:],
-        possibleFalsePositiveRetries: Int = 0
+        possibleFalsePositiveRetries: Int = 0,
+        blockedSuppressedTCP: Int = 0,
+        blockedSuppressedUDP: Int = 0,
+        suppressionKeysActive: Int = 0
     ) {
         self.totalConns = totalConns
         self.tcpAllowed = tcpAllowed
@@ -81,6 +87,9 @@ struct StatsSnapshot: Codable {
         self.attemptedByBucket = attemptedByBucket
         self.blockedByBucket = blockedByBucket
         self.possibleFalsePositiveRetries = possibleFalsePositiveRetries
+        self.blockedSuppressedTCP = blockedSuppressedTCP
+        self.blockedSuppressedUDP = blockedSuppressedUDP
+        self.suppressionKeysActive = suppressionKeysActive
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -100,6 +109,9 @@ struct StatsSnapshot: Codable {
         case attemptedByBucket
         case blockedByBucket
         case possibleFalsePositiveRetries
+        case blockedSuppressedTCP
+        case blockedSuppressedUDP
+        case suppressionKeysActive
     }
 
     init(from decoder: Decoder) throws {
@@ -120,6 +132,9 @@ struct StatsSnapshot: Codable {
         attemptedByBucket = try c.decodeIfPresent([String: Int].self, forKey: .attemptedByBucket) ?? [:]
         blockedByBucket = try c.decodeIfPresent([String: Int].self, forKey: .blockedByBucket) ?? [:]
         possibleFalsePositiveRetries = try c.decodeIfPresent(Int.self, forKey: .possibleFalsePositiveRetries) ?? 0
+        blockedSuppressedTCP = try c.decodeIfPresent(Int.self, forKey: .blockedSuppressedTCP) ?? 0
+        blockedSuppressedUDP = try c.decodeIfPresent(Int.self, forKey: .blockedSuppressedUDP) ?? 0
+        suppressionKeysActive = try c.decodeIfPresent(Int.self, forKey: .suppressionKeysActive) ?? 0
     }
 }
 
