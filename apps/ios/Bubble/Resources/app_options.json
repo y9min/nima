@@ -8,5 +8,15 @@
         "isSelected": false
       }
     ]
+  },
+  "tiktok": {
+    "appId": "tiktok",
+    "options": [
+      {
+        "id": "video_block",
+        "label": "video_block",
+        "isSelected": false
+      }
+    ]
   }
 }

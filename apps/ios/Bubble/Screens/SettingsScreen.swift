@@ -76,7 +76,7 @@ struct SettingsScreen: View {
     // MARK: - VPN Toggle
 
     private var vpnToggleButton: some View {
-        Button(action: { vpnManager.toggleVPN() }) {
+        VStack(spacing: BubbleSpacing.xs) {
             Text(vpnManager.vpnStatus == .connected ? "VPN Enabled" : "VPN Disabled")
                 .font(BubbleFonts.pupok(size: 24))
                 .foregroundColor(.white)
@@ -88,6 +88,9 @@ struct SettingsScreen: View {
                     RoundedRectangle(cornerRadius: BubbleSpacing.buttonCornerRadius)
                         .strokeBorder(Color.white, lineWidth: 1)
                 )
+            Text("VPN state is controlled by TikTok/Instagram toggles.")
+                .font(BubbleFonts.coolvetica(size: 12))
+                .foregroundColor(BubbleColors.white60)
         }
     }
 
@@ -139,7 +142,7 @@ struct SettingsScreen: View {
             vpnManager.refreshTunnelLog()
             showExtensionLog = true
         } label: {
-            Text("Show Extension Log")
+            Text("Show Diagnostic Log")
                 .font(BubbleFonts.coolvetica(size: 16))
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
@@ -160,7 +163,7 @@ struct SettingsScreen: View {
                     .textSelection(.enabled)
             }
             .background(Color.black)
-            .navigationTitle("Extension Log")
+            .navigationTitle("Diagnostic Log")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { showExtensionLog = false }

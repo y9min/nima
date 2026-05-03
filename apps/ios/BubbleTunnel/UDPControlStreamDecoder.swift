@@ -15,6 +15,7 @@ enum UDPControlDecoderError: Error, Equatable {
 
 enum UDPControlAppendStatus: Equatable {
     case ok
+    case needMoreBytes
     case recovered(error: UDPControlDecoderError)
     case failed(error: UDPControlDecoderError)
 }
@@ -68,7 +69,10 @@ final class UDPControlStreamDecoder {
             switch state {
             case .awaitPrefix2:
                 guard buffer.count >= 2 else {
-                    return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .ok)
+                    if !emitted.isEmpty {
+                        return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .ok)
+                    }
+                    return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .needMoreBytes)
                 }
 
                 let prefix = Self.readBE16(buffer[0], buffer[1])
@@ -108,7 +112,10 @@ final class UDPControlStreamDecoder {
 
             case .awaitLength2(let controlPrefixed):
                 guard buffer.count >= 2 else {
-                    return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .ok)
+                    if !emitted.isEmpty {
+                        return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .ok)
+                    }
+                    return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .needMoreBytes)
                 }
 
                 let length = Self.readBE16(buffer[0], buffer[1])
@@ -126,7 +133,10 @@ final class UDPControlStreamDecoder {
 
             case .awaitPayload(let length, let controlPrefixed):
                 guard buffer.count >= length else {
-                    return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .ok)
+                    if !emitted.isEmpty {
+                        return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .ok)
+                    }
+                    return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .needMoreBytes)
                 }
 
                 let payload = Array(buffer.prefix(length))

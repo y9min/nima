@@ -58,6 +58,13 @@ final class UDPControlStreamDecoderTests: XCTestCase {
         XCTAssertEqual(allFrames[0].mode, .plain)
     }
 
+    func testNeedMoreBytesStatusForPartialFrame() {
+        let decoder = UDPControlStreamDecoder(maxFrameSize: maxFrame)
+        let partial = decoder.append(Data([0x00]))
+        XCTAssertEqual(partial.frames.count, 0)
+        XCTAssertEqual(partial.status, .needMoreBytes)
+    }
+
     func testInvalidLengthClosesOnlyStream() {
         let decoder = UDPControlStreamDecoder(maxFrameSize: maxFrame)
         let result = decoder.append(Data([0xff, 0xff]))
@@ -125,7 +132,7 @@ final class UDPControlStreamDecoderTests: XCTestCase {
 
     private func tryUnwrapFrames(_ result: UDPControlAppendResult, file: StaticString = #filePath, line: UInt = #line) -> [UDPControlFrame] {
         switch result.status {
-        case .ok, .recovered:
+        case .ok, .recovered, .needMoreBytes:
             return result.frames
         case .failed(let err):
             XCTFail("Unexpected decoder failure: \(err)", file: file, line: line)

@@ -83,8 +83,8 @@ struct BubbleApp: App {
             .onAppear {
                 vpnManager.setup()
                 store.configureVPNAutostart(
-                    startVPN: { vpnManager.startVPN() },
-                    stopVPN: { vpnManager.stopVPN() },
+                    startVPN: { vpnManager.startVPN(source: "app_store.autostart") },
+                    stopVPN: { vpnManager.stopVPN(source: "app_store.autostop") },
                     vpnStatus: { vpnManager.vpnStatus }
                 )
             }

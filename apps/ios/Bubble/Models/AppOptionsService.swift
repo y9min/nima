@@ -5,23 +5,38 @@ struct FeaturePolicyV1: Codable {
     let version: Int
     var profile: String
     var shadowModeEnabled: Bool
+    var transportStabilityMode: Bool
     var appToggles: [String: [String: Bool]]
+    var revision: Int
+    var updatedAt: TimeInterval
+    var updatedBy: String
 
     init(
         version: Int = 1,
         profile: String = "minimal-impact",
         shadowModeEnabled: Bool = false,
-        appToggles: [String: [String: Bool]] = FeaturePolicyV1.defaultToggles
+        transportStabilityMode: Bool = true,
+        appToggles: [String: [String: Bool]] = FeaturePolicyV1.defaultToggles,
+        revision: Int = 0,
+        updatedAt: TimeInterval = Date().timeIntervalSince1970,
+        updatedBy: String = "app.options.init"
     ) {
         self.version = version
         self.profile = profile
         self.shadowModeEnabled = shadowModeEnabled
+        self.transportStabilityMode = transportStabilityMode
         self.appToggles = appToggles
+        self.revision = revision
+        self.updatedAt = updatedAt
+        self.updatedBy = updatedBy
     }
 
     static let defaultToggles: [String: [String: Bool]] = [
         "instagram": [
             "reels": false
+        ],
+        "tiktok": [
+            "video_block": false
         ]
     ]
 
@@ -46,6 +61,47 @@ struct FeaturePolicyV1: Codable {
                 appToggles[appId]?[optionId] = value
             }
         }
+    }
+
+    mutating func bumpRevision(updatedBy: String) {
+        revision += 1
+        updatedAt = Date().timeIntervalSince1970
+        self.updatedBy = updatedBy
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case profile
+        case shadowModeEnabled
+        case transportStabilityMode = "transport_stability_mode"
+        case appToggles
+        case revision
+        case updatedAt = "updated_at"
+        case updatedBy = "updated_by"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        profile = try c.decodeIfPresent(String.self, forKey: .profile) ?? "minimal-impact"
+        shadowModeEnabled = try c.decodeIfPresent(Bool.self, forKey: .shadowModeEnabled) ?? false
+        transportStabilityMode = try c.decodeIfPresent(Bool.self, forKey: .transportStabilityMode) ?? true
+        appToggles = try c.decodeIfPresent([String: [String: Bool]].self, forKey: .appToggles) ?? Self.defaultToggles
+        revision = try c.decodeIfPresent(Int.self, forKey: .revision) ?? 0
+        updatedAt = try c.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
+        updatedBy = try c.decodeIfPresent(String.self, forKey: .updatedBy) ?? "unknown"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(version, forKey: .version)
+        try c.encode(profile, forKey: .profile)
+        try c.encode(shadowModeEnabled, forKey: .shadowModeEnabled)
+        try c.encode(transportStabilityMode, forKey: .transportStabilityMode)
+        try c.encode(appToggles, forKey: .appToggles)
+        try c.encode(revision, forKey: .revision)
+        try c.encode(updatedAt, forKey: .updatedAt)
+        try c.encode(updatedBy, forKey: .updatedBy)
     }
 }
 
@@ -84,7 +140,7 @@ final class AppOptionsService {
     private init() {
         loadData()
         loadSavedStates()
-        syncFeaturePolicy()
+        syncFeaturePolicyIfMissing()
     }
 
     func loadData() {
@@ -122,17 +178,12 @@ final class AppOptionsService {
         }
     }
 
-    private func syncFeaturePolicy() {
-        var policy = loadFeaturePolicy()
-        for (appId, appStates) in optionStates {
-            for (optionId, isSelected) in appStates {
-                policy.set(appId: appId, optionId: optionId, isEnabled: isSelected)
-            }
-        }
+    private func syncFeaturePolicyIfMissing() {
+        guard defaults?.data(forKey: BubbleConstants.featurePolicyKey) == nil else { return }
+        var policy = FeaturePolicyV1.defaultPolicy()
         policy.mergeDefaults()
-        if let data = try? JSONEncoder().encode(policy) {
-            defaults?.set(data, forKey: BubbleConstants.featurePolicyKey)
-        }
+        policy.bumpRevision(updatedBy: "app.options.bootstrap")
+        persistPolicy(policy)
     }
 
     private func loadFeaturePolicy() -> FeaturePolicyV1 {
@@ -162,16 +213,83 @@ final class AppOptionsService {
         }
     }
 
-    func toggleOption(appId: String, optionId: String) {
+    func toggleOption(appId: String, optionId: String, source: String = "unknown") {
         if optionStates[appId] == nil {
             optionStates[appId] = [:]
         }
-        let currentState = optionStates[appId]?[optionId] ?? false
-        optionStates[appId]?[optionId] = !currentState
-        syncFeaturePolicy()
+        var policy = loadFeaturePolicy()
+        let currentState = policy.appToggles[appId]?[optionId] ?? false
+        let newState = !currentState
+        policy.set(appId: appId, optionId: optionId, isEnabled: newState)
+        policy.mergeDefaults()
+        policy.bumpRevision(updatedBy: "app.options.toggle")
+        persistPolicy(policy)
+        optionStates[appId]?[optionId] = newState
+        AppDiagnosticsLogger.log(
+            "OPTION_TOGGLE app=\(appId) option=\(optionId) new_state=\(newState) revision=\(policy.revision) source=\(source)"
+        )
+    }
+
+    private func persistPolicy(_ policy: FeaturePolicyV1) {
+        if let data = try? JSONEncoder().encode(policy) {
+            defaults?.set(data, forKey: BubbleConstants.featurePolicyKey)
+        }
     }
 
     func isOptionSelected(appId: String, optionId: String) -> Bool {
         return optionStates[appId]?[optionId] ?? false
+    }
+}
+
+enum AppDiagnosticsLogger {
+    private static let lock = NSLock()
+    private static let dateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        return formatter
+    }()
+
+    private static var fileURL: URL? {
+        FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: BubbleConstants.appGroupID)?
+            .appendingPathComponent(BubbleConstants.appLogFileName)
+    }
+
+    static func log(_ message: String, function: String = #function) {
+        let timestamp = dateFormatter.string(from: Date())
+        let line = "[\(timestamp)] [\(function)] \(message)\n"
+
+        guard let fileURL else { return }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+           let size = attrs[.size] as? Int,
+           size > BubbleConstants.maxLogSizeBytes {
+            rotateLog(at: fileURL)
+        }
+
+        if let handle = try? FileHandle(forWritingTo: fileURL) {
+            handle.seekToEndOfFile()
+            if let data = line.data(using: .utf8) {
+                handle.write(data)
+            }
+            handle.closeFile()
+        } else {
+            try? line.data(using: .utf8)?.write(to: fileURL, options: .atomic)
+        }
+    }
+
+    static func readLog() -> String {
+        guard let fileURL else { return "(no app diagnostic log yet)" }
+        return (try? String(contentsOf: fileURL, encoding: .utf8)) ?? "(no app diagnostic log yet)"
+    }
+
+    private static func rotateLog(at fileURL: URL) {
+        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else { return }
+        let lines = content.components(separatedBy: "\n")
+        let keepFrom = lines.count / 2
+        let trimmed = lines[keepFrom...].joined(separator: "\n")
+        try? trimmed.data(using: .utf8)?.write(to: fileURL, options: .atomic)
     }
 }

@@ -72,6 +72,11 @@ private struct ParsedAddress {
 // MARK: - SOCKS5 Proxy Server
 
 final class SOCKSProxyServer {
+    enum UDPAdmissionDecision {
+        case accept
+        case queue
+        case reject(reason: String)
+    }
 
     private var listener: NWListener?
     private let filter: ConnectionFilter
@@ -85,6 +90,8 @@ final class SOCKSProxyServer {
     var actualPort: UInt16 {
         _actualPort.withLock { $0 }
     }
+    var currentActiveUDPStreams: Int { queue.sync { activeUDPStreams } }
+    var currentQueuedUDPStreams: Int { queue.sync { pendingUDPControlQueue.count } }
 
     // Connection stats (queue-confined)
     private var statsAllowed = 0
@@ -103,6 +110,25 @@ final class SOCKSProxyServer {
     private var udpDecodeResyncAttempted = 0
     private var udpDecodeResyncSuccess = 0
     private var udpDecodeBadLengthHardFail = 0
+    private var udpDecodeRecoveredStreamContinues = 0
+    private var udpDecodeCloseAfterFailureThreshold = 0
+    private var udpActivePeak = 0
+    private var udpTimeoutCount = 0
+    private var dnsInflight = 0
+    private var dnsDedupHits = 0
+    private var resolverSwitchCount = 0
+    private var lastResolverSwitchAt = Date.distantPast
+    private var currentPreferredResolver = "8.8.8.8"
+    private var decoderErrorCount = 0
+    private var streamCloseReasonCounts: [String: Int] = [:]
+    private var tiktokHardeningActions: [String: Int] = [:]
+    private var pendingUDPControlQueue: [PendingUDPControl] = []
+    private var udpStreamsByID: [Int: UDPStreamState] = [:]
+    private var inflightDNSRequests: [String: InflightDNSRequest] = [:]
+    private var resolverHealth: [String: ResolverHealth] = [
+        "8.8.8.8": ResolverHealth(),
+        "1.1.1.1": ResolverHealth(),
+    ]
     private var attemptedByBucket: [String: Int] = [:]
     private var blockedByBucket: [String: Int] = [:]
     private var possibleFalsePositiveRetries = 0
@@ -110,10 +136,49 @@ final class SOCKSProxyServer {
     private var blockedSuppressedTCP = 0
     private var blockedSuppressedUDP = 0
     private var blockedSuppression: [String: BlockSuppressionState] = [:]
-    private let blockSuppressionCooldown: TimeInterval = 1.5
+    private let blockSuppressionCooldown: TimeInterval = BubbleConstants.blockSuppressionCooldown
+    private let aggressiveBlockSuppressionCooldown: TimeInterval = BubbleConstants.aggressiveBlockSuppressionCooldown
     private let blockSuppressionLogCap = 3
     private let blockSuppressionSummaryEvery = 10
     private var statsTimer: DispatchSourceTimer?
+    private var udpSweepTimer: DispatchSourceTimer?
+    private var degradedState: TransportDegradedState = .healthy
+    private var degradedTransitions = 0
+    private var udpForcedRejects = 0
+    private var udpReclaimsByReason: [String: Int] = [:]
+    private var degradedEnteredAt = Date.distantPast
+    private var trippedEnteredAt = Date.distantPast
+    private var trippedTransitions = 0
+    private var trippedSecondsTotal: TimeInterval = 0
+    private var tokenBucketDrops = 0
+    private var streamBlockSuppressed = 0
+    private var streamBlockTokenDrops = 0
+    private var tokenBucketsByHost: [String: TokenBucketState] = [:]
+    private var emergencyReclaimTimestamps: [Date] = []
+    private var lastEmergencyReclaimAt = Date.distantPast
+    private var recentTikTokBlockEvents: [Date] = []
+    private var recentBadLenHardFailTimestamps: [Date] = []
+    private var admissionRejectsByReason: [String: Int] = [:]
+    private var stateSecondsByMode: [String: TimeInterval] = [:]
+    private var lastStateSampleAt = Date()
+    private var degradedStableSince: Date?
+    private var recoveringEnteredAt = Date.distantPast
+    private var severeSignalSince: Date?
+    private var lastStuckProcessingReclaimAt = Date.distantPast
+    private var maintenanceReclaimTimestamps: [Date] = []
+    private var maintenanceReclaimCooldownUntil = Date.distantPast
+    private var maintenanceReclaimBudgetExhaustedCount = 0
+    private var reclaimCooldownUntilByReason: [String: Date] = [:]
+    private var stormModeActiveSince: Date?
+    private var stormModeActiveSecondsTotal: TimeInterval = 0
+    private var decoderSoftDiscards = 0
+    private var decoderErrorDensityCloses = 0
+    private let stabilityFirstModeEnabled: Bool
+    private var protectionStartupGraceUntil = Date.distantPast
+    private var recoveryGraceUntil = Date.distantPast
+    private var lastPressureDiagnosticsAt = Date.distantPast
+    private var hostCooldownUntilByKey: [String: Date] = [:]
+    private let minimumUDPControlStreamsDuringGrace = 6
 
     // Active relay tracking for JSON stats
     private var activeRelays: [Int: RelayTracker] = [:]
@@ -125,9 +190,26 @@ final class SOCKSProxyServer {
     private let maxSnapshotHistory = 300 // 5 minutes at 1/sec
     private let maxEvents = 500
     private let statsFileURL: URL?
+    private var udpSocketPool: [String: NWConnection] = [:]
+    private var udpSocketPoolOrder: [String] = []
+    private var startedUDPSocketKeys: Set<String> = []
+    private var udpSocketReuseHits = 0
+    private var udpSocketReuseMisses = 0
+    private let udpSocketPoolMaxEntries = 16
+    private let admissionController = UDPAdmissionController()
 
     init(filter: ConnectionFilter) {
         self.filter = filter
+        let defaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
+        if let stored = defaults?.object(forKey: BubbleConstants.transportProtectionV2StabilityFirstKey) as? Bool {
+            self.stabilityFirstModeEnabled = stored
+        } else {
+#if DEBUG
+            self.stabilityFirstModeEnabled = true
+#else
+            self.stabilityFirstModeEnabled = false
+#endif
+        }
         if let container = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: BubbleConstants.appGroupID
         ) {
@@ -198,6 +280,13 @@ final class SOCKSProxyServer {
         listener.start(queue: queue)
         startStatsTimer()
         startSnapshotTimer()
+        startUDPSweepTimer()
+        if stabilityFirstModeEnabled {
+            protectionStartupGraceUntil = Date().addingTimeInterval(BubbleConstants.stabilityFirstStartupGraceSeconds)
+        } else {
+            protectionStartupGraceUntil = .distantPast
+        }
+        log.log("TRANSPORT_PROTECTION flag_mode=\(stabilityFirstModeEnabled ? "stability_first_v2" : "legacy") grace_active=\(isStartupGraceActive())")
     }
 
     func stop() {
@@ -206,6 +295,14 @@ final class SOCKSProxyServer {
             statsTimer = nil
             snapshotTimer?.cancel()
             snapshotTimer = nil
+            udpSweepTimer?.cancel()
+            udpSweepTimer = nil
+            for conn in udpSocketPool.values {
+                conn.cancel()
+            }
+            udpSocketPool.removeAll()
+            udpSocketPoolOrder.removeAll()
+            startedUDPSocketKeys.removeAll()
         }
         listener?.cancel()
         listener = nil
@@ -219,12 +316,38 @@ final class SOCKSProxyServer {
             let total = self.connectionCount
             guard total > 0 else { return }
             let memMB = Self.memoryUsageMB()
-            self.log.log("SOCKS5 STATS: \(total) total, \(self.activeConnectionCount) active, \(self.activeRelays.count) relays, \(self.statsAllowed) allowed, \(self.statsBlocked) blocked, \(self.statsUDP) UDP, \(self.statsErrors) errors, udpActive=\(self.activeUDPStreams), udpOpened=\(self.totalUDPStreamsOpened), udpClosed=\(self.totalUDPStreamsClosed), modeDetected=\(self.udpDecodeModeDetected), resyncAttempts=\(self.udpDecodeResyncAttempted), resyncSuccess=\(self.udpDecodeResyncSuccess), badLenHardFail=\(self.udpDecodeBadLengthHardFail), snapshots=\(self.snapshotHistory.count), mem=\(memMB)MB")
+            let udpTimeoutRate = self.statsUDP > 0 ? Double(self.udpTimeoutCount) / Double(self.statsUDP) : 0
+            self.updateTransportDegradedState()
+            let queueOldestAgeMs: Int = {
+                guard let oldest = self.pendingUDPControlQueue.first else { return 0 }
+                return Int(Date().timeIntervalSince(oldest.enqueuedAt) * 1000.0)
+            }()
+            let queueP95AgeMs = self.queuedUDPControlP95AgeMs()
+            let resolver88Streak = self.resolverHealth["8.8.8.8"]?.timeoutStreak ?? 0
+            let resolver11Streak = self.resolverHealth["1.1.1.1"]?.timeoutStreak ?? 0
+            let timeoutRateText = String(format: "%.2f", udpTimeoutRate)
+            let badLenRate = self.badLenHardFailRate()
+            let badLenRateText = String(format: "%.2f", badLenRate)
+            self.log.log("SOCKS5 STATS: \(total) total, \(self.activeConnectionCount) active, \(self.activeRelays.count) relays, \(self.statsAllowed) allowed, \(self.statsBlocked) blocked, \(self.statsUDP) UDP, \(self.statsErrors) errors, udpActive=\(self.activeUDPStreams), udpPeak=\(self.udpActivePeak), udpOpened=\(self.totalUDPStreamsOpened), udpClosed=\(self.totalUDPStreamsClosed), queueDepth=\(self.pendingUDPControlQueue.count), queueOldestMs=\(queueOldestAgeMs), queueP95Ms=\(queueP95AgeMs), modeDetected=\(self.udpDecodeModeDetected), resyncAttempts=\(self.udpDecodeResyncAttempted), resyncSuccess=\(self.udpDecodeResyncSuccess), badLenHardFail=\(self.udpDecodeBadLengthHardFail), badLenRate=\(badLenRateText), recoveredContinues=\(self.udpDecodeRecoveredStreamContinues), closeAfterThreshold=\(self.udpDecodeCloseAfterFailureThreshold), decoderSoftDiscards=\(self.decoderSoftDiscards), decoderDensityCloses=\(self.decoderErrorDensityCloses), dnsInflight=\(self.dnsInflight), dnsReservedSlots=\(self.dnsReservedSlotsInUse()), dnsDedupHits=\(self.dnsDedupHits), resolverSwitches=\(self.resolverSwitchCount), udpTimeoutRate=\(timeoutRateText), ttHardening=\(self.tiktokHardeningActions), udpReclaims=\(self.udpReclaimsByReason), reclaimBudgetExhausted=\(self.maintenanceReclaimBudgetExhaustedCount), stormModeSeconds=\(Int(self.stormModeActiveSeconds())), degradedState=\(self.degradedState.rawValue), degradedTransitions=\(self.degradedTransitions), trippedTransitions=\(self.trippedTransitions), tokenBucketDrops=\(self.tokenBucketDrops), streamBlockSuppressed=\(self.streamBlockSuppressed), streamBlockTokenDrops=\(self.streamBlockTokenDrops), udpForcedRejects=\(self.udpForcedRejects), admissionRejects=\(self.admissionRejectsByReason), graceActive=\(self.hasAnyProtectionGrace()), flagMode=\(self.stabilityFirstModeEnabled ? "stability_first_v2" : "legacy"), udpSocketReuseHitRate=\(String(format: "%.2f", self.udpSocketReuseHitRate())), resolverTimeoutStreaks=[8.8.8.8:\(resolver88Streak),1.1.1.1:\(resolver11Streak)], snapshots=\(self.snapshotHistory.count), mem=\(memMB)MB")
+            self.log.log("PROTECTION STATE: state=\(self.degradedState.rawValue) queue=\(self.pendingUDPControlQueue.count) timeout_rate=\(timeoutRateText) forced_rejects=\(self.udpForcedRejects) token_drops=\(self.tokenBucketDrops) stream_token_drops=\(self.streamBlockTokenDrops)")
             self.log.log("SUPPRESSION STATS: tcp=\(self.blockedSuppressedTCP) udp=\(self.blockedSuppressedUDP) keys=\(self.blockedSuppression.count)")
             self.pruneSuppressionState(now: Date())
         }
         timer.resume()
         statsTimer = timer
+    }
+
+    private func startUDPSweepTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(
+            deadline: .now() + BubbleConstants.tiktokHardeningSweepInterval,
+            repeating: BubbleConstants.tiktokHardeningSweepInterval
+        )
+        timer.setEventHandler { [weak self] in
+            self?.runUDPMaintenanceSweep()
+        }
+        timer.resume()
+        udpSweepTimer = timer
     }
 
     // MARK: - Event Recording
@@ -322,12 +445,55 @@ final class SOCKSProxyServer {
             udpDecodeResyncAttempted: udpDecodeResyncAttempted,
             udpDecodeResyncSuccess: udpDecodeResyncSuccess,
             udpDecodeBadLengthHardFail: udpDecodeBadLengthHardFail,
+            udpDecodeRecoveredStreamContinues: udpDecodeRecoveredStreamContinues,
+            udpDecodeCloseAfterFailureThreshold: udpDecodeCloseAfterFailureThreshold,
+            udpActivePeak: udpActivePeak,
+            udpTimeoutRate: statsUDP > 0 ? Double(udpTimeoutCount) / Double(statsUDP) : 0,
+            dnsInflight: dnsInflight,
+            resolverTimeoutStreakByHost: [
+                "8.8.8.8": resolverHealth["8.8.8.8"]?.timeoutStreak ?? 0,
+                "1.1.1.1": resolverHealth["1.1.1.1"]?.timeoutStreak ?? 0,
+            ],
+            resolverSwitchCount: resolverSwitchCount,
+            decoderErrorRate: statsUDP > 0 ? Double(decoderErrorCount) / Double(statsUDP) : 0,
+            streamCloseReasonCounts: streamCloseReasonCounts,
+            tiktokHardeningActions: tiktokHardeningActions,
+            udpQueueDepth: pendingUDPControlQueue.count,
+            udpQueueOldestAgeMs: {
+                guard let oldest = pendingUDPControlQueue.first else { return 0 }
+                return Int(Date().timeIntervalSince(oldest.enqueuedAt) * 1000.0)
+            }(),
+            udpQueueP95AgeMs: queuedUDPControlP95AgeMs(),
+            udpReclaimsByReason: udpReclaimsByReason,
+            udpForcedRejects: udpForcedRejects,
+            udpForcedRejectsByReason: udpReclaimsByReason.filter { $0.key.contains("tiktok_udp_reject") },
+            degradedState: degradedState.rawValue,
+            degradedTransitions: degradedTransitions,
+            trippedTransitions: trippedTransitions,
+            trippedSecondsTotal: trippedSecondsTotal + (degradedState == .tripped ? Date().timeIntervalSince(trippedEnteredAt) : 0),
+            badLenRate: badLenHardFailRate(),
+            recentBadLenHardFails: recentBadLenHardFailCount(),
+            tokenBucketDrops: tokenBucketDrops,
+            streamBlockSuppressed: streamBlockSuppressed,
+            streamBlockTokenDrops: streamBlockTokenDrops,
+            admissionRejectsByReason: admissionRejectsByReason,
+            stateSecondsByMode: stateSecondsByMode,
+            reconnectBreakerCooldownRemainingSec: reconnectBreakerCooldownRemainingSec(),
+            reconnectBreakerTrips: reconnectBreakerTrips(),
+            reconnectSuppressedByBreaker: reconnectSuppressedByBreakerCount(),
+            reconnectBreakerBackoffStep: reconnectBreakerBackoffStep(),
+            maintenanceReclaimBudgetExhaustedCount: maintenanceReclaimBudgetExhaustedCount,
+            stormModeActiveSeconds: stormModeActiveSeconds(),
+            dnsReservedSlotsInUse: dnsReservedSlotsInUse(),
+            decoderSoftDiscards: decoderSoftDiscards,
+            decoderErrorDensityCloses: decoderErrorDensityCloses,
             attemptedByBucket: attemptedByBucket,
             blockedByBucket: blockedByBucket,
             possibleFalsePositiveRetries: possibleFalsePositiveRetries,
             blockedSuppressedTCP: blockedSuppressedTCP,
             blockedSuppressedUDP: blockedSuppressedUDP,
-            suppressionKeysActive: blockedSuppression.count
+            suppressionKeysActive: blockedSuppression.count,
+            udpSocketReuseHitRate: udpSocketReuseHitRate()
         )
 
         let topDomains = domainStats
@@ -542,8 +708,23 @@ final class SOCKSProxyServer {
 
         switch decision.action {
         case .blockNow:
-            if shouldSuppressBlockedFlow(host: host, port: port, reason: decision.reason, transport: "tcp") {
+            let gate = evaluateProtectionGate(
+                host: host,
+                port: port,
+                decision: decision,
+                transport: "tcp",
+                stage: .admission
+            )
+            if gate == .rejectNewStream || gate == .dropFast {
                 blockedSuppressedTCP += 1
+                admissionRejectsByReason["tcp_drop_fast", default: 0] += 1
+                activeConnectionCount -= 1
+                sendSocksError(client: client, reply: 0x05)
+                return
+            }
+            if gate == .suppress {
+                blockedSuppressedTCP += 1
+                admissionRejectsByReason["tcp_suppressed", default: 0] += 1
                 activeConnectionCount -= 1
                 sendSocksError(client: client, reply: 0x05)
                 return
@@ -571,9 +752,57 @@ final class SOCKSProxyServer {
     // Parse errors are stream-local and never escalate to tunnel shutdown.
 
     private func handleFwdUDP(client: NWConnection, id: Int) {
+        if isDNSResolverStormActive(), activeUDPStreams >= 2 {
+            log.log("UDP #\(id): FWD_UDP rejected by admission controller reason=dns_timeout_storm active=\(activeUDPStreams) queued=\(pendingUDPControlQueue.count)")
+            admissionRejectsByReason["udp_admission_dns_timeout_storm", default: 0] += 1
+            udpForcedRejects += 1
+            activeConnectionCount = max(activeConnectionCount - 1, 0)
+            client.cancel()
+            return
+        }
+        let stormMode = isStormMode()
+        let now = Date()
+        let pressurePhase = currentTransportPressurePhase(now: now)
+        let admission = admissionController.decide(
+            active: activeUDPStreams,
+            queued: pendingUDPControlQueue.count,
+            stormMode: stormMode,
+            maxActive: effectiveMaxActiveUDPStreams(stormMode: stormMode),
+            pressurePhase: pressurePhase,
+            preferQueueing: stabilityFirstModeEnabled,
+            graceActive: hasAnyProtectionGrace(now: now),
+            now: now
+        )
+        switch admission {
+        case .accept:
+            break
+        case .queue:
+            log.log("UDP #\(id): FWD_UDP queued by admission controller active=\(activeUDPStreams) queued=\(pendingUDPControlQueue.count + 1)")
+            pendingUDPControlQueue.append(PendingUDPControl(client: client, id: id, enqueuedAt: Date()))
+            return
+        case .reject(let reason):
+            log.log("UDP #\(id): FWD_UDP rejected by admission controller reason=\(reason) active=\(activeUDPStreams) queued=\(pendingUDPControlQueue.count)")
+            admissionRejectsByReason["udp_admission_\(reason)", default: 0] += 1
+            udpForcedRejects += 1
+            activeConnectionCount = max(activeConnectionCount - 1, 0)
+            client.cancel()
+            return
+        }
+        if shouldRejectNewTikTokUDPControlStream() {
+            let reason = degradedState == .tripped ? "tripped_tiktok_udp_reject" : "degraded_tiktok_udp_reject"
+            log.log("UDP #\(id): FWD_UDP rejected reason=\(reason) state=\(degradedState.rawValue) queue=\(pendingUDPControlQueue.count)")
+            udpForcedRejects += 1
+            udpReclaimsByReason[reason, default: 0] += 1
+            admissionRejectsByReason[reason, default: 0] += 1
+            activeConnectionCount = max(activeConnectionCount - 1, 0)
+            client.cancel()
+            return
+        }
         log.log("UDP #\(id): FWD_UDP accepted, starting frame relay")
-        let state = UDPStreamState(id: id, decoder: UDPControlStreamDecoder(maxFrameSize: BubbleConstants.maxUDPFrameSize))
+        let state = UDPStreamState(id: id, client: client, decoder: UDPControlStreamDecoder(maxFrameSize: BubbleConstants.maxUDPFrameSize))
+        udpStreamsByID[id] = state
         activeUDPStreams += 1
+        udpActivePeak = max(udpActivePeak, activeUDPStreams)
         totalUDPStreamsOpened += 1
 
         let reply = buildSocksReply(reply: 0x00, atyp: 0x01, addr: [0, 0, 0, 0], port: 0)
@@ -603,6 +832,7 @@ final class SOCKSProxyServer {
             }
 
             if let data, !data.isEmpty {
+                state.lastActivityAt = Date()
                 let appendResult = state.decoder.append(data)
                 if let mode = state.decoder.currentMode, state.mode == nil {
                     state.mode = mode
@@ -619,18 +849,68 @@ final class SOCKSProxyServer {
                 self.udpDecodeResyncSuccess += diagnostics.resyncSuccesses
 
                 state.pendingFrames.append(contentsOf: appendResult.frames)
+                if state.hardeningEnabled && state.pendingFrames.count > BubbleConstants.tiktokHardeningMaxPendingFramesPerStream {
+                    self.tiktokHardeningActions["pending_frames_overflow_close", default: 0] += 1
+                    self.closeUDPControlStream(client: client, state: state, reason: "tiktok_pending_frames_overflow")
+                    return
+                }
 
                 switch appendResult.status {
                 case .ok:
+                    if !appendResult.frames.isEmpty {
+                        state.decoderFailureCount = 0
+                        state.firstDecoderFailureAt = nil
+                    }
                     self.processNextUDPFrame(client: client, state: state)
+                case .needMoreBytes:
+                    self.readUDPControlStream(client: client, state: state)
                 case .recovered(let decodeError):
                     self.recordDecoderError(decodeError, hardFailure: false)
-                    self.log.log("UDP_DECODER stream=\(state.id) event=decode_recovered reason=\(self.decoderReasonCode(decodeError))")
+                    state.decoderRecoveryCount += 1
+                    self.decoderSoftDiscards += 1
+                    let failuresInWindow = state.decoderFailuresInWindow(now: Date(), window: BubbleConstants.udpDecodeFailureWindowSeconds)
+                    let density = state.bumpDecoderErrorDensity(now: Date())
+                    self.udpDecodeRecoveredStreamContinues += 1
+                    self.log.log("UDP_DECODER stream=\(state.id) event=decode_recovered reason=\(self.decoderReasonCode(decodeError)) failures_in_window=\(failuresInWindow) density=\(String(format: "%.2f", density))")
+                    if (failuresInWindow > effectiveDecodeFailureCloseThreshold() || density >= effectiveRecoveredDecoderCloseDensity()) && !hasAnyProtectionGrace() {
+                        self.recordDecoderError(decodeError, hardFailure: true)
+                        self.udpDecodeCloseAfterFailureThreshold += 1
+                        self.decoderErrorDensityCloses += 1
+                        self.closeUDPControlStream(client: client, state: state, reason: "decode_recovered_threshold_exceeded")
+                        return
+                    }
                     self.processNextUDPFrame(client: client, state: state)
                 case .failed(let decodeError):
-                    self.recordDecoderError(decodeError, hardFailure: true)
-                    self.log.log("UDP_DECODER stream=\(state.id) event=decode_error reason=\(self.decoderReasonCode(decodeError))")
-                    self.closeUDPControlStream(client: client, state: state, reason: "decode_\(self.decoderReasonCode(decodeError))")
+                    self.recordDecoderError(decodeError, hardFailure: false)
+                    self.decoderErrorCount += 1
+                    state.decoderFailureCount += 1
+                    self.decoderSoftDiscards += 1
+                    let density = state.bumpDecoderErrorDensity(now: Date())
+                    if state.firstDecoderFailureAt == nil {
+                        state.firstDecoderFailureAt = Date()
+                    }
+                    self.log.log("UDP_DECODER stream=\(state.id) event=decode_error reason=\(self.decoderReasonCode(decodeError)) failures=\(state.decoderFailureCount) density=\(String(format: "%.2f", density))")
+                    if case .badLength = decodeError {
+                        let failuresInWindow = state.decoderFailuresInWindow(now: Date(), window: BubbleConstants.udpDecodeFailureWindowSeconds)
+                        if failuresInWindow <= effectiveBadLenSoftFailureLimit() || self.isStormMode() || self.hasAnyProtectionGrace() {
+                            self.log.log("UDP_DECODER stream=\(state.id) event=soft_fail_bad_len reason=bad_len failures_in_window=\(failuresInWindow)")
+                            self.readUDPControlStream(client: client, state: state)
+                            return
+                        }
+                        self.recordDecoderError(decodeError, hardFailure: true)
+                        self.log.log("UDP_DECODER stream=\(state.id) event=close_after_bad_len_window reason=bad_len failures_in_window=\(failuresInWindow)")
+                        self.closeUDPControlStream(client: client, state: state, reason: "decode_bad_len_window_fail_closed")
+                        return
+                    }
+                    if (state.decoderFailureCount >= effectiveDecodeFailureCloseThreshold() || density >= effectiveDecoderCloseDensity()) && !hasAnyProtectionGrace() {
+                        self.recordDecoderError(decodeError, hardFailure: true)
+                        self.udpDecodeCloseAfterFailureThreshold += 1
+                        self.decoderErrorDensityCloses += 1
+                        self.log.log("UDP_DECODER stream=\(state.id) event=close_after_failures reason=\(self.decoderReasonCode(decodeError)) threshold=\(BubbleConstants.udpDecodeFailureCloseThreshold)")
+                        self.closeUDPControlStream(client: client, state: state, reason: "decode_\(self.decoderReasonCode(decodeError))_threshold_exceeded")
+                        return
+                    }
+                    self.readUDPControlStream(client: client, state: state)
                 }
                 return
             }
@@ -654,22 +934,48 @@ final class SOCKSProxyServer {
 
         let decodedFrame = state.pendingFrames.removeFirst()
         state.processingFrame = true
+        state.processingStartedAt = Date()
+        state.lastActivityAt = Date()
 
         guard let parsed = parseUDPPayload(decodedFrame.payload, streamID: state.id) else {
             udpDecodeBadPayload += 1
-            log.log("UDP_DECODER stream=\(state.id) event=decode_error reason=bad_payload")
-            closeUDPControlStream(client: client, state: state, reason: "decode_bad_payload")
+            log.log("UDP_DECODER stream=\(state.id) event=decode_error reason=bad_payload_soft_drop")
+            state.processingFrame = false
+            state.processingStartedAt = nil
+            readUDPControlStream(client: client, state: state)
             return
         }
 
         statsUDP += 1
+        state.lastHost = parsed.addr.host
+        state.lastPort = parsed.addr.port
         log.log("UDP #\(state.id): dest=\(parsed.addr.host):\(parsed.addr.port), payload=\(parsed.payload.count)B")
 
         let decision = filter.evaluateUDP(host: parsed.addr.host, port: parsed.addr.port, payloadBytes: parsed.payload.count)
+        if !state.hardeningEnabled, isTikTokProtectedBucket(decision.classification.bucket) {
+            state.hardeningEnabled = true
+            state.hardeningBucket = decision.classification.bucket
+            tiktokHardeningActions["stream_promoted_to_tiktok_hardening", default: 0] += 1
+        }
         log.log("UDP_POLICY stream=\(state.id) host=\(parsed.addr.host) port=\(parsed.addr.port) action=\(decision.action.rawValue) reason=\(decision.reason) bucket=\(decision.classification.bucket.rawValue)")
         if decision.action == .blockNow {
-            if shouldSuppressBlockedFlow(host: parsed.addr.host, port: parsed.addr.port, reason: decision.reason, transport: "udp") {
+            let gate = evaluateProtectionGate(
+                host: parsed.addr.host,
+                port: parsed.addr.port,
+                decision: decision,
+                transport: "udp",
+                stage: .admission
+            )
+            if gate == .rejectNewStream || gate == .dropFast {
                 blockedSuppressedUDP += 1
+                admissionRejectsByReason["udp_drop_fast", default: 0] += 1
+                state.processingFrame = false
+                processNextUDPFrame(client: client, state: state)
+                return
+            }
+            if gate == .suppress {
+                blockedSuppressedUDP += 1
+                admissionRejectsByReason["udp_suppressed", default: 0] += 1
                 state.processingFrame = false
                 processNextUDPFrame(client: client, state: state)
                 return
@@ -693,10 +999,39 @@ final class SOCKSProxyServer {
             state.processingFrame = false
 
             if let responseFrame {
+                state.timeoutStreak = 0
+                state.markProgress(now: Date())
                 client.send(content: responseFrame, completion: .contentProcessed { [weak self] _ in
-                    self?.processNextUDPFrame(client: client, state: state)
+                    guard let self = self else { return }
+                    state.processingStartedAt = nil
+                    if self.isStormMode(),
+                       state.lastPort == 53,
+                       state.pendingFrames.isEmpty,
+                       !state.processingFrame,
+                       !self.hasAnyProtectionGrace() {
+                        self.closeUDPControlStream(client: client, state: state, reason: "storm_dns_one_shot_retire")
+                        return
+                    }
+                    self.processNextUDPFrame(client: client, state: state)
                 })
             } else {
+                state.timeoutStreak += 1
+                let timeoutThreshold = state.hardeningEnabled
+                    ? BubbleConstants.tiktokHardeningTimeoutStreakCloseThreshold
+                    : BubbleConstants.udpGlobalTimeoutStreakCloseThreshold
+                if state.timeoutStreak >= effectiveTimeoutStreakCloseThreshold(base: timeoutThreshold),
+                   shouldCloseStreamForTimeout(state: state, now: Date()) {
+                    let reason = state.hardeningEnabled ? "tiktok_timeout_streak_reclaim" : "global_timeout_streak_reclaim"
+                    self.tiktokHardeningActions["timeout_streak_reclaim", default: 0] += 1
+                    self.udpReclaimsByReason[reason, default: 0] += 1
+                    self.closeUDPControlStream(client: client, state: state, reason: reason)
+                    return
+                }
+                if self.isStormMode(), state.lastPort == 53, state.pendingFrames.isEmpty, !self.hasAnyProtectionGrace() {
+                    self.closeUDPControlStream(client: client, state: state, reason: "storm_dns_timeout_retire")
+                    return
+                }
+                state.processingStartedAt = nil
                 self.processNextUDPFrame(client: client, state: state)
             }
         }
@@ -734,6 +1069,7 @@ final class SOCKSProxyServer {
         responseMode: UDPControlFramingMode,
         completion: @escaping (Data?) -> Void
     ) {
+        let resolvedHost = effectiveResolverHost(originalHost: host, port: port)
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
             log.log("UDP #\(streamID): invalid port \(port)")
             statsErrors += 1
@@ -741,37 +1077,77 @@ final class SOCKSProxyServer {
             return
         }
 
-        let udp = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .udp)
+        let dedupKey = dnsDedupKey(host: resolvedHost, port: port, payload: payload)
+        let dnsDedupWindow = dnsDedupWindowForStream(streamID: streamID)
+        if let dedupKey, var inflight = inflightDNSRequests[dedupKey], Date().timeIntervalSince(inflight.startedAt) <= dnsDedupWindow {
+            dnsDedupHits += 1
+            inflight.callbacks.append(completion)
+            inflightDNSRequests[dedupKey] = inflight
+            return
+        }
+
+        if let dedupKey {
+            dnsInflight += 1
+            inflightDNSRequests[dedupKey] = InflightDNSRequest(startedAt: Date(), callbacks: [completion])
+        }
+
+        let poolKey = "\(resolvedHost):\(port)"
+        let allowReuse = port == 53
+        let udp = pooledUDPConnection(host: resolvedHost, port: nwPort, poolKey: poolKey, allowReuse: allowReuse)
 
         var completed = false
         let complete: (Data?) -> Void = { [weak self] responseFrame in
             self?.queue.async {
                 guard !completed else { return }
                 completed = true
-                udp.cancel()
-                completion(responseFrame)
+                if let dedupKey, var inflight = self?.inflightDNSRequests.removeValue(forKey: dedupKey) {
+                    self?.dnsInflight = max((self?.dnsInflight ?? 1) - 1, 0)
+                    let callbacks = inflight.callbacks
+                    inflight.callbacks.removeAll()
+                    for cb in callbacks {
+                        cb(responseFrame)
+                    }
+                } else {
+                    completion(responseFrame)
+                }
             }
         }
 
         queue.asyncAfter(deadline: .now() + BubbleConstants.udpRelayTimeout) { [weak self] in
-            self?.log.log("UDP #\(streamID): TIMEOUT for \(host):\(port)")
+            if !(self?.hasAnyProtectionGrace() ?? false) || port != 53 {
+                self?.udpTimeoutCount += 1
+            }
+            self?.markResolverTimeout(host: resolvedHost, port: port)
+            if allowReuse {
+                self?.evictUDPSocket(poolKey: poolKey)
+            } else {
+                udp.cancel()
+            }
+            self?.log.log("UDP #\(streamID): TIMEOUT for \(resolvedHost):\(port)")
             complete(nil)
         }
 
         udp.stateUpdateHandler = { [weak self] connState in
             switch connState {
             case .ready:
-                self?.log.log("UDP #\(streamID): NWConnection ready to \(host):\(port), sending \(payload.count)B")
+                self?.log.log("UDP #\(streamID): NWConnection ready to \(resolvedHost):\(port), sending \(payload.count)B")
                 udp.send(content: payload, completion: .contentProcessed { error in
                     if let error {
-                        self?.log.log("UDP #\(streamID): send FAILED to \(host):\(port): \(error)")
+                        self?.markResolverTimeout(host: resolvedHost, port: port)
+                        if allowReuse {
+                            self?.evictUDPSocket(poolKey: poolKey)
+                        } else {
+                            udp.cancel()
+                        }
+                        self?.log.log("UDP #\(streamID): send FAILED to \(resolvedHost):\(port): \(error)")
                         complete(nil)
                         return
                     }
 
                     udp.receiveMessage { respData, _, _, recvError in
                         if let respData, !respData.isEmpty {
-                            self?.log.log("UDP #\(streamID): got \(respData.count)B response from \(host):\(port)")
+                            self?.markResolverSuccess(host: resolvedHost, port: port)
+                            self?.log.log("UDP #\(streamID): got \(respData.count)B response from \(resolvedHost):\(port)")
                             var frame = headerBytes
                             frame.append(contentsOf: [UInt8](respData))
                             let frameLen = frame.count
@@ -783,35 +1159,463 @@ final class SOCKSProxyServer {
                             framedData.append(contentsOf: frame)
                             complete(Data(framedData))
                         } else {
-                            self?.log.log("UDP #\(streamID): empty/nil response from \(host):\(port), error=\(String(describing: recvError))")
+                            self?.markResolverTimeout(host: resolvedHost, port: port)
+                            if allowReuse {
+                                self?.evictUDPSocket(poolKey: poolKey)
+                            } else {
+                                udp.cancel()
+                            }
+                            self?.log.log("UDP #\(streamID): empty/nil response from \(resolvedHost):\(port), error=\(String(describing: recvError))")
                             complete(nil)
                         }
                     }
                 })
 
             case .failed(let error):
-                self?.log.log("UDP #\(streamID): NWConnection FAILED to \(host):\(port): \(error)")
+                self?.markResolverTimeout(host: resolvedHost, port: port)
+                self?.log.log("UDP #\(streamID): NWConnection FAILED to \(resolvedHost):\(port): \(error)")
+                if allowReuse {
+                    self?.evictUDPSocket(poolKey: poolKey)
+                } else {
+                    udp.cancel()
+                }
                 complete(nil)
 
             case .waiting(let error):
-                self?.log.log("UDP #\(streamID): NWConnection WAITING to \(host):\(port): \(error)")
+                self?.log.log("UDP #\(streamID): NWConnection WAITING to \(resolvedHost):\(port): \(error)")
 
             default:
                 break
             }
         }
 
-        udp.start(queue: queue)
+        if allowReuse {
+            startUDPConnectionIfNeeded(udp, for: poolKey)
+        } else {
+            udp.start(queue: queue)
+        }
     }
 
     private func closeUDPControlStream(client: NWConnection, state: UDPStreamState, reason: String) {
         guard !state.closed else { return }
+        if shouldBlockCloseDuringGrace(state: state, reason: reason) {
+            log.log("TRANSPORT_PROTECTION grace_close_blocked stream=\(state.id) reason=\(reason)")
+            state.processingFrame = false
+            state.processingStartedAt = nil
+            return
+        }
         state.closed = true
+        udpStreamsByID.removeValue(forKey: state.id)
         activeConnectionCount = max(activeConnectionCount - 1, 0)
         activeUDPStreams = max(activeUDPStreams - 1, 0)
         totalUDPStreamsClosed += 1
-        log.log("UDP_DECODER stream=\(state.id) event=close reason=\(reason) queued=\(state.pendingFrames.count)")
+        streamCloseReasonCounts[reason, default: 0] += 1
+        log.log("UDP_DECODER stream=\(state.id) event=close reason=\(reason) queued=\(state.pendingFrames.count) decode_failures=\(state.decoderFailureCount) recoveries=\(state.decoderRecoveryCount)")
         client.cancel()
+        drainQueuedUDPControlStreamsIfNeeded()
+    }
+
+    private func shouldBlockCloseDuringGrace(state: UDPStreamState, reason: String, now: Date = Date()) -> Bool {
+        guard hasAnyProtectionGrace(now: now) else { return false }
+        let guardedReasons: Set<String> = [
+            "stuck_processing_reclaim",
+            "global_idle_timeout_reclaim",
+            "tiktok_idle_timeout_reclaim",
+            "global_max_lifetime_reclaim",
+            "tiktok_max_lifetime_reclaim",
+            "global_timeout_streak_reclaim",
+            "tiktok_timeout_streak_reclaim",
+            "storm_dns_timeout_retire",
+            "storm_dns_one_shot_retire",
+        ]
+        if guardedReasons.contains(reason) || reason.hasPrefix("emergency_reclaim_") {
+            return true
+        }
+        if activeUDPStreams <= minimumUDPControlStreamsDuringGrace, state.lastPort == 53 {
+            return true
+        }
+        return false
+    }
+
+    private func drainQueuedUDPControlStreamsIfNeeded() {
+        let stormMode = isStormMode()
+        let effectiveMax = effectiveMaxActiveUDPStreams(stormMode: stormMode)
+        while activeUDPStreams < effectiveMax, !pendingUDPControlQueue.isEmpty {
+            let next = pendingUDPControlQueue.removeFirst()
+            handleFwdUDP(client: next.client, id: next.id)
+        }
+    }
+
+    private func isTikTokProtectedBucket(_ bucket: ContentBucket) -> Bool {
+        bucket == .tiktokControl || bucket == .tiktokVideo
+    }
+
+    private func dnsDedupWindowForStream(streamID: Int) -> TimeInterval {
+        guard let state = udpStreamsByID[streamID], state.hardeningEnabled else {
+            return BubbleConstants.dnsDedupWindow
+        }
+        return BubbleConstants.tiktokHardeningDNSDedupWindow
+    }
+
+    private func runUDPMaintenanceSweep() {
+        closeStaleQueuedUDPControlStreams()
+        sweepInflightDNSExpirations()
+        sweepUDPControlStreams()
+        reclaimUDPStreamsUnderPressure(reason: "maintenance")
+        pruneHostCooldowns()
+        drainQueuedUDPControlStreamsIfNeeded()
+    }
+
+    private func sweepUDPControlStreams() {
+        let now = Date()
+        for state in udpStreamsByID.values where !state.closed {
+            if hasAnyProtectionGrace(now: now), state.lastPort == 53 {
+                continue
+            }
+            if let started = state.processingStartedAt,
+               now.timeIntervalSince(started) > watchdogTimeoutForState() {
+                if now.timeIntervalSince(lastStuckProcessingReclaimAt) < BubbleConstants.udpEmergencyReclaimMinInterval {
+                    continue
+                }
+                lastStuckProcessingReclaimAt = now
+                udpReclaimsByReason["stuck_processing_reclaim", default: 0] += 1
+                closeUDPControlStream(client: state.client, state: state, reason: "stuck_processing_reclaim")
+                continue
+            }
+
+            let maxLifetime = state.hardeningEnabled ? BubbleConstants.tiktokHardeningMaxLifetime : BubbleConstants.udpGlobalMaxLifetime
+            if now.timeIntervalSince(state.createdAt) > effectiveMaxLifetime(base: maxLifetime) {
+                let reason = state.hardeningEnabled ? "tiktok_max_lifetime_reclaim" : "global_max_lifetime_reclaim"
+                tiktokHardeningActions["max_lifetime_reclaim", default: 0] += 1
+                udpReclaimsByReason[reason, default: 0] += 1
+                if shouldAllowReclaim(reason: reason, now: now) {
+                    closeUDPControlStream(client: state.client, state: state, reason: reason)
+                } else {
+                    log.log("TRANSPORT_PROTECTION reclaim_cooldown_active reason=\(reason)")
+                }
+                continue
+            }
+
+            let idleTimeout = state.hardeningEnabled ? BubbleConstants.tiktokHardeningIdleTimeout : BubbleConstants.udpGlobalIdleTimeout
+            if now.timeIntervalSince(state.lastActivityAt) > effectiveIdleTimeout(base: idleTimeout) {
+                let reason = state.hardeningEnabled ? "tiktok_idle_timeout_reclaim" : "global_idle_timeout_reclaim"
+                tiktokHardeningActions["idle_timeout_reclaim", default: 0] += 1
+                udpReclaimsByReason[reason, default: 0] += 1
+                if shouldSkipIdleReclaimDueToRecentSuccess(state: state, now: now) {
+                    log.log("TRANSPORT_PROTECTION reclaim_skipped_recent_success stream=\(state.id) reason=\(reason)")
+                    continue
+                }
+                if shouldAllowReclaim(reason: reason, now: now) {
+                    closeUDPControlStream(client: state.client, state: state, reason: reason)
+                } else {
+                    log.log("TRANSPORT_PROTECTION reclaim_cooldown_active reason=\(reason)")
+                }
+            }
+        }
+        updateTransportDegradedState()
+    }
+
+    private func closeStaleQueuedUDPControlStreams() {
+        let now = Date()
+        if hasAnyProtectionGrace(now: now) {
+            return
+        }
+        let maxQueueAge = isStormMode() ? BubbleConstants.udpStormQueueMaxAge : BubbleConstants.udpQueuedStreamMaxAge
+        var retained: [PendingUDPControl] = []
+        retained.reserveCapacity(pendingUDPControlQueue.count)
+        for item in pendingUDPControlQueue {
+            if now.timeIntervalSince(item.enqueuedAt) > maxQueueAge {
+                udpReclaimsByReason["queue_age_reclaim", default: 0] += 1
+                activeConnectionCount = max(activeConnectionCount - 1, 0)
+                item.client.cancel()
+            } else {
+                retained.append(item)
+            }
+        }
+        pendingUDPControlQueue = retained
+    }
+
+    private func sweepInflightDNSExpirations() {
+        let now = Date()
+        for (key, inflight) in inflightDNSRequests where now.timeIntervalSince(inflight.startedAt) > BubbleConstants.dnsInflightMaxAge {
+            inflightDNSRequests.removeValue(forKey: key)
+            dnsInflight = max(dnsInflight - 1, 0)
+            for callback in inflight.callbacks {
+                callback(nil)
+            }
+        }
+    }
+
+    private func updateTransportDegradedState() {
+        let now = Date()
+        sampleStateSeconds(now: now)
+        sampleStormModeDuration(now: now)
+        let timeoutRate = statsUDP > 0 ? Double(udpTimeoutCount) / Double(statsUDP) : 0
+        let badLenRate = badLenHardFailRate(now: now)
+        let isSaturated = pendingUDPControlQueue.count >= effectiveDegradedEnterQueueDepth()
+        let isRecoveringDepth = pendingUDPControlQueue.count <= BubbleConstants.degradedRecoverQueueDepth
+        let timeoutStorm = timeoutRate >= effectiveDegradedTimeoutRateEnter()
+        let timeoutRecovered = timeoutRate <= BubbleConstants.degradedTimeoutRateRecover
+        let badLenStorm = badLenRate >= BubbleConstants.degradedBadLenRateEnter
+        let badLenRecovered = badLenRate <= BubbleConstants.degradedBadLenRateRecover
+        let recentEmergencyReclaims = countRecentEmergencyReclaims(windowSeconds: BubbleConstants.trippedWindowSeconds)
+        let severeSaturation = pendingUDPControlQueue.count >= effectiveTrippedEnterQueueDepth()
+        let severeTimeoutStorm = timeoutRate >= effectiveTrippedEnterTimeoutRate()
+        let severeBadLenStorm = badLenRate >= BubbleConstants.trippedBadLenRateEnter
+        let severeReclaims = recentEmergencyReclaims >= BubbleConstants.trippedEnterEmergencyReclaims
+        let severeCondition = Self.shouldTripFromSevereSignals(
+            severeSaturation: severeSaturation,
+            severeTimeoutStorm: severeTimeoutStorm,
+            severeBadLenStorm: severeBadLenStorm,
+            severeReclaims: severeReclaims
+        )
+        if severeCondition {
+            if severeSignalSince == nil {
+                severeSignalSince = now
+            }
+        } else {
+            severeSignalSince = nil
+        }
+        let severeSustained = severeSignalSince.map {
+            now.timeIntervalSince($0) >= effectiveTrippedEnterMinDegradedSeconds()
+        } ?? false
+        let trippedRecovered = timeoutRate <= BubbleConstants.trippedRecoverTimeoutRate &&
+            pendingUDPControlQueue.count <= BubbleConstants.trippedRecoverQueueDepth &&
+            badLenRate <= BubbleConstants.trippedBadLenRateRecover
+        let previous = degradedState
+        let degradedConditionActive = isSaturated || timeoutStorm || badLenStorm
+        switch degradedState {
+        case .healthy:
+            if degradedConditionActive {
+                degradedState = .degraded
+                degradedEnteredAt = now
+                degradedStableSince = nil
+            }
+        case .degraded:
+            let degradedDwellMet = now.timeIntervalSince(degradedEnteredAt) >= effectiveTrippedEnterMinDegradedSeconds()
+            if severeCondition && severeSustained && degradedDwellMet {
+                if hasAnyProtectionGrace() {
+                    log.log("TRANSPORT_PROTECTION state_transition_blocked_by_grace attempted=\(TransportDegradedState.tripped.rawValue)")
+                } else {
+                    degradedState = .tripped
+                    trippedEnteredAt = now
+                    degradedStableSince = nil
+                    severeSignalSince = nil
+                }
+            } else if isRecoveringDepth && timeoutRecovered && badLenRecovered {
+                if degradedStableSince == nil {
+                    degradedStableSince = now
+                }
+                if let stableSince = degradedStableSince,
+                   now.timeIntervalSince(stableSince) >= BubbleConstants.degradedRecoverStabilizationSeconds {
+                    degradedState = .recovering
+                    recoveringEnteredAt = now
+                    degradedStableSince = nil
+                }
+            } else {
+                degradedStableSince = nil
+            }
+        case .recovering:
+            if isRecoveringDepth && timeoutRecovered && badLenRecovered &&
+                now.timeIntervalSince(recoveringEnteredAt) >= BubbleConstants.degradedRecoverStabilizationSeconds {
+                degradedState = .healthy
+                severeSignalSince = nil
+            } else if degradedConditionActive {
+                degradedState = .degraded
+                degradedEnteredAt = now
+                degradedStableSince = nil
+            }
+        case .tripped:
+            let stabilizedSeconds = now.timeIntervalSince(trippedEnteredAt)
+            if trippedRecovered && stabilizedSeconds >= BubbleConstants.trippedRecoverStabilizationSeconds {
+                degradedState = .recovering
+                trippedSecondsTotal += stabilizedSeconds
+                recoveringEnteredAt = now
+                if stabilityFirstModeEnabled {
+                    recoveryGraceUntil = now.addingTimeInterval(BubbleConstants.stabilityFirstRecoveryGraceSeconds)
+                }
+            }
+        }
+        if degradedState != previous {
+            degradedTransitions += 1
+            if degradedState == .tripped {
+                trippedTransitions += 1
+            }
+            log.log("TRANSPORT_PROTECTION state_transition from=\(previous.rawValue) to=\(degradedState.rawValue) timeoutRate=\(String(format: "%.2f", timeoutRate)) badLenRate=\(String(format: "%.2f", badLenRate)) queueDepth=\(pendingUDPControlQueue.count) recentEmergencyReclaims=\(recentEmergencyReclaims)")
+        }
+        emitPressureDiagnosticsIfNeeded(now: now, timeoutRate: timeoutRate, badLenRate: badLenRate)
+        updateTikTokTransportDegradedState()
+    }
+
+    private func emitPressureDiagnosticsIfNeeded(now: Date, timeoutRate: Double, badLenRate: Double) {
+        let phase = currentTransportPressurePhase(now: now)
+        guard phase != .normal else { return }
+        guard now.timeIntervalSince(lastPressureDiagnosticsAt) >= BubbleConstants.transportPressureDiagnosticsInterval else { return }
+        lastPressureDiagnosticsAt = now
+        log.log(
+            "TRANSPORT_PROTECTION pressure phase=\(phase.rawValue) state=\(degradedState.rawValue) queue=\(pendingUDPControlQueue.count) activeUDP=\(activeUDPStreams) timeoutRate=\(String(format: "%.2f", timeoutRate)) badLenRate=\(String(format: "%.2f", badLenRate)) grace=\(hasAnyProtectionGrace(now: now))"
+        )
+    }
+
+    private func sampleStateSeconds(now: Date) {
+        let delta = max(0, now.timeIntervalSince(lastStateSampleAt))
+        guard delta > 0 else { return }
+        stateSecondsByMode[degradedState.rawValue, default: 0] += delta
+        lastStateSampleAt = now
+    }
+
+    private func updateTikTokTransportDegradedState() {
+        let defaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
+        let degradedReason: String?
+        switch degradedState {
+        case .healthy:
+            degradedReason = nil
+        case .degraded:
+            degradedReason = pendingUDPControlQueue.count >= effectiveDegradedEnterQueueDepth() ? "udp_queue_saturation" : "udp_timeout_storm"
+        case .tripped:
+            degradedReason = "tripped_overload_guard"
+        case .recovering:
+            degradedReason = "recovering"
+        }
+        defaults?.set(degradedReason != nil, forKey: BubbleConstants.vpnLifecycleTransportDegradedKey)
+        defaults?.set(degradedReason ?? "", forKey: BubbleConstants.vpnLifecycleTransportDegradedReasonKey)
+        defaults?.set(Date().timeIntervalSince1970, forKey: BubbleConstants.vpnLifecycleTransportDegradedTSKey)
+    }
+
+    private func reclaimUDPStreamsUnderPressure(reason: String) {
+        guard reason == "maintenance" else { return }
+        if hasAnyProtectionGrace() {
+            log.log("TRANSPORT_PROTECTION grace_active=true reclaim_blocked reason=\(reason)")
+            return
+        }
+        guard isStormMode() else { return }
+        guard activeUDPStreams >= BubbleConstants.maxActiveUDPControlStreams else { return }
+        guard !pendingUDPControlQueue.isEmpty else { return }
+        let now = Date()
+        guard now >= maintenanceReclaimCooldownUntil else { return }
+        if let oldest = pendingUDPControlQueue.first,
+           now.timeIntervalSince(oldest.enqueuedAt) < 0.25 {
+            return
+        }
+        maintenanceReclaimTimestamps = maintenanceReclaimTimestamps.filter {
+            now.timeIntervalSince($0) <= BubbleConstants.udpMaintenanceReclaimWindowSeconds
+        }
+        if maintenanceReclaimTimestamps.count >= BubbleConstants.udpMaintenanceReclaimBudgetPerWindow {
+            maintenanceReclaimBudgetExhaustedCount += 1
+            let extraCooldown = Double(maintenanceReclaimBudgetExhaustedCount) * BubbleConstants.udpEmergencyReclaimMinInterval
+            maintenanceReclaimCooldownUntil = now.addingTimeInterval(BubbleConstants.udpEmergencyReclaimMinInterval + min(extraCooldown, 3.0))
+            return
+        }
+        guard now.timeIntervalSince(lastEmergencyReclaimAt) >= BubbleConstants.udpEmergencyReclaimMinInterval else { return }
+        lastEmergencyReclaimAt = now
+        let hardQueuePressure = pendingUDPControlQueue.count >= BubbleConstants.maxQueuedUDPControlStreams
+        var candidates = udpStreamsByID.values
+            .filter {
+                !$0.closed &&
+                !$0.hardeningEnabled &&
+                !$0.processingFrame &&
+                $0.pendingFrames.isEmpty &&
+                now.timeIntervalSince($0.lastProgressAt) > 1.0 &&
+                $0.lastPort != 53
+            }
+            .sorted { $0.lastActivityAt < $1.lastActivityAt }
+        if candidates.isEmpty && hardQueuePressure {
+            candidates = udpStreamsByID.values
+                .filter {
+                    !$0.closed &&
+                    !$0.processingFrame &&
+                    $0.pendingFrames.isEmpty &&
+                    now.timeIntervalSince($0.lastProgressAt) > 1.0
+                }
+                .sorted { $0.lastActivityAt < $1.lastActivityAt }
+        }
+        let batch = min(BubbleConstants.selectiveReclaimMaxPerSweep, min(BubbleConstants.udpEmergencyReclaimBatchSize, candidates.count))
+        guard batch > 0 else { return }
+        maintenanceReclaimTimestamps.append(now)
+        for state in candidates.prefix(batch) {
+            udpReclaimsByReason["emergency_reclaim", default: 0] += 1
+            emergencyReclaimTimestamps.append(now)
+            let reclaimReason = "emergency_reclaim_\(reason)"
+            if shouldAllowReclaim(reason: reclaimReason, now: now) {
+                closeUDPControlStream(client: state.client, state: state, reason: reclaimReason)
+            } else {
+                log.log("TRANSPORT_PROTECTION reclaim_cooldown_active reason=\(reclaimReason)")
+            }
+        }
+    }
+
+    private func pooledUDPConnection(host: String, port: NWEndpoint.Port, poolKey: String, allowReuse: Bool) -> NWConnection {
+        if !allowReuse {
+            udpSocketReuseMisses += 1
+            return NWConnection(host: NWEndpoint.Host(host), port: port, using: .udp)
+        }
+        if let existing = udpSocketPool[poolKey] {
+            udpSocketReuseHits += 1
+            return existing
+        }
+        udpSocketReuseMisses += 1
+        let created = NWConnection(host: NWEndpoint.Host(host), port: port, using: .udp)
+        udpSocketPool[poolKey] = created
+        udpSocketPoolOrder.append(poolKey)
+        if udpSocketPoolOrder.count > udpSocketPoolMaxEntries {
+            let evicted = udpSocketPoolOrder.removeFirst()
+            udpSocketPool.removeValue(forKey: evicted)?.cancel()
+            startedUDPSocketKeys.remove(evicted)
+        }
+        return created
+    }
+
+    private func startUDPConnectionIfNeeded(_ connection: NWConnection, for poolKey: String) {
+        if !startedUDPSocketKeys.contains(poolKey) {
+            startedUDPSocketKeys.insert(poolKey)
+            connection.start(queue: queue)
+        }
+    }
+
+    private func evictUDPSocket(poolKey: String) {
+        udpSocketPool.removeValue(forKey: poolKey)?.cancel()
+        udpSocketPoolOrder.removeAll { $0 == poolKey }
+        startedUDPSocketKeys.remove(poolKey)
+    }
+
+    private func watchdogTimeoutForState() -> TimeInterval {
+        switch degradedState {
+        case .degraded, .tripped:
+            return BubbleConstants.udpProcessingWatchdogTimeoutDegraded
+        case .healthy, .recovering:
+            return BubbleConstants.udpProcessingWatchdogTimeout
+        }
+    }
+
+    private func isStormMode() -> Bool {
+        degradedState == .degraded || degradedState == .tripped || pendingUDPControlQueue.count >= (effectiveDegradedEnterQueueDepth() / 2)
+    }
+
+    private func effectiveMaxActiveUDPStreams(stormMode: Bool) -> Int {
+        guard stormMode else { return BubbleConstants.maxActiveUDPControlStreams }
+        return max(1, BubbleConstants.maxActiveUDPControlStreams - BubbleConstants.udpStormReservedSlots)
+    }
+
+    private func sampleStormModeDuration(now: Date) {
+        if isStormMode() {
+            if stormModeActiveSince == nil {
+                stormModeActiveSince = now
+            }
+        } else if let since = stormModeActiveSince {
+            stormModeActiveSecondsTotal += now.timeIntervalSince(since)
+            stormModeActiveSince = nil
+        }
+    }
+
+    private func stormModeActiveSeconds(now: Date = Date()) -> Double {
+        if let since = stormModeActiveSince {
+            return stormModeActiveSecondsTotal + now.timeIntervalSince(since)
+        }
+        return stormModeActiveSecondsTotal
+    }
+
+    private func dnsReservedSlotsInUse() -> Int {
+        udpStreamsByID.values.filter { !$0.closed && $0.lastPort == 53 }.count
     }
 
     private func decoderReasonCode(_ error: UDPControlDecoderError) -> String {
@@ -828,15 +1632,43 @@ final class SOCKSProxyServer {
         var suppressedHits: Int
     }
 
+    private enum ProtectionGateStage {
+        case admission
+        case streamBlock
+    }
+
+    private enum ProtectionGateResult {
+        case allow
+        case suppress
+        case dropFast
+        case rejectNewStream
+    }
+
     private func suppressionKey(host: String, port: UInt16, reason: String) -> String {
         "\(host.lowercased()):\(port):\(reason)"
+    }
+
+    private func hostCooldownKey(host: String, port: UInt16, bucket: ContentBucket) -> String {
+        "\(host.lowercased()):\(port):\(bucket.rawValue)"
+    }
+
+    private func shouldDropFromHostCooldown(host: String, port: UInt16, bucket: ContentBucket, now: Date = Date()) -> Bool {
+        let key = hostCooldownKey(host: host, port: port, bucket: bucket)
+        guard let until = hostCooldownUntilByKey[key], now < until else { return false }
+        return true
+    }
+
+    private func markHostCooldown(host: String, port: UInt16, bucket: ContentBucket, now: Date = Date()) {
+        let key = hostCooldownKey(host: host, port: port, bucket: bucket)
+        hostCooldownUntilByKey[key] = now.addingTimeInterval(BubbleConstants.hostCooldownDropSeconds)
     }
 
     private func shouldSuppressBlockedFlow(host: String, port: UInt16, reason: String, transport: String) -> Bool {
         let now = Date()
         let key = suppressionKey(host: host, port: port, reason: reason)
+        let cooldown = suppressionCooldown(for: reason)
         if var state = blockedSuppression[key] {
-            if now.timeIntervalSince(state.lastSeen) <= blockSuppressionCooldown {
+            if now.timeIntervalSince(state.lastSeen) <= cooldown {
                 state.lastSeen = now
                 state.suppressedHits += 1
                 blockedSuppression[key] = state
@@ -852,8 +1684,248 @@ final class SOCKSProxyServer {
         return false
     }
 
+    private func evaluateProtectionGate(
+        host: String,
+        port: UInt16,
+        decision: PolicyDecision,
+        transport: String,
+        stage: ProtectionGateStage
+    ) -> ProtectionGateResult {
+        guard decision.action == .blockNow, isTikTokProtectedBucket(decision.classification.bucket) else {
+            return .allow
+        }
+
+        recentTikTokBlockEvents.append(Date())
+
+        if stage == .admission && shouldRejectNewTikTokUDPControlStream() {
+            return .rejectNewStream
+        }
+        if shouldDropFromHostCooldown(host: host, port: port, bucket: decision.classification.bucket) {
+            return .dropFast
+        }
+        if shouldDropTikTokRetryByTokenBucket(host: host, port: port, decision: decision, transport: transport) {
+            tokenBucketDrops += 1
+            markHostCooldown(host: host, port: port, bucket: decision.classification.bucket)
+            return .dropFast
+        }
+        if shouldSuppressBlockedFlow(host: host, port: port, reason: decision.reason, transport: transport) {
+            return .suppress
+        }
+        return .allow
+    }
+
+    private func suppressionCooldown(for reason: String) -> TimeInterval {
+        if reason == "tiktok_video_block_now" {
+            switch degradedState {
+            case .healthy:
+                return aggressiveBlockSuppressionCooldown
+            case .degraded, .tripped:
+                return BubbleConstants.aggressiveBlockSuppressionStormCooldown
+            case .recovering:
+                return aggressiveBlockSuppressionCooldown * 1.5
+            }
+        }
+        return blockSuppressionCooldown
+    }
+
+    private func countRecentEmergencyReclaims(windowSeconds: TimeInterval) -> Int {
+        let now = Date()
+        emergencyReclaimTimestamps = emergencyReclaimTimestamps.filter { now.timeIntervalSince($0) <= windowSeconds }
+        return emergencyReclaimTimestamps.count
+    }
+
+    private func shouldRejectNewTikTokUDPControlStream() -> Bool {
+        let now = Date()
+        if hasAnyProtectionGrace(now: now) {
+            return false
+        }
+        guard isTikTokRetryStormActive() else { return false }
+        let phase = currentTransportPressurePhase(now: now)
+        if phase == .critical {
+            // Invariant: avoid full rejection unless we're truly at hard cap.
+            return Self.shouldForceGlobalUDPReject(
+                active: activeUDPStreams,
+                queued: pendingUDPControlQueue.count,
+                maxActive: BubbleConstants.maxActiveUDPControlStreams,
+                maxQueued: BubbleConstants.maxQueuedUDPControlStreams
+            )
+        }
+        if phase == .degraded {
+            return pendingUDPControlQueue.count >= BubbleConstants.degradedTikTokUDPRejectQueueDepth
+        }
+        return false
+    }
+
+    private func shouldDropTikTokRetryByTokenBucket(host: String, port: UInt16, decision: PolicyDecision, transport: String) -> Bool {
+        guard decision.action == .blockNow, isTikTokProtectedBucket(decision.classification.bucket) else {
+            return false
+        }
+        let key = "\(host.lowercased()):\(port):\(decision.classification.bucket.rawValue)"
+        let now = Date()
+        var bucket = tokenBucketsByHost[key] ?? TokenBucketState(
+            tokens: BubbleConstants.tiktokRetryTokenBucketCapacity,
+            lastRefillAt: now
+        )
+        let elapsed = max(0, now.timeIntervalSince(bucket.lastRefillAt))
+        let refill = elapsed * BubbleConstants.tiktokRetryTokenBucketRefillPerSecond
+        bucket.tokens = min(BubbleConstants.tiktokRetryTokenBucketCapacity, bucket.tokens + refill)
+        bucket.lastRefillAt = now
+
+        if bucket.tokens < 1.0 {
+            tokenBucketsByHost[key] = bucket
+            log.log("POLICY_TOKEN_BUCKET_DROP transport=\(transport) host=\(host.lowercased()) port=\(port) bucket=\(decision.classification.bucket.rawValue) reason=\(decision.reason)")
+            return true
+        }
+
+        bucket.tokens -= 1.0
+        tokenBucketsByHost[key] = bucket
+        return false
+    }
+
+    private func isTikTokRetryStormActive(now: Date = Date()) -> Bool {
+        recentTikTokBlockEvents = recentTikTokBlockEvents.filter { now.timeIntervalSince($0) <= 15 }
+        return recentTikTokBlockEvents.count >= 8
+    }
+
+    private func recentBadLenHardFailCount(now: Date = Date()) -> Int {
+        recentBadLenHardFailTimestamps = recentBadLenHardFailTimestamps.filter {
+            now.timeIntervalSince($0) <= BubbleConstants.badLenRateWindowSeconds
+        }
+        return recentBadLenHardFailTimestamps.count
+    }
+
+    private func badLenHardFailRate(now: Date = Date()) -> Double {
+        let count = recentBadLenHardFailCount(now: now)
+        let denom = max(1.0, BubbleConstants.badLenRateWindowSeconds)
+        return Double(count) / denom
+    }
+
+    private func isStartupGraceActive(now: Date = Date()) -> Bool {
+        stabilityFirstModeEnabled && now < protectionStartupGraceUntil
+    }
+
+    private func isRecoveryGraceActive(now: Date = Date()) -> Bool {
+        stabilityFirstModeEnabled && now < recoveryGraceUntil
+    }
+
+    private func hasAnyProtectionGrace(now: Date = Date()) -> Bool {
+        isStartupGraceActive(now: now) || isRecoveryGraceActive(now: now)
+    }
+
+    private func currentTransportPressurePhase(now: Date = Date()) -> TransportPressurePhase {
+        if degradedState == .tripped {
+            return .critical
+        }
+        if degradedState == .degraded || degradedState == .recovering {
+            return .degraded
+        }
+        return .normal
+    }
+
+    private func effectiveDegradedEnterQueueDepth() -> Int {
+        stabilityFirstModeEnabled ? BubbleConstants.degradedEnterQueueDepth + 8 : BubbleConstants.degradedEnterQueueDepth
+    }
+
+    private func effectiveTrippedEnterQueueDepth() -> Int {
+        stabilityFirstModeEnabled ? BubbleConstants.trippedEnterQueueDepth + 8 : BubbleConstants.trippedEnterQueueDepth
+    }
+
+    private func effectiveDegradedTimeoutRateEnter() -> Double {
+        stabilityFirstModeEnabled ? 0.65 : BubbleConstants.degradedTimeoutRateEnter
+    }
+
+    private func effectiveTrippedEnterTimeoutRate() -> Double {
+        stabilityFirstModeEnabled ? 0.80 : BubbleConstants.trippedEnterTimeoutRate
+    }
+
+    private func effectiveTrippedEnterMinDegradedSeconds() -> TimeInterval {
+        stabilityFirstModeEnabled ? max(BubbleConstants.trippedCriticalDwellSeconds, BubbleConstants.trippedEnterMinDegradedSeconds * 2.0) : BubbleConstants.trippedEnterMinDegradedSeconds
+    }
+
+    private func effectiveDecodeFailureCloseThreshold() -> Int {
+        stabilityFirstModeEnabled ? BubbleConstants.udpDecodeFailureCloseThreshold + 2 : BubbleConstants.udpDecodeFailureCloseThreshold
+    }
+
+    private func effectiveBadLenSoftFailureLimit() -> Int {
+        stabilityFirstModeEnabled ? BubbleConstants.udpDecodeBadLenSoftFailureLimit + 4 : BubbleConstants.udpDecodeBadLenSoftFailureLimit
+    }
+
+    private func effectiveRecoveredDecoderCloseDensity() -> Double {
+        stabilityFirstModeEnabled ? 7.0 : 4.0
+    }
+
+    private func effectiveDecoderCloseDensity() -> Double {
+        stabilityFirstModeEnabled ? 8.0 : 5.0
+    }
+
+    private func effectiveTimeoutStreakCloseThreshold(base: Int) -> Int {
+        stabilityFirstModeEnabled ? base + 2 : base
+    }
+
+    private func effectiveMaxLifetime(base: TimeInterval) -> TimeInterval {
+        stabilityFirstModeEnabled ? base * 1.5 : base
+    }
+
+    private func effectiveIdleTimeout(base: TimeInterval) -> TimeInterval {
+        stabilityFirstModeEnabled ? base * 2.0 : base
+    }
+
+    private func shouldCloseStreamForTimeout(state: UDPStreamState, now: Date) -> Bool {
+        if hasAnyProtectionGrace(now: now) {
+            return false
+        }
+        guard stabilityFirstModeEnabled else { return true }
+        let lifetimeOK = now.timeIntervalSince(state.createdAt) >= BubbleConstants.selectiveReclaimMinLifetimeSeconds
+        let idleOK = now.timeIntervalSince(state.lastActivityAt) >= BubbleConstants.selectiveReclaimMinIdleSeconds
+        let noRecentSuccess = state.lastSuccessfulResponseAt.map { now.timeIntervalSince($0) > 2.0 } ?? true
+        return lifetimeOK && idleOK && noRecentSuccess
+    }
+
+    private func shouldSkipIdleReclaimDueToRecentSuccess(state: UDPStreamState, now: Date) -> Bool {
+        guard stabilityFirstModeEnabled else { return false }
+        if let recent = state.lastSuccessfulResponseAt, now.timeIntervalSince(recent) <= 3.0 {
+            return true
+        }
+        return false
+    }
+
+    private func shouldAllowReclaim(reason: String, now: Date) -> Bool {
+        if let until = reclaimCooldownUntilByReason[reason], now < until {
+            return false
+        }
+        reclaimCooldownUntilByReason[reason] = now.addingTimeInterval(BubbleConstants.reclaimReasonCooldownSeconds)
+        return true
+    }
+
     private func pruneSuppressionState(now: Date) {
-        blockedSuppression = blockedSuppression.filter { now.timeIntervalSince($0.value.lastSeen) <= (blockSuppressionCooldown * 4.0) }
+        let maxWindow = max(blockSuppressionCooldown, BubbleConstants.aggressiveBlockSuppressionStormCooldown)
+        blockedSuppression = blockedSuppression.filter { now.timeIntervalSince($0.value.lastSeen) <= (maxWindow * 4.0) }
+    }
+
+    private func pruneHostCooldowns(now: Date = Date()) {
+        hostCooldownUntilByKey = hostCooldownUntilByKey.filter { now < $0.value }
+    }
+
+    private func reconnectBreakerCooldownRemainingSec(now: Date = Date()) -> Int {
+        let defaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
+        let until = defaults?.double(forKey: BubbleConstants.vpnLifecycleReconnectBreakerUntilTSKey) ?? 0
+        guard until > now.timeIntervalSince1970 else { return 0 }
+        return Int(ceil(until - now.timeIntervalSince1970))
+    }
+
+    private func reconnectBreakerTrips() -> Int {
+        let defaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
+        return defaults?.integer(forKey: BubbleConstants.vpnLifecycleReconnectBreakerTripsKey) ?? 0
+    }
+
+    private func reconnectSuppressedByBreakerCount() -> Int {
+        let defaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
+        return defaults?.integer(forKey: BubbleConstants.vpnLifecycleReconnectSuppressedByBreakerKey) ?? 0
+    }
+
+    private func reconnectBreakerBackoffStep() -> Int {
+        let defaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
+        return defaults?.integer(forKey: BubbleConstants.vpnLifecycleReconnectBreakerBackoffStepKey) ?? 0
     }
 
     private func recordDecoderError(_ error: UDPControlDecoderError, hardFailure: Bool) {
@@ -864,8 +1936,227 @@ final class SOCKSProxyServer {
             udpDecodeBadLength += 1
             if hardFailure {
                 udpDecodeBadLengthHardFail += 1
+                recentBadLenHardFailTimestamps.append(Date())
             }
         }
+    }
+
+    private struct ResolverHealth {
+        var timeoutStreak = 0
+        var failoverScore = 0
+        var lastSuccessfulResponseAt: Date?
+        var lastSuccessAt = Date.distantPast
+    }
+
+    private struct TokenBucketState {
+        var tokens: Double
+        var lastRefillAt: Date
+    }
+
+    private enum TransportDegradedState: String {
+        case healthy
+        case degraded
+        case tripped
+        case recovering
+    }
+
+    private enum TransportPressurePhase: String {
+        case normal
+        case degraded
+        case critical
+    }
+
+    static func shouldTripFromSevereSignals(
+        severeSaturation: Bool,
+        severeTimeoutStorm: Bool,
+        severeBadLenStorm: Bool,
+        severeReclaims: Bool
+    ) -> Bool {
+        let severeDecodeAndNetwork = severeBadLenStorm && (severeTimeoutStorm || severeSaturation)
+        let severeReclaimAndStress = severeReclaims && (severeTimeoutStorm || severeSaturation || severeBadLenStorm)
+        return severeDecodeAndNetwork || severeReclaimAndStress
+    }
+
+    static func shouldInferCrashFromLifecycle(stopSource: String, runningMarker: Bool, heartbeatAgeSeconds: TimeInterval, staleThresholdSeconds: TimeInterval) -> Bool {
+        if stopSource == "stopTunnel" || stopSource == "tun2socks_exit" || stopSource == "cancelTunnelWithError" || stopSource == "inferred_crash" {
+            return false
+        }
+        return runningMarker && heartbeatAgeSeconds >= staleThresholdSeconds
+    }
+
+    static func effectiveActiveLimit(baseLimit: Int, reservedSlots: Int, stormMode: Bool) -> Int {
+        guard stormMode else { return baseLimit }
+        return max(1, baseLimit - reservedSlots)
+    }
+
+    static func shouldForceGlobalUDPReject(active: Int, queued: Int, maxActive: Int, maxQueued: Int) -> Bool {
+        active >= maxActive && queued >= maxQueued
+    }
+
+    private func queuedUDPControlP95AgeMs(now: Date = Date()) -> Int {
+        guard !pendingUDPControlQueue.isEmpty else { return 0 }
+        let ages = pendingUDPControlQueue
+            .map { max(0, now.timeIntervalSince($0.enqueuedAt) * 1000.0) }
+            .sorted()
+        let idx = min(ages.count - 1, Int(Double(ages.count - 1) * 0.95))
+        return Int(ages[idx])
+    }
+
+    private func udpSocketReuseHitRate() -> Double {
+        let total = udpSocketReuseHits + udpSocketReuseMisses
+        guard total > 0 else { return 0 }
+        return Double(udpSocketReuseHits) / Double(total)
+    }
+
+    private struct PendingUDPControl {
+        let client: NWConnection
+        let id: Int
+        let enqueuedAt: Date
+    }
+
+    private final class UDPAdmissionController {
+        private var rejectUntil = Date.distantPast
+        private var createTokens = Double(BubbleConstants.udpAdmissionCreateRateCapacity)
+        private var lastRefillAt = Date.distantPast
+
+        func decide(
+            active: Int,
+            queued: Int,
+            stormMode: Bool,
+            maxActive: Int,
+            pressurePhase: TransportPressurePhase,
+            preferQueueing: Bool,
+            graceActive: Bool,
+            now: Date
+        ) -> UDPAdmissionDecision {
+            refillTokens(now: now, stormMode: stormMode)
+            if now < rejectUntil {
+                return .reject(reason: "cooldown")
+            }
+            if createTokens < 1 {
+                if preferQueueing && queued < BubbleConstants.maxQueuedUDPControlStreams {
+                    return .queue
+                }
+                return .reject(reason: "rate_limited")
+            }
+            if active >= maxActive && queued >= BubbleConstants.maxQueuedUDPControlStreams {
+                if graceActive || preferQueueing {
+                    return .queue
+                }
+                rejectUntil = now.addingTimeInterval(1.5)
+                return .reject(reason: "hard_saturation")
+            }
+            if active >= maxActive {
+                return .queue
+            }
+            if pressurePhase == .critical && queued >= BubbleConstants.maxQueuedUDPControlStreams {
+                return .reject(reason: "critical_backpressure")
+            }
+            if pressurePhase == .degraded && queued >= (BubbleConstants.maxQueuedUDPControlStreams - 1) {
+                return .queue
+            }
+            if queued > (BubbleConstants.maxQueuedUDPControlStreams / 2) && active >= (maxActive - 1) {
+                if preferQueueing {
+                    return .queue
+                }
+                return .reject(reason: "preemptive_backpressure")
+            }
+            createTokens -= 1
+            return .accept
+        }
+
+        private func refillTokens(now: Date, stormMode: Bool) {
+            if lastRefillAt == .distantPast {
+                lastRefillAt = now
+                return
+            }
+            let elapsed = max(0, now.timeIntervalSince(lastRefillAt))
+            let refillRate = stormMode ? (BubbleConstants.udpAdmissionCreateRatePerSecond * 0.4) : BubbleConstants.udpAdmissionCreateRatePerSecond
+            let refill = elapsed * refillRate
+            createTokens = min(Double(BubbleConstants.udpAdmissionCreateRateCapacity), createTokens + refill)
+            lastRefillAt = now
+        }
+    }
+
+    private struct InflightDNSRequest {
+        let startedAt: Date
+        var callbacks: [(Data?) -> Void]
+    }
+
+    private func dnsDedupKey(host: String, port: UInt16, payload: Data) -> String? {
+        guard port == 53 else { return nil }
+        return "\(host):\(port):\(payload.hashValue)"
+    }
+
+    private func effectiveResolverHost(originalHost: String, port: UInt16) -> String {
+        guard port == 53, originalHost == "8.8.8.8" || originalHost == "1.1.1.1" else {
+            return originalHost
+        }
+        let googleScore = resolverHealth["8.8.8.8"]?.failoverScore ?? 0
+        let cloudflareScore = resolverHealth["1.1.1.1"]?.failoverScore ?? 0
+        if googleScore >= BubbleConstants.dnsFailoverScoreThreshold, cloudflareScore < googleScore {
+            return "1.1.1.1"
+        }
+        if cloudflareScore >= BubbleConstants.dnsFailoverScoreThreshold, googleScore < cloudflareScore {
+            return "8.8.8.8"
+        }
+        let preferred = preferredResolverHost()
+        return preferred ?? originalHost
+    }
+
+    private func preferredResolverHost() -> String? {
+        let google = resolverHealth["8.8.8.8"] ?? ResolverHealth()
+        let cloudflare = resolverHealth["1.1.1.1"] ?? ResolverHealth()
+        let now = Date()
+        let selected: String
+        if google.failoverScore >= BubbleConstants.dnsFailoverScoreThreshold, cloudflare.failoverScore < google.failoverScore {
+            selected = "1.1.1.1"
+        } else if cloudflare.failoverScore >= BubbleConstants.dnsFailoverScoreThreshold, google.failoverScore < cloudflare.failoverScore {
+            selected = "8.8.8.8"
+        } else {
+            selected = google.lastSuccessAt >= cloudflare.lastSuccessAt ? "8.8.8.8" : "1.1.1.1"
+        }
+        let isReturnToPreviousHealthy = selected != currentPreferredResolver &&
+            (resolverHealth[selected]?.failoverScore ?? 0) == 0
+        let minSwitchDelay = isReturnToPreviousHealthy
+            ? max(BubbleConstants.resolverSwitchCooldown, BubbleConstants.dnsFailoverReturnDelaySeconds)
+            : BubbleConstants.resolverSwitchCooldown
+        if selected != currentPreferredResolver, now.timeIntervalSince(lastResolverSwitchAt) >= minSwitchDelay {
+            currentPreferredResolver = selected
+            lastResolverSwitchAt = now
+            resolverSwitchCount += 1
+        }
+        return currentPreferredResolver
+    }
+
+    private func markResolverSuccess(host: String, port: UInt16) {
+        guard port == 53 else { return }
+        var health = resolverHealth[host] ?? ResolverHealth()
+        health.timeoutStreak = 0
+        health.failoverScore = max(0, health.failoverScore - BubbleConstants.dnsFailoverScoreDecayPerSuccess)
+        health.lastSuccessAt = Date()
+        resolverHealth[host] = health
+    }
+
+    private func markResolverTimeout(host: String, port: UInt16) {
+        guard port == 53 else { return }
+        var health = resolverHealth[host] ?? ResolverHealth()
+        health.timeoutStreak += 1
+        health.failoverScore += 1
+        resolverHealth[host] = health
+        if host == currentPreferredResolver {
+            let fallback = host == "8.8.8.8" ? "1.1.1.1" : "8.8.8.8"
+            currentPreferredResolver = fallback
+            lastResolverSwitchAt = Date()
+            resolverSwitchCount += 1
+        }
+    }
+
+    private func isDNSResolverStormActive() -> Bool {
+        let googleScore = resolverHealth["8.8.8.8"]?.failoverScore ?? 0
+        let cloudflareScore = resolverHealth["1.1.1.1"]?.failoverScore ?? 0
+        return googleScore >= BubbleConstants.dnsFailoverScoreThreshold &&
+            cloudflareScore >= BubbleConstants.dnsFailoverScoreThreshold
     }
 
     // MARK: - Target Connection (TCP)
@@ -962,14 +2253,54 @@ final class SOCKSProxyServer {
     private final class UDPStreamState {
         let id: Int
         let decoder: UDPControlStreamDecoder
+        let client: NWConnection
+        let createdAt = Date()
+        var lastActivityAt = Date()
+        var timeoutStreak = 0
+        var hardeningEnabled = false
+        var hardeningBucket: ContentBucket?
+        var lastHost: String?
+        var lastPort: UInt16?
         var mode: UDPControlFramingMode?
         var pendingFrames: [UDPControlFrame] = []
         var processingFrame = false
+        var processingStartedAt: Date?
         var closed = false
+        var lastProgressAt = Date()
+        var lastSuccessfulResponseAt: Date?
+        var decoderFailureCount = 0
+        var decoderRecoveryCount = 0
+        var firstDecoderFailureAt: Date?
+        private var decoderFailureTimestamps: [Date] = []
+        private var decoderErrorDensity = 0.0
+        private var lastDecoderDensityAt = Date()
 
-        init(id: Int, decoder: UDPControlStreamDecoder) {
+        init(id: Int, client: NWConnection, decoder: UDPControlStreamDecoder) {
             self.id = id
+            self.client = client
             self.decoder = decoder
+        }
+
+        func decoderFailuresInWindow(now: Date, window: TimeInterval) -> Int {
+            decoderFailureTimestamps = decoderFailureTimestamps.filter { now.timeIntervalSince($0) <= window }
+            decoderFailureTimestamps.append(now)
+            return decoderFailureTimestamps.count
+        }
+
+        func markProgress(now: Date) {
+            let elapsed = max(0, now.timeIntervalSince(lastDecoderDensityAt))
+            decoderErrorDensity = max(0, decoderErrorDensity - (elapsed * 0.7))
+            lastDecoderDensityAt = now
+            lastProgressAt = now
+            lastSuccessfulResponseAt = now
+        }
+
+        func bumpDecoderErrorDensity(now: Date) -> Double {
+            let elapsed = max(0, now.timeIntervalSince(lastDecoderDensityAt))
+            decoderErrorDensity = max(0, decoderErrorDensity - (elapsed * 0.5))
+            decoderErrorDensity += 1.0
+            lastDecoderDensityAt = now
+            return decoderErrorDensity
         }
     }
 
@@ -1107,6 +2438,25 @@ final class SOCKSProxyServer {
                     let shouldBlockNow = streamDecision.action == .blockNow
                     let shouldBlockAfter = streamDecision.action == .blockAfterBytes && threshold != nil && projectedBytesDown > threshold!
                     if shouldBlockNow || shouldBlockAfter {
+                        let gate = self.evaluateProtectionGate(
+                            host: tracker.sni ?? tracker.host,
+                            port: tracker.port,
+                            decision: streamDecision,
+                            transport: "tcp_stream",
+                            stage: .streamBlock
+                        )
+                        if gate == .dropFast || gate == .suppress {
+                            if gate == .dropFast {
+                                self.streamBlockTokenDrops += 1
+                            } else {
+                                self.streamBlockSuppressed += 1
+                            }
+                            self.blockedSuppressedTCP += 1
+                            self.logRelayEnd(tracker: tracker, reason: "stream-blocked-suppressed")
+                            source.cancel()
+                            destination.cancel()
+                            return
+                        }
                         tracker.bytesDown = projectedBytesDown
                         self.statsBlocked += 1
                         let thresholdLabel = threshold.map { "\($0)B" } ?? "n/a"

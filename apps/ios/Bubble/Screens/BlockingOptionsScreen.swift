@@ -22,7 +22,7 @@ struct BlockingOptionsScreen: View {
                     DialSelector(
                         app: app,
                         onToggleOption: { optionId in
-                            store.toggleOption(appId: appId, optionId: optionId)
+                            store.toggleOption(appId: appId, optionId: optionId, source: "blocking_options_screen.tap")
                         }
                     )
 

@@ -76,10 +76,7 @@ final class TunnelLogger {
     }
 
     func clear() {
-        guard let fileURL = fileURL else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        try? "".data(using: .utf8)?.write(to: fileURL, options: .atomic)
+        log("========== NEW TUNNEL SESSION ==========")
     }
 
     static func readLog() -> String {

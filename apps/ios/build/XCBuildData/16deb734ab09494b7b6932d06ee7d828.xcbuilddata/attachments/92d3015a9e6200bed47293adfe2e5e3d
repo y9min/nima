@@ -1,0 +1,16 @@
+{
+  "" : {
+    "const-values" : "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/build/Tun2SocksKit.build/Release-iphoneos/Tun2SocksKit.build/Objects-normal/arm64/Tun2SocksKit-primary.swiftconstvalues",
+    "dependencies" : "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/build/Tun2SocksKit.build/Release-iphoneos/Tun2SocksKit.build/Objects-normal/arm64/Tun2SocksKit-primary.d",
+    "diagnostics" : "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/build/Tun2SocksKit.build/Release-iphoneos/Tun2SocksKit.build/Objects-normal/arm64/Tun2SocksKit-primary.dia",
+    "emit-module-dependencies" : "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/build/Tun2SocksKit.build/Release-iphoneos/Tun2SocksKit.build/Objects-normal/arm64/Tun2SocksKit-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/build/Tun2SocksKit.build/Release-iphoneos/Tun2SocksKit.build/Objects-normal/arm64/Tun2SocksKit-primary-emit-module.dia",
+    "pch" : "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/build/Tun2SocksKit.build/Release-iphoneos/Tun2SocksKit.build/Objects-normal/arm64/Tun2SocksKit-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/build/Tun2SocksKit.build/Release-iphoneos/Tun2SocksKit.build/Objects-normal/arm64/Tun2SocksKit-primary.swiftdeps"
+  },
+  "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/Sources/Tun2SocksKit/Tunnel.swift" : {
+    "index-unit-output-path" : "/Tun2SocksKit.build/Release-iphoneos/Tun2SocksKit.build/Objects-normal/arm64/Tunnel.o",
+    "llvm-bc" : "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/build/Tun2SocksKit.build/Release-iphoneos/Tun2SocksKit.build/Objects-normal/arm64/Tunnel.bc",
+    "object" : "/Users/yaminahmed/Library/Developer/Xcode/DerivedData/Bubble-axpkewiofymtscczbryehmncukxi/SourcePackages/checkouts/Tun2SocksKit/build/Tun2SocksKit.build/Release-iphoneos/Tun2SocksKit.build/Objects-normal/arm64/Tunnel.o"
+  }
+}

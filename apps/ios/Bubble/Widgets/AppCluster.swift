@@ -981,7 +981,7 @@ struct AppCluster: View {
                     let generator = UIImpactFeedbackGenerator(style: .medium)
                     generator.impactOccurred()
                     
-                    store.toggleOption(appId: appId, optionId: option.id)
+                    store.toggleOption(appId: appId, optionId: option.id, source: "app_cluster.center_drag")
                     lastToggledOptionId = option.id
                 }
                 break
@@ -1005,7 +1005,7 @@ struct AppCluster: View {
                         let generator = UIImpactFeedbackGenerator(style: .medium)
                         generator.impactOccurred()
                         
-                        store.toggleOption(appId: app.id, optionId: optionId)
+                        store.toggleOption(appId: app.id, optionId: optionId, source: "app_cluster.arc_tap")
                     }
                 )
                 .frame(width: 300, height: 300)

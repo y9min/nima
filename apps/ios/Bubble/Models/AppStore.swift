@@ -13,6 +13,15 @@ final class AppStore {
             options: [
                 BlockingOption(id: "reels", label: "reels", isEnabled: false)
             ]
+        ),
+        BlockedApp(
+            id: "tiktok",
+            name: "TIKTOK",
+            iconName: "music.note",
+            platform: "tiktok",
+            options: [
+                BlockingOption(id: "video_block", label: "video_block", isEnabled: false)
+            ]
         )
     ]
 
@@ -22,10 +31,7 @@ final class AppStore {
     @ObservationIgnored private var vpnStatusProvider: (() -> NEVPNStatus)?
     @ObservationIgnored private var vpnStartInFlight = false
     @ObservationIgnored private var vpnStopInFlight = false
-    @ObservationIgnored private var pendingVPNStopTask: Task<Void, Never>?
-    @ObservationIgnored private var pendingVPNStopToken = UUID()
-    @ObservationIgnored private var pendingVPNStopAt: Date?
-    @ObservationIgnored private let vpnStopDelayNanoseconds: UInt64 = 10_000_000_000
+    @ObservationIgnored private var pendingVPNSyncTask: Task<Void, Never>?
 
     init() {
         refreshFromOptionsService()
@@ -35,16 +41,17 @@ final class AppStore {
         apps.first { $0.id == id }
     }
 
-    func toggleOption(appId: String, optionId: String) {
-        optionsService.toggleOption(appId: appId, optionId: optionId)
+    func toggleOption(appId: String, optionId: String, source: String = "unknown") {
+        optionsService.toggleOption(appId: appId, optionId: optionId, source: source)
         refreshFromOptionsService()
-        syncVPNAfterToggle()
+        scheduleVPNReconciliation(triggerSource: source)
     }
 
     func configureVPNAutostart(startVPN: @escaping () -> Void, stopVPN: @escaping () -> Void, vpnStatus: @escaping () -> NEVPNStatus) {
         vpnStartHandler = startVPN
         vpnStopHandler = stopVPN
         vpnStatusProvider = vpnStatus
+        scheduleVPNReconciliation(triggerSource: "app_store.configure")
     }
 
     private func refreshFromOptionsService() {
@@ -57,14 +64,26 @@ final class AppStore {
         }
     }
 
-    private func syncVPNAfterToggle() {
+    private func scheduleVPNReconciliation(triggerSource: String) {
+        pendingVPNSyncTask?.cancel()
+        pendingVPNSyncTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            await MainActor.run {
+                self?.reconcileVPNState(triggerSource: triggerSource)
+            }
+        }
+    }
+
+    private func reconcileVPNState(triggerSource: String) {
         guard let vpnStartHandler, let vpnStopHandler, let vpnStatusProvider else { return }
         let status = vpnStatusProvider()
         let isConnectedLike = status == .connected || status == .connecting || status == .reasserting
-        let isDisconnecting = status == .disconnecting
+        let shouldVPNBeOn = hasAnyEnabledBlockingOption
 
-        if hasAnyEnabledBlockingOption {
-            cancelPendingVPNStop()
+        if shouldVPNBeOn {
+            AppDiagnosticsLogger.log(
+                "VPN_SYNC action=converge_on status=\(status.rawValue) should_vpn_be_on=true source=\(triggerSource)"
+            )
             guard !isConnectedLike, !vpnStartInFlight else { return }
             vpnStartInFlight = true
             vpnStopInFlight = false
@@ -78,51 +97,20 @@ final class AppStore {
             return
         }
 
-        guard isConnectedLike || isDisconnecting else {
-            cancelPendingVPNStop()
-            return
-        }
-        scheduleDelayedVPNStop(vpnStopHandler: vpnStopHandler, vpnStatusProvider: vpnStatusProvider)
-    }
-
-    private func scheduleDelayedVPNStop(vpnStopHandler: @escaping () -> Void, vpnStatusProvider: @escaping () -> NEVPNStatus) {
-        if pendingVPNStopTask != nil {
-            return
-        }
-        let token = UUID()
-        pendingVPNStopToken = token
-        pendingVPNStopAt = Date().addingTimeInterval(Double(vpnStopDelayNanoseconds) / 1_000_000_000.0)
-        pendingVPNStopTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: self?.vpnStopDelayNanoseconds ?? 0)
+        AppDiagnosticsLogger.log(
+            "VPN_SYNC action=converge_off status=\(status.rawValue) should_vpn_be_on=false source=\(triggerSource)"
+        )
+        let isDisconnectedLike = status == .disconnected || status == .disconnecting || status == .invalid
+        guard !isDisconnectedLike, !vpnStopInFlight else { return }
+        vpnStopInFlight = true
+        vpnStartInFlight = false
+        vpnStopHandler()
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
             await MainActor.run {
-                guard let self else { return }
-                guard self.pendingVPNStopToken == token else { return }
-                self.pendingVPNStopTask = nil
-                self.pendingVPNStopAt = nil
-                guard !self.hasAnyEnabledBlockingOption else { return }
-                let status = vpnStatusProvider()
-                if status == .disconnecting || status == .disconnected || status == .invalid {
-                    return
-                }
-                guard !self.vpnStopInFlight else { return }
-                self.vpnStopInFlight = true
-                self.vpnStartInFlight = false
-                vpnStopHandler()
-                Task {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    await MainActor.run {
-                        self.vpnStopInFlight = false
-                    }
-                }
+                self.vpnStopInFlight = false
             }
         }
-    }
-
-    private func cancelPendingVPNStop() {
-        pendingVPNStopToken = UUID()
-        pendingVPNStopTask?.cancel()
-        pendingVPNStopTask = nil
-        pendingVPNStopAt = nil
     }
 
     private var hasAnyEnabledBlockingOption: Bool {

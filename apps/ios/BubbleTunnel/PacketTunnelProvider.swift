@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import NetworkExtension
 import Tun2SocksKit
 
@@ -10,14 +11,36 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private let tunnelStateLock = NSLock()
     private var tunnelStopping = false
     private var didRequestCancel = false
+    private let sharedDefaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
+    private var heartbeatTimer: DispatchSourceTimer?
+    private var pathMonitor: NWPathMonitor?
+    private let pathMonitorQueue = DispatchQueue(label: "BubbleTunnel.PathMonitor")
+    private var lastRecordedStop = false
+
+    deinit {
+        if sharedDefaults?.bool(forKey: BubbleConstants.vpnLifecycleRunningMarkerKey) == true {
+            sharedDefaults?.set(true, forKey: BubbleConstants.vpnLifecycleInferredCrashKey)
+        }
+        if !lastRecordedStop {
+            recordLifecycleStop(
+                source: "inferred_crash",
+                reason: "provider_deinit_without_stop",
+                reasonRaw: "deinit",
+                exitCode: nil,
+                unexpectedExit: true
+            )
+        }
+    }
 
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         tunnelStateLock.lock()
         tunnelStopping = false
         didRequestCancel = false
+        lastRecordedStop = false
         tunnelStateLock.unlock()
 
         log.clear()
+        recordLifecycleStart()
         log.log("========== TUNNEL STARTING ==========")
         log.log("Bundle ID: \(Bundle.main.bundleIdentifier ?? "nil")")
         log.log("Process ID: \(ProcessInfo.processInfo.processIdentifier)")
@@ -92,6 +115,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
 
                 self.log.log("STEP 4: Calling completionHandler(nil) — tunnel should show Connected")
+                self.startPathMonitor()
+                self.startHeartbeat()
                 completionHandler(nil)
                 self.log.log("========== TUNNEL STARTED ==========")
             }
@@ -125,6 +150,17 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         default: reasonName = "unknown(\(reason.rawValue))"
         }
         log.log("========== TUNNEL STOPPING (reason: \(reasonName) / \(reason.rawValue)) ==========")
+        logPathSnapshot(prefix: "STOP PATH SNAPSHOT")
+        let reasonRaw = "provider_reason_\(reason.rawValue)"
+        recordLifecycleStop(
+            source: "stopTunnel",
+            reason: reasonName,
+            reasonRaw: reasonRaw,
+            exitCode: nil,
+            unexpectedExit: false
+        )
+        stopPathMonitor()
+        stopHeartbeat()
         let stats = Socks5Tunnel.stats
         log.log("Final stats — Up: \(stats.up.packets) pkts / \(stats.up.bytes) bytes, Down: \(stats.down.packets) pkts / \(stats.down.bytes) bytes")
         log.log("Memory: \(Self.memoryUsageMB()) MB")
@@ -153,10 +189,27 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         let reason = "tun2socks exited unexpectedly with code \(exitCode)"
         log.log("STEP 3 FAILED: \(reason)")
+        logPathSnapshot(prefix: "UNEXPECTED EXIT PATH SNAPSHOT")
+        recordLifecycleStop(
+            source: "tun2socks_exit",
+            reason: "tun2socks_crash",
+            reasonRaw: "exit_\(exitCode)",
+            exitCode: Int(exitCode),
+            unexpectedExit: true
+        )
+        stopPathMonitor()
+        stopHeartbeat()
         let error = NSError(
             domain: "BubbleTunnel.PacketTunnel",
             code: Int(exitCode),
             userInfo: [NSLocalizedDescriptionKey: reason]
+        )
+        recordLifecycleStop(
+            source: "cancelTunnelWithError",
+            reason: "provider_cancelled_with_error",
+            reasonRaw: error.localizedDescription,
+            exitCode: Int(exitCode),
+            unexpectedExit: true
         )
         cancelTunnelWithError(error)
     }
@@ -185,5 +238,112 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         } else {
             completionHandler?(nil)
         }
+    }
+
+    private func recordLifecycleStart() {
+        let ts = Date().timeIntervalSince1970
+        sharedDefaults?.set(ts, forKey: BubbleConstants.vpnLifecycleLastStartTSKey)
+        sharedDefaults?.set(ts, forKey: BubbleConstants.vpnLifecycleLastHeartbeatTSKey)
+        sharedDefaults?.set(false, forKey: BubbleConstants.vpnLifecycleUnexpectedExitKey)
+        sharedDefaults?.set(true, forKey: BubbleConstants.vpnLifecycleRunningMarkerKey)
+        sharedDefaults?.set(false, forKey: BubbleConstants.vpnLifecycleInferredCrashKey)
+        sharedDefaults?.set("unknown", forKey: BubbleConstants.vpnLifecycleResolvedStopClassKey)
+        sharedDefaults?.set("", forKey: BubbleConstants.vpnLifecycleInferredCrashReasonKey)
+    }
+
+    private func recordLifecycleStop(source: String, reason: String, reasonRaw: String, exitCode: Int?, unexpectedExit: Bool) {
+        guard !lastRecordedStop else { return }
+        lastRecordedStop = true
+        let ts = Date().timeIntervalSince1970
+        sharedDefaults?.set(ts, forKey: BubbleConstants.vpnLifecycleLastStopTSKey)
+        sharedDefaults?.set(reason, forKey: BubbleConstants.vpnLifecycleStopReasonKey)
+        sharedDefaults?.set(source, forKey: BubbleConstants.vpnLifecycleStopSourceKey)
+        sharedDefaults?.set(reasonRaw, forKey: BubbleConstants.vpnLifecycleStopReasonRawKey)
+        sharedDefaults?.set(unexpectedExit, forKey: BubbleConstants.vpnLifecycleUnexpectedExitKey)
+        sharedDefaults?.set(false, forKey: BubbleConstants.vpnLifecycleRunningMarkerKey)
+        let resolvedClass = (source == "stopTunnel") ? "clean_stop" : "inferred_crash"
+        sharedDefaults?.set(resolvedClass, forKey: BubbleConstants.vpnLifecycleResolvedStopClassKey)
+        if source == "inferred_crash" || source == "tun2socks_exit" || source == "cancelTunnelWithError" {
+            sharedDefaults?.set(reasonRaw, forKey: BubbleConstants.vpnLifecycleInferredCrashReasonKey)
+        }
+        if let exitCode {
+            sharedDefaults?.set(exitCode, forKey: BubbleConstants.vpnLifecycleLastExitCodeKey)
+        }
+        let udpActive = proxyServer?.currentActiveUDPStreams ?? -1
+        let udpQueued = proxyServer?.currentQueuedUDPStreams ?? -1
+        let memMB = Self.memoryUsageMB()
+        log.log("TUNNEL_STOP_SOURCE=\(source) STOP_REASON=\(reason) STOP_REASON_RAW=\(reasonRaw) EXIT_CODE=\(exitCode.map(String.init) ?? "nil") ACTIVE_UDP=\(udpActive) QUEUED_UDP=\(udpQueued) MEM_MB=\(memMB)")
+    }
+
+    private func startHeartbeat() {
+        stopHeartbeat()
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + 2.0, repeating: 2.0)
+        timer.setEventHandler { [weak self] in
+            self?.sharedDefaults?.set(Date().timeIntervalSince1970, forKey: BubbleConstants.vpnLifecycleLastHeartbeatTSKey)
+        }
+        timer.resume()
+        heartbeatTimer = timer
+    }
+
+    private func stopHeartbeat() {
+        heartbeatTimer?.cancel()
+        heartbeatTimer = nil
+    }
+
+    private func startPathMonitor() {
+        stopPathMonitor()
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            self?.handlePathUpdate(path)
+        }
+        monitor.start(queue: pathMonitorQueue)
+        pathMonitor = monitor
+    }
+
+    private func stopPathMonitor() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+    }
+
+    private func handlePathUpdate(_ path: Network.NWPath) {
+        let status = pathStatusString(path.status)
+        let reason = unsatisfiedReasonString(path.unsatisfiedReason)
+        let interfaces = path.availableInterfaces.map { "\($0.type)" }.joined(separator: ",")
+        sharedDefaults?.set(status, forKey: BubbleConstants.vpnLifecycleLastPathStatusKey)
+        sharedDefaults?.set(reason, forKey: BubbleConstants.vpnLifecycleLastPathUnsatisfiedReasonKey)
+        sharedDefaults?.set(interfaces.isEmpty ? "none" : interfaces, forKey: BubbleConstants.vpnLifecycleLastPathInterfacesKey)
+        sharedDefaults?.set(path.isExpensive, forKey: BubbleConstants.vpnLifecycleLastPathIsExpensiveKey)
+        sharedDefaults?.set(path.isConstrained, forKey: BubbleConstants.vpnLifecycleLastPathIsConstrainedKey)
+        sharedDefaults?.set(Date().timeIntervalSince1970, forKey: BubbleConstants.vpnLifecycleLastPathUpdateTSKey)
+        log.log(
+            "NETWORK PATH status=\(status) unsatisfied_reason=\(reason) expensive=\(path.isExpensive) constrained=\(path.isConstrained) interfaces=\(interfaces.isEmpty ? "none" : interfaces)"
+        )
+    }
+
+    private func logPathSnapshot(prefix: String) {
+        let status = sharedDefaults?.string(forKey: BubbleConstants.vpnLifecycleLastPathStatusKey) ?? "unknown"
+        let reason = sharedDefaults?.string(forKey: BubbleConstants.vpnLifecycleLastPathUnsatisfiedReasonKey) ?? "none"
+        let interfaces = sharedDefaults?.string(forKey: BubbleConstants.vpnLifecycleLastPathInterfacesKey) ?? "unknown"
+        let expensive = sharedDefaults?.bool(forKey: BubbleConstants.vpnLifecycleLastPathIsExpensiveKey) ?? false
+        let constrained = sharedDefaults?.bool(forKey: BubbleConstants.vpnLifecycleLastPathIsConstrainedKey) ?? false
+        let ts = sharedDefaults?.double(forKey: BubbleConstants.vpnLifecycleLastPathUpdateTSKey) ?? 0
+        let tsText = ts > 0 ? Date(timeIntervalSince1970: ts).ISO8601Format() : "unknown"
+        log.log(
+            "\(prefix): status=\(status) unsatisfied_reason=\(reason) expensive=\(expensive) constrained=\(constrained) interfaces=\(interfaces) observed_at=\(tsText)"
+        )
+    }
+
+    private func pathStatusString(_ status: Network.NWPath.Status) -> String {
+        switch status {
+        case .satisfied: return "satisfied"
+        case .unsatisfied: return "unsatisfied"
+        case .requiresConnection: return "requires_connection"
+        @unknown default: return "unknown"
+        }
+    }
+
+    private func unsatisfiedReasonString(_ reason: Network.NWPath.UnsatisfiedReason) -> String {
+        String(describing: reason)
     }
 }
