@@ -29,10 +29,10 @@ enum BubbleConstants {
     static let udpDecodeFailureCloseThreshold = 3
     static let udpDecodeFailureWindowSeconds: TimeInterval = 4.0
     static let udpDecodeBadLenSoftFailureLimit = 6
-    static let maxActiveUDPControlStreams = 12
-    static let maxQueuedUDPControlStreams = 4
-    static let udpAdmissionCreateRatePerSecond = 4.0
-    static let udpAdmissionCreateRateCapacity = 5
+    static let maxActiveUDPControlStreams = 24
+    static let maxQueuedUDPControlStreams = 16
+    static let udpAdmissionCreateRatePerSecond = 16.0
+    static let udpAdmissionCreateRateCapacity = 24
     static let dnsDedupWindow: TimeInterval = 0.5
     static let dnsTimeoutStreakForFailover = 3
     static let tiktokHardeningIdleTimeout: TimeInterval = 12.0
@@ -83,6 +83,9 @@ enum BubbleConstants {
     static let dnsFailoverReturnDelaySeconds: TimeInterval = 15.0
     static let dnsFailoverScoreDecayPerSuccess = 2
     static let hostCooldownDropSeconds: TimeInterval = 10.0
+    static let classIsolationEngineEnabled = true
+    static let genericReservedUDPActiveSlots = 8
+    static let genericReservedUDPQueueSlots = 6
 
     // MARK: - Logging
     static let appLogFileName = "app_diagnostic_log.txt"

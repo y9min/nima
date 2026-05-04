@@ -7,6 +7,7 @@ struct FeaturePolicyV1: Codable {
     var shadowModeEnabled: Bool
     var transportStabilityMode: Bool
     var appToggles: [String: [String: Bool]]
+    var appStrategies: [String: String]
     var revision: Int
     var updatedAt: TimeInterval
     var updatedBy: String
@@ -17,6 +18,7 @@ struct FeaturePolicyV1: Codable {
         shadowModeEnabled: Bool = false,
         transportStabilityMode: Bool = true,
         appToggles: [String: [String: Bool]] = FeaturePolicyV1.defaultToggles,
+        appStrategies: [String: String] = FeaturePolicyV1.defaultStrategies,
         revision: Int = 0,
         updatedAt: TimeInterval = Date().timeIntervalSince1970,
         updatedBy: String = "app.options.init"
@@ -26,6 +28,7 @@ struct FeaturePolicyV1: Codable {
         self.shadowModeEnabled = shadowModeEnabled
         self.transportStabilityMode = transportStabilityMode
         self.appToggles = appToggles
+        self.appStrategies = appStrategies
         self.revision = revision
         self.updatedAt = updatedAt
         self.updatedBy = updatedBy
@@ -38,6 +41,10 @@ struct FeaturePolicyV1: Codable {
         "tiktok": [
             "video_block": false
         ]
+    ]
+    static let defaultStrategies: [String: String] = [
+        "instagram": "legacy_reels",
+        "tiktok": "hardened_video"
     ]
 
     static func defaultPolicy() -> FeaturePolicyV1 {
@@ -61,6 +68,9 @@ struct FeaturePolicyV1: Codable {
                 appToggles[appId]?[optionId] = value
             }
         }
+        for (appId, strategy) in Self.defaultStrategies where appStrategies[appId] == nil {
+            appStrategies[appId] = strategy
+        }
     }
 
     mutating func bumpRevision(updatedBy: String) {
@@ -75,6 +85,7 @@ struct FeaturePolicyV1: Codable {
         case shadowModeEnabled
         case transportStabilityMode = "transport_stability_mode"
         case appToggles
+        case appStrategies = "app_strategies"
         case revision
         case updatedAt = "updated_at"
         case updatedBy = "updated_by"
@@ -87,6 +98,7 @@ struct FeaturePolicyV1: Codable {
         shadowModeEnabled = try c.decodeIfPresent(Bool.self, forKey: .shadowModeEnabled) ?? false
         transportStabilityMode = try c.decodeIfPresent(Bool.self, forKey: .transportStabilityMode) ?? true
         appToggles = try c.decodeIfPresent([String: [String: Bool]].self, forKey: .appToggles) ?? Self.defaultToggles
+        appStrategies = try c.decodeIfPresent([String: String].self, forKey: .appStrategies) ?? Self.defaultStrategies
         revision = try c.decodeIfPresent(Int.self, forKey: .revision) ?? 0
         updatedAt = try c.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
         updatedBy = try c.decodeIfPresent(String.self, forKey: .updatedBy) ?? "unknown"
@@ -99,6 +111,7 @@ struct FeaturePolicyV1: Codable {
         try c.encode(shadowModeEnabled, forKey: .shadowModeEnabled)
         try c.encode(transportStabilityMode, forKey: .transportStabilityMode)
         try c.encode(appToggles, forKey: .appToggles)
+        try c.encode(appStrategies, forKey: .appStrategies)
         try c.encode(revision, forKey: .revision)
         try c.encode(updatedAt, forKey: .updatedAt)
         try c.encode(updatedBy, forKey: .updatedBy)

@@ -53,6 +53,7 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
 
         XCTAssertEqual(decision.action, .allow)
         XCTAssertEqual(decision.reason, "reels_toggle_off")
+        XCTAssertEqual(decision.trafficClass, .instagram)
     }
 
     func testReelsOnEssentialControlAllows() {
@@ -158,6 +159,7 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertEqual(decision.action, .blockNow)
         XCTAssertEqual(decision.reason, "tiktok_video_block_now")
         XCTAssertEqual(decision.classification.bucket, .tiktokVideo)
+        XCTAssertEqual(decision.trafficClass, .tiktok)
     }
 
     func testTikTokVideoBlockOnControlHostAllows() {
@@ -177,6 +179,7 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertEqual(decision.action, .allow)
         XCTAssertEqual(decision.reason, "tiktok_messages_allow")
         XCTAssertEqual(decision.classification.bucket, .tiktokControl)
+        XCTAssertEqual(decision.trafficClass, .tiktok)
     }
 
     func testTikTokVideoBlockOffAllowsTikTokMedia() {

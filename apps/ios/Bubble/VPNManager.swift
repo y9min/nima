@@ -285,7 +285,7 @@ final class VPNManager: ObservableObject {
         let sessionDurationSeconds = currentSessionDurationSeconds()
         let shortLivedSession = sessionDurationSeconds > 0 && sessionDurationSeconds < BubbleConstants.reconnectBreakerShortSessionSeconds
         let policyDesiredOn = shouldVPNBeOnFromPolicy()
-        let expectedDisconnect = !policyDesiredOn || stopReason == "userInitiated" || stopSource == "stopTunnel"
+        let expectedDisconnect = !policyDesiredOn || manualOffRequested
         let isCrashLikeStop = (stopSource == "tun2socks_exit" || stopSource == "cancelTunnelWithError" || stopSource == "inferred_crash") && (unexpectedExit || inferredCrash)
         appendLog(
             "Disconnect classified resolved_stop_class=\(stopResolution.resolvedClass.rawValue) expected_disconnect=\(expectedDisconnect) crash_like=\(isCrashLikeStop) short_lived_session=\(shortLivedSession) session_duration_seconds=\(Int(sessionDurationSeconds)) policy_desired_on=\(policyDesiredOn) manual_off_requested=\(manualOffRequested) source=\(stopSource) reason=\(stopReason) reason_raw=\(stopReasonRaw) unexpected_exit=\(unexpectedExit) inferred_crash=\(inferredCrash) path_status=\(pathStatus) path_reason=\(pathReason) path_interfaces=\(pathInterfaces) path_expensive=\(pathExpensive) path_constrained=\(pathConstrained) path_observed_at=\(formatUnixTS(pathTS))"

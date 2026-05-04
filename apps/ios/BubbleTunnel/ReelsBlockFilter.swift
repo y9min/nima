@@ -8,10 +8,16 @@ enum ContentBucket: String, Codable, CaseIterable {
     case unknown
 }
 
+enum AppTransportStrategy: String, Codable {
+    case legacyReels = "legacy_reels"
+    case hardenedVideo = "hardened_video"
+}
+
 struct FeaturePolicyV1: Codable {
     let version: Int
     var transportStabilityMode: Bool
     var appToggles: [String: [String: Bool]]
+    var appStrategies: [String: AppTransportStrategy]
     var revision: Int
     var updatedAt: TimeInterval
     var updatedBy: String
@@ -20,6 +26,7 @@ struct FeaturePolicyV1: Codable {
         version: Int = 1,
         transportStabilityMode: Bool = true,
         appToggles: [String: [String: Bool]] = FeaturePolicyV1.defaultToggles,
+        appStrategies: [String: AppTransportStrategy] = FeaturePolicyV1.defaultStrategies,
         revision: Int = 0,
         updatedAt: TimeInterval = Date().timeIntervalSince1970,
         updatedBy: String = "tunnel.default"
@@ -27,6 +34,7 @@ struct FeaturePolicyV1: Codable {
         self.version = version
         self.transportStabilityMode = transportStabilityMode
         self.appToggles = appToggles
+        self.appStrategies = appStrategies
         self.revision = revision
         self.updatedAt = updatedAt
         self.updatedBy = updatedBy
@@ -39,6 +47,11 @@ struct FeaturePolicyV1: Codable {
         "tiktok": [
             "video_block": false,
         ]
+    ]
+
+    static let defaultStrategies: [String: AppTransportStrategy] = [
+        "instagram": .legacyReels,
+        "tiktok": .hardenedVideo,
     ]
 
     static func defaultPolicy() -> FeaturePolicyV1 {
@@ -62,12 +75,16 @@ struct FeaturePolicyV1: Codable {
                 appToggles[appId]?[optionId] = value
             }
         }
+        for (appId, strategy) in Self.defaultStrategies where appStrategies[appId] == nil {
+            appStrategies[appId] = strategy
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case version
         case transportStabilityMode = "transport_stability_mode"
         case appToggles
+        case appStrategies = "app_strategies"
         case revision
         case updatedAt = "updated_at"
         case updatedBy = "updated_by"
@@ -78,6 +95,7 @@ struct FeaturePolicyV1: Codable {
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
         transportStabilityMode = try c.decodeIfPresent(Bool.self, forKey: .transportStabilityMode) ?? true
         appToggles = try c.decodeIfPresent([String: [String: Bool]].self, forKey: .appToggles) ?? Self.defaultToggles
+        appStrategies = try c.decodeIfPresent([String: AppTransportStrategy].self, forKey: .appStrategies) ?? Self.defaultStrategies
         revision = try c.decodeIfPresent(Int.self, forKey: .revision) ?? 0
         updatedAt = try c.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
         updatedBy = try c.decodeIfPresent(String.self, forKey: .updatedBy) ?? "unknown"
@@ -88,6 +106,7 @@ struct FeaturePolicyV1: Codable {
         try c.encode(version, forKey: .version)
         try c.encode(transportStabilityMode, forKey: .transportStabilityMode)
         try c.encode(appToggles, forKey: .appToggles)
+        try c.encode(appStrategies, forKey: .appStrategies)
         try c.encode(revision, forKey: .revision)
         try c.encode(updatedAt, forKey: .updatedAt)
         try c.encode(updatedBy, forKey: .updatedBy)
@@ -132,25 +151,43 @@ final class ReelsBlockFilter: ConnectionFilter {
         let instagramToggles = instagramToggleSnapshot()
         let tiktokToggles = tiktokToggleSnapshot()
         let classification = classify(host: lowerHost, port: port)
+        let instagramStrategy = strategy(forAppId: "instagram")
+        let tiktokStrategy = strategy(forAppId: "tiktok")
 
         if classification.bucket == .messages {
-            return allowDecision(classification: classification, toggles: instagramToggles, reason: "messages_allow")
+            return allowDecision(
+                classification: classification,
+                toggles: instagramToggles,
+                reason: "messages_allow",
+                strategy: instagramStrategy
+            )
         }
 
         if isTikTokHost(lowerHost) {
             return evaluateTikTokPolicy(
                 host: lowerHost,
                 classification: classification,
-                toggles: tiktokToggles
+                toggles: tiktokToggles,
+                strategy: tiktokStrategy
             )
         }
 
         if instagramToggles["reels"] != true {
-            return allowDecision(classification: classification, toggles: instagramToggles, reason: "reels_toggle_off")
+            return allowDecision(
+                classification: classification,
+                toggles: instagramToggles,
+                reason: "reels_toggle_off",
+                strategy: instagramStrategy
+            )
         }
 
         guard shouldEvaluateInstagram(host: lowerHost) else {
-            return allowDecision(classification: classification, toggles: instagramToggles, reason: "non_instagram_traffic")
+            return allowDecision(
+                classification: classification,
+                toggles: instagramToggles,
+                reason: "non_instagram_traffic",
+                strategy: instagramStrategy
+            )
         }
 
         if isMediaDomain(lowerHost) {
@@ -159,38 +196,46 @@ final class ReelsBlockFilter: ConnectionFilter {
                 classification: classification,
                 reason: "reels_media_block_now",
                 toggles: instagramToggles,
-                host: lowerHost
+                host: lowerHost,
+                strategy: instagramStrategy
             )
         }
 
         if isControlPlaneDomain(lowerHost) {
             if isEssentialControlDomain(lowerHost) {
-                return allowDecision(classification: classification, toggles: instagramToggles, reason: "essential_control_allow")
+                return allowDecision(
+                    classification: classification,
+                    toggles: instagramToggles,
+                    reason: "essential_control_allow",
+                    strategy: instagramStrategy
+                )
             }
             return buildDecision(
                 action: .blockNow,
                 classification: classification,
                 reason: "reels_control_block_now",
                 toggles: instagramToggles,
-                host: lowerHost
+                host: lowerHost,
+                strategy: instagramStrategy
             )
         }
 
         let reason = isStreamEvaluation ? "policy_allow_stream" : "policy_allow"
-        return allowDecision(classification: classification, toggles: instagramToggles, reason: reason)
+        return allowDecision(classification: classification, toggles: instagramToggles, reason: reason, strategy: instagramStrategy)
     }
 
     private func evaluateTikTokPolicy(
         host: String,
         classification: FlowClassification,
-        toggles: [String: Bool]
+        toggles: [String: Bool],
+        strategy: AppTransportStrategy
     ) -> PolicyDecision {
         if isTikTokMessageOrControlDomain(host) {
-            return allowDecision(classification: classification, toggles: toggles, reason: "tiktok_messages_allow")
+            return allowDecision(classification: classification, toggles: toggles, reason: "tiktok_messages_allow", strategy: strategy)
         }
 
         if toggles["video_block"] != true {
-            return allowDecision(classification: classification, toggles: toggles, reason: "tiktok_video_toggle_off")
+            return allowDecision(classification: classification, toggles: toggles, reason: "tiktok_video_toggle_off", strategy: strategy)
         }
 
         if isTikTokVideoDomain(host) {
@@ -199,19 +244,22 @@ final class ReelsBlockFilter: ConnectionFilter {
                 classification: classification,
                 reason: "tiktok_video_block_now",
                 toggles: toggles,
-                host: host
+                host: host,
+                strategy: strategy
             )
         }
 
-        return allowDecision(classification: classification, toggles: toggles, reason: "non_tiktok_traffic")
+        return allowDecision(classification: classification, toggles: toggles, reason: "non_tiktok_traffic", strategy: strategy)
     }
 
-    private func allowDecision(classification: FlowClassification, toggles: [String: Bool], reason: String) -> PolicyDecision {
+    private func allowDecision(classification: FlowClassification, toggles: [String: Bool], reason: String, strategy: AppTransportStrategy) -> PolicyDecision {
         PolicyDecision.allow(
             reason: reason,
             classification: classification,
             toggles: toggles,
-            policyVersion: cachedPolicy.version
+            policyVersion: cachedPolicy.version,
+            appStrategy: strategy.rawValue,
+            trafficClass: trafficClass(for: classification)
         )
     }
 
@@ -220,7 +268,8 @@ final class ReelsBlockFilter: ConnectionFilter {
         classification: FlowClassification,
         reason: String,
         toggles: [String: Bool],
-        host: String
+        host: String,
+        strategy: AppTransportStrategy
     ) -> PolicyDecision {
         TunnelLogger.shared.log(
             "POLICY DECISION: rule=\(reason) action=\(action.rawValue) reason=\(reason) host=\(host) " +
@@ -234,8 +283,21 @@ final class ReelsBlockFilter: ConnectionFilter {
             reason: reason,
             toggleSnapshot: toggles,
             policyVersion: cachedPolicy.version,
-            intendedAction: nil
+            intendedAction: nil,
+            appStrategy: strategy.rawValue,
+            trafficClass: trafficClass(for: classification)
         )
+    }
+
+    private func trafficClass(for classification: FlowClassification) -> TrafficClass {
+        switch classification.bucket {
+        case .tiktokVideo, .tiktokControl:
+            return .tiktok
+        case .reels:
+            return .instagram
+        case .messages, .unknown:
+            return .generic
+        }
     }
 
     // MARK: - Classification
@@ -280,6 +342,10 @@ final class ReelsBlockFilter: ConnectionFilter {
             toggles[key] = value
         }
         return toggles
+    }
+
+    private func strategy(forAppId appId: String) -> AppTransportStrategy {
+        cachedPolicy.appStrategies[appId] ?? FeaturePolicyV1.defaultStrategies[appId] ?? .legacyReels
     }
 
     private func shouldEvaluateInstagram(host: String) -> Bool {
