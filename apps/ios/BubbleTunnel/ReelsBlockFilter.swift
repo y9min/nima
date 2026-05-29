@@ -2,6 +2,7 @@ import Foundation
 
 enum ContentBucket: String, Codable, CaseIterable {
     case reels
+    case instagramControl = "instagram_control"
     case tiktokVideo = "tiktok_video"
     case tiktokControl = "tiktok_control"
     case messages
@@ -120,6 +121,9 @@ final class ReelsBlockFilter: ConnectionFilter {
     private var highestSeenPolicyRevision = 0
     private var lastPolicyReload = Date.distantPast
     private let policyReloadInterval: TimeInterval = 1.0
+    private var policyDecisionSuppression: [String: (lastSeen: Date, suppressedHits: Int)] = [:]
+    private let policyDecisionSuppressionWindow: TimeInterval = 1.5
+    private let policyDecisionSummaryEvery = 250
 
     init(sharedDefaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID)) {
         self.sharedDefaults = sharedDefaults
@@ -159,7 +163,8 @@ final class ReelsBlockFilter: ConnectionFilter {
                 classification: classification,
                 toggles: instagramToggles,
                 reason: "messages_allow",
-                strategy: instagramStrategy
+                strategy: instagramStrategy,
+                host: lowerHost
             )
         }
 
@@ -177,7 +182,8 @@ final class ReelsBlockFilter: ConnectionFilter {
                 classification: classification,
                 toggles: instagramToggles,
                 reason: "reels_toggle_off",
-                strategy: instagramStrategy
+                strategy: instagramStrategy,
+                host: lowerHost
             )
         }
 
@@ -190,7 +196,17 @@ final class ReelsBlockFilter: ConnectionFilter {
             )
         }
 
-        if isMediaDomain(lowerHost) {
+        if isInstagramControlOrMessagingDomain(lowerHost) {
+            return allowDecision(
+                classification: classification,
+                toggles: instagramToggles,
+                reason: "instagram_control_allow",
+                strategy: instagramStrategy,
+                host: lowerHost
+            )
+        }
+
+        if isConfidentInstagramReelsVideoDomain(lowerHost) {
             return buildDecision(
                 action: .blockNow,
                 classification: classification,
@@ -201,22 +217,13 @@ final class ReelsBlockFilter: ConnectionFilter {
             )
         }
 
-        if isControlPlaneDomain(lowerHost) {
-            if isEssentialControlDomain(lowerHost) {
-                return allowDecision(
-                    classification: classification,
-                    toggles: instagramToggles,
-                    reason: "essential_control_allow",
-                    strategy: instagramStrategy
-                )
-            }
-            return buildDecision(
-                action: .blockNow,
+        if isUnknownMetaCDNDomain(lowerHost) {
+            return allowDecision(
                 classification: classification,
-                reason: "reels_control_block_now",
                 toggles: instagramToggles,
-                host: lowerHost,
-                strategy: instagramStrategy
+                reason: "unknown_meta_default_allow",
+                strategy: instagramStrategy,
+                host: lowerHost
             )
         }
 
@@ -231,11 +238,11 @@ final class ReelsBlockFilter: ConnectionFilter {
         strategy: AppTransportStrategy
     ) -> PolicyDecision {
         if isTikTokMessageOrControlDomain(host) {
-            return allowDecision(classification: classification, toggles: toggles, reason: "tiktok_messages_allow", strategy: strategy)
+            return allowDecision(classification: classification, toggles: toggles, reason: "tiktok_messages_allow", strategy: strategy, host: host)
         }
 
         if toggles["video_block"] != true {
-            return allowDecision(classification: classification, toggles: toggles, reason: "tiktok_video_toggle_off", strategy: strategy)
+            return allowDecision(classification: classification, toggles: toggles, reason: "tiktok_video_toggle_off", strategy: strategy, host: host)
         }
 
         if isTikTokVideoDomain(host) {
@@ -249,11 +256,20 @@ final class ReelsBlockFilter: ConnectionFilter {
             )
         }
 
-        return allowDecision(classification: classification, toggles: toggles, reason: "non_tiktok_traffic", strategy: strategy)
+        return allowDecision(classification: classification, toggles: toggles, reason: "unknown_tiktok_default_allow", strategy: strategy, host: host)
     }
 
-    private func allowDecision(classification: FlowClassification, toggles: [String: Bool], reason: String, strategy: AppTransportStrategy) -> PolicyDecision {
-        PolicyDecision.allow(
+    private func allowDecision(
+        classification: FlowClassification,
+        toggles: [String: Bool],
+        reason: String,
+        strategy: AppTransportStrategy,
+        host: String? = nil
+    ) -> PolicyDecision {
+        if let host {
+            logPolicyDecision(action: .allow, classification: classification, reason: reason, host: host)
+        }
+        return PolicyDecision.allow(
             reason: reason,
             classification: classification,
             toggles: toggles,
@@ -271,10 +287,7 @@ final class ReelsBlockFilter: ConnectionFilter {
         host: String,
         strategy: AppTransportStrategy
     ) -> PolicyDecision {
-        TunnelLogger.shared.log(
-            "POLICY DECISION: rule=\(reason) action=\(action.rawValue) reason=\(reason) host=\(host) " +
-            "bucket=\(classification.bucket.rawValue) confidence=\(String(format: "%.2f", classification.confidence))"
-        )
+        logPolicyDecision(action: action, classification: classification, reason: reason, host: host)
 
         return PolicyDecision(
             action: action,
@@ -289,11 +302,70 @@ final class ReelsBlockFilter: ConnectionFilter {
         )
     }
 
+    private func logPolicyDecision(action: PolicyAction, classification: FlowClassification, reason: String, host: String) {
+        let bucketLogName = logBucketName(for: classification, reason: reason)
+        if classification.bucket == .tiktokVideo || classification.bucket == .tiktokControl || reason == "unknown_tiktok_default_allow" {
+            TunnelLogger.shared.log(
+                "TCP_POLICY host=\(host) action=\(action.rawValue) reason=\(reason) bucket=\(bucketLogName) confidence=\(String(format: "%.2f", classification.confidence))"
+            )
+        }
+        if classification.bucket == .reels || classification.bucket == .instagramControl || reason == "unknown_meta_default_allow" {
+            TunnelLogger.shared.log(
+                "IG_POLICY host=\(host) bucket=\(bucketLogName) action=\(action.rawValue) reason=\(reason) confidence=\(String(format: "%.2f", classification.confidence))"
+            )
+        }
+
+        let line = "POLICY DECISION: rule=\(reason) action=\(action.rawValue) reason=\(reason) host=\(host) " +
+            "bucket=\(classification.bucket.rawValue) confidence=\(String(format: "%.2f", classification.confidence))"
+
+        guard reason == "tiktok_video_block_now" else {
+            TunnelLogger.shared.log(line)
+            return
+        }
+
+        let now = Date()
+        let key = "\(reason)|\(host)|\(classification.bucket.rawValue)"
+        if var state = policyDecisionSuppression[key],
+           now.timeIntervalSince(state.lastSeen) <= policyDecisionSuppressionWindow {
+            state.lastSeen = now
+            state.suppressedHits += 1
+            policyDecisionSuppression[key] = state
+            if state.suppressedHits % policyDecisionSummaryEvery == 0 {
+                TunnelLogger.shared.log(
+                    "POLICY DECISION SUPPRESSED: rule=\(reason) host=\(host) bucket=\(classification.bucket.rawValue) suppressed=\(state.suppressedHits)"
+                )
+            }
+            return
+        }
+
+        policyDecisionSuppression[key] = (lastSeen: now, suppressedHits: 0)
+        if policyDecisionSuppression.count > BubbleConstants.extensionPressureMaxSuppressionEntries {
+            let overflow = policyDecisionSuppression.count - BubbleConstants.extensionPressureMaxSuppressionEntries
+            for oldKey in policyDecisionSuppression.sorted(by: { $0.value.lastSeen < $1.value.lastSeen }).prefix(overflow).map(\.key) {
+                policyDecisionSuppression.removeValue(forKey: oldKey)
+            }
+        }
+        TunnelLogger.shared.log(line)
+    }
+
+    private func logBucketName(for classification: FlowClassification, reason: String) -> String {
+        if classification.bucket == .reels {
+            return "reels_video"
+        }
+        if classification.bucket == .instagramControl || reason == "instagram_control_allow" {
+            return "control"
+        }
+        if reason == "unknown_meta_default_allow" {
+            return "unknown_meta"
+        }
+        return classification.bucket.rawValue
+    }
+
     private func trafficClass(for classification: FlowClassification) -> TrafficClass {
         switch classification.bucket {
         case .tiktokVideo, .tiktokControl:
             return .tiktok
-        case .reels:
+        case .reels, .instagramControl:
             return .instagram
         case .messages, .unknown:
             return .generic
@@ -315,12 +387,16 @@ final class ReelsBlockFilter: ConnectionFilter {
             return FlowClassification(bucket: .tiktokVideo, confidence: 0.99, reasons: ["tiktok_video_domain"])
         }
 
-        if isMediaDomain(host) {
+        if isConfidentInstagramReelsVideoDomain(host) {
             return FlowClassification(bucket: .reels, confidence: 0.99, reasons: ["reels_media_domain"])
         }
 
-        if isControlPlaneDomain(host) {
-            return FlowClassification(bucket: .reels, confidence: 0.95, reasons: ["reels_control_domain"])
+        if isControlPlaneDomain(host) || isInstagramControlOrMessagingDomain(host) {
+            return FlowClassification(bucket: .instagramControl, confidence: 0.95, reasons: ["instagram_control_domain"])
+        }
+
+        if isUnknownMetaCDNDomain(host) {
+            return FlowClassification(bucket: .unknown, confidence: 0.35, reasons: ["unknown_meta_cdn_default_allow"])
         }
 
         return FlowClassification(bucket: .unknown, confidence: 0.0, reasons: ["non_reels_domain"])
@@ -352,12 +428,26 @@ final class ReelsBlockFilter: ConnectionFilter {
         host.contains("instagram") || host.contains("facebook") || host.contains("fbcdn") || host.contains("fbvideo")
     }
 
-    private func isMediaDomain(_ host: String) -> Bool {
+    private func isConfidentInstagramReelsVideoDomain(_ host: String) -> Bool {
+        guard shouldEvaluateInstagram(host: host) || host.contains("cdninstagram") || host.contains("fbvideo") else {
+            return false
+        }
+        return host.contains("reels")
+            || host.contains("reel")
+            || host.contains("clips")
+            || host.contains("ig-video")
+            || host.contains("instagram-video")
+            || host.contains("reels-video")
+            || host.contains("fbvideo.net")
+            || (host.contains("video") && (host.contains("instagram") || host.contains("cdninstagram") || host.contains("fbcdn") || host.contains("facebook")))
+    }
+
+    private func isUnknownMetaCDNDomain(_ host: String) -> Bool {
         host.contains("scontent-")
             || host.contains(".cdninstagram.com")
             || host.contains("cdninstagram.com")
             || host.contains("fbcdn.net")
-            || host.contains("fbvideo.net")
+            || host.contains("static.xx.fbcdn.net")
     }
 
     private func isControlPlaneDomain(_ host: String) -> Bool {
@@ -366,9 +456,19 @@ final class ReelsBlockFilter: ConnectionFilter {
             || host.contains("test-gateway.instagram.com")
     }
 
-    private func isEssentialControlDomain(_ host: String) -> Bool {
+    private func isInstagramControlOrMessagingDomain(_ host: String) -> Bool {
         host.contains("i.instagram.com")
+            || host == "instagram.com"
+            || host == "www.instagram.com"
+            || host.contains("accounts.instagram.com")
+            || host.contains("accountscenter.instagram.com")
+            || host.contains("gateway.instagram.com")
             || host.contains("test-gateway.instagram.com")
+            || host.contains("graph.instagram.com")
+            || host.contains("graph.facebook.com")
+            || host.contains("b-graph.facebook.com")
+            || host.contains("edge-mqtt.facebook.com")
+            || host.contains("mqtt")
     }
 
     private func isMessageHost(_ host: String, port: UInt16) -> Bool {
@@ -379,28 +479,48 @@ final class ReelsBlockFilter: ConnectionFilter {
     }
 
     private func isTikTokHost(_ host: String) -> Bool {
-        host.contains("tiktok") || host.contains("musical.ly") || host.contains("byteoversea")
+        host.contains("tiktok")
+            || host.contains("musical.ly")
+            || host.contains("byteoversea")
+            || host.contains("bytecdn")
+            || host.contains("ibytedtos")
+            || host.contains("ibyteimg")
     }
 
     private func isTikTokVideoDomain(_ host: String) -> Bool {
         host.contains("tiktokcdn")
             || host.contains("tiktokv.com")
+            || host.contains("tiktokv.eu")
             || host.contains("bytecdn")
             || host.contains("ibytedtos")
             || host.contains("video.tiktok")
             || host.contains("sf16-")
             || host.contains("sf19-")
-            || host.contains("akamaized.net")
+            || (host.contains("akamaized.net") && host.contains("tiktok"))
     }
 
     private func isTikTokMessageOrControlDomain(_ host: String) -> Bool {
-        host.contains("api.tiktokv.com")
+        if (host == "tiktok.com" || host == "www.tiktok.com" || host == "m.tiktok.com" || host.hasSuffix(".tiktok.com")),
+           !isTikTokVideoDomain(host) {
+            return true
+        }
+        return host.contains("api.tiktokv.com")
+            || host.contains("api.tiktokv.eu")
             || host.contains("api16-normal-c-useast1a.tiktokv.com")
+            || (host.contains("api") && host.contains("tiktokv.com"))
+            || (host.contains("api") && host.contains("tiktokv.eu"))
             || host.contains("im.tiktok.com")
+            || host.contains("inbox.tiktok.com")
+            || host.contains("search.tiktok.com")
+            || host.contains("login.tiktok.com")
             || host.contains("webcast.tiktok.com")
             || host.contains("mon16-normal-useast5.us.tiktokv.com")
+            || host.contains("mon.tiktokv.com")
+            || host.contains("mon.tiktokv.eu")
             || host.contains("mssdk.tiktok.com")
             || host.contains("log.tiktokv.com")
+            || host.contains("log.tiktokv.eu")
+            || host.contains("oauth.tiktok.com")
             || host.contains("isnssdk.com")
             || host.contains("musical.ly")
             || host.contains("byteoversea.com")

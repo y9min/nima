@@ -56,6 +56,7 @@ struct MagicSignInScreen: View {
                                     )
                             )
                             .padding(.horizontal, BubbleSpacing.buttonHorizontalPadding)
+                            .accessibilityIdentifier("bubble.demo.email")
                     }
                     
                     // Error message
@@ -101,6 +102,7 @@ struct MagicSignInScreen: View {
                                 .strokeBorder(Color.white, lineWidth: 2)
                         )
                     }
+                    .accessibilityIdentifier("bubble.demo.send_code")
                     .disabled(service.isLoading || email.isEmpty)
                     .padding(.horizontal, BubbleSpacing.buttonHorizontalPadding)
                 }

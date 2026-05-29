@@ -9,23 +9,69 @@ struct BubbleApp: App {
     @State private var authStore = AuthStore()
 
     init() {
-        UserDefaults(suiteName: BubbleConstants.appGroupID)?
-            .register(defaults: [
-                BubbleConstants.strictUDPBlockEnabledKey: true,
-            ])
+        let sharedDefaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
+        Self.migrateUDPSelectiveSafeModeDefault(sharedDefaults)
+        sharedDefaults?.register(defaults: [
+            BubbleConstants.strictUDPBlockEnabledKey: false,
+            BubbleConstants.udpDisabledFastRejectEnabledKey: false,
+            BubbleConstants.udpSelectiveSafeModeEnabledKey: true,
+            BubbleConstants.tun2socksStartupModeKey: BubbleConstants.tun2socksStartupModeStagedAfterConnect,
+            BubbleConstants.transportProtectionV2StabilityFirstKey: true,
+        ])
+        if sharedDefaults?.bool(forKey: BubbleConstants.transportProtectionV2StabilityFirstDefaultMigratedKey) != true {
+            if sharedDefaults?.object(forKey: BubbleConstants.transportProtectionV2StabilityFirstKey) == nil {
+                sharedDefaults?.set(true, forKey: BubbleConstants.transportProtectionV2StabilityFirstKey)
+            }
+            sharedDefaults?.set(true, forKey: BubbleConstants.transportProtectionV2StabilityFirstDefaultMigratedKey)
+        }
         _ = AppOptionsService.shared
+    }
+
+    private static func migrateUDPSelectiveSafeModeDefault(_ defaults: UserDefaults?) {
+        guard let defaults else { return }
+        guard defaults.bool(forKey: BubbleConstants.udpSelectiveSafeModeMigratedKey) != true else { return }
+
+        if persistentBool(defaults, key: BubbleConstants.udpSelectiveSafeModeEnabledKey) != nil {
+            if persistentBool(defaults, key: BubbleConstants.udpForwardingDisabledKey) == true {
+                defaults.set(false, forKey: BubbleConstants.udpForwardingDisabledKey)
+            }
+            defaults.set(true, forKey: BubbleConstants.udpSelectiveSafeModeMigratedKey)
+            return
+        }
+
+        if let legacyDisabled = persistentBool(defaults, key: BubbleConstants.udpForwardingDisabledKey) {
+            defaults.set(legacyDisabled, forKey: BubbleConstants.udpSelectiveSafeModeEnabledKey)
+            if legacyDisabled {
+                defaults.set(false, forKey: BubbleConstants.udpForwardingDisabledKey)
+            }
+        } else {
+            defaults.set(true, forKey: BubbleConstants.udpSelectiveSafeModeEnabledKey)
+        }
+
+        defaults.set(true, forKey: BubbleConstants.udpSelectiveSafeModeMigratedKey)
+    }
+
+    private static func persistentBool(_ defaults: UserDefaults, key: String) -> Bool? {
+        defaults.persistentDomain(forName: BubbleConstants.appGroupID)?[key] as? Bool
     }
 
     var body: some Scene {
         WindowGroup {
             NavigationStack(path: $path) {
-                LandingPage(onGo: {
-                    if authStore.isLoggedIn {
-                        path.append(Route.home)
-                    } else {
+                HomeScreen(
+                    onSelectApp: { app in
+                        path.append(Route.blockingOptions(appId: app.id))
+                    },
+                    onSignIn: {
                         path.append(Route.magicSignIn)
+                    },
+                    onSettings: {
+                        path.append(Route.settings)
+                    },
+                    onTrafficDashboard: {
+                        path.append(Route.trafficDashboard)
                     }
-                })
+                )
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case .home:

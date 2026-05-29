@@ -87,9 +87,65 @@ targets:
     platform: iOS
     sources:
       - BubbleTunnelTests
+      - path: BubbleTunnel/BubbleConstants.swift
+      - path: BubbleTunnel/ReelsBlockFilter.swift
+      - path: BubbleTunnel/SOCKSProxyServer.swift
+      - path: BubbleTunnel/TrafficStats.swift
+      - path: BubbleTunnel/TunnelLogger.swift
+      - path: BubbleTunnel/UDPControlStreamDecoder.swift
     dependencies:
-      - target: BubbleTunnel
+      - package: Tun2SocksKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.BubbleTunnelTests
         DEVELOPMENT_TEAM: KSW886X5UX
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: ""
+        LD_RUNPATH_SEARCH_PATHS:
+          - $(inherited)
+          - "@executable_path/Frameworks"
+          - "@loader_path/Frameworks"
+
+  TikTokVPNDropUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - TikTokVPNDropUITests
+    dependencies:
+      - target: Bubble
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.TikTokVPNDropUITests
+        DEVELOPMENT_TEAM: KSW886X5UX
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Bubble
+
+schemes:
+  Bubble:
+    build:
+      targets:
+        Bubble: all
+        BubbleTunnel: all
+        BubbleTunnelTests: [test]
+    test:
+      targets:
+        - BubbleTunnelTests
+
+  TikTokVPNDropUITests:
+    build:
+      targets:
+        Bubble: all
+        TikTokVPNDropUITests: [test]
+    test:
+      targets:
+        - TikTokVPNDropUITests
+
+  BubbleTunnel:
+    build:
+      targets:
+        Bubble: all
+        BubbleTunnel: all
+        BubbleTunnelTests: [test]
+    test:
+      targets:
+        - BubbleTunnelTests

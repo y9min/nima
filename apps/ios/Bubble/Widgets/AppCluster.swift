@@ -737,6 +737,19 @@ struct AppCluster: View {
         }
     }
 
+    private func handleAppIconTap(_ app: BlockedApp) {
+        guard !isEditMode, engine.longPressIndex == nil else { return }
+
+        if app.options.count == 1, let option = app.options.first {
+            store.toggleOption(appId: app.id, optionId: option.id, source: "app_cluster.icon_tap")
+            return
+        }
+
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+            selectedApp = app
+        }
+    }
+
     @ViewBuilder
     private func appIconView(index: Int, center: CGPoint, geometry: GeometryProxy) -> some View {
         let app = apps[index]
@@ -745,28 +758,28 @@ struct AppCluster: View {
         let isSelected = selectedApp?.id == app.id
         let shouldHide = selectedApp != nil && !isSelected
         let isDraggingInEditMode = isEditMode && engine.draggingIndex == index
+        let isToggleEnabled = app.options.first?.isEnabled == true
 
         AppIconCircle(
             iconName: app.iconName,
             size: size,
             platform: app.platform
         )
+        .overlay(
+            Circle()
+                .strokeBorder(isToggleEnabled ? BubbleColors.skyBlue : Color.white.opacity(0.35), lineWidth: isToggleEnabled ? 5 : 1)
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("bubble.app.\(app.id)")
+        .accessibilityLabel(app.name)
+        .accessibilityValue(isToggleEnabled ? "enabled" : "disabled")
+        .accessibilityAddTraits(.isButton)
         .position(position)
         .scaleEffect(isDraggingInEditMode ? 1.15 : (engine.longPressIndex == index ? 1.1 : 1.0))
         .opacity(shouldHide ? 0 : 1)
         .shadow(color: isDraggingInEditMode ? .white.opacity(0.4) : .clear, radius: isDraggingInEditMode ? 10 : 0)
         .animation(.spring(response: 0.3), value: engine.longPressIndex)
         .animation(.spring(response: 0.5, dampingFraction: 0.7), value: selectedApp)
-        .onTapGesture {
-            if isEditMode {
-                return
-            }
-            if engine.longPressIndex == nil {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                    selectedApp = app
-                }
-            }
-        }
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
@@ -777,9 +790,7 @@ struct AppCluster: View {
                 .onEnded { value in
                     handleDragEnded(value: value, index: index, center: center) {
                         if engine.longPressIndex == nil && selectedApp == nil && !isEditMode {
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                                selectedApp = app
-                            }
+                            handleAppIconTap(app)
                         }
                     }
                 }
@@ -1092,6 +1103,10 @@ struct CenterIconWithDrag: View {
             size: 160,
             platform: app.platform
         )
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("bubble.app.center.\(app.id)")
+        .accessibilityLabel(app.name)
+        .accessibilityAddTraits(.isButton)
         .offset(dragOffset)
         .position(x: center.x, y: center.y - 75)
         .gesture(

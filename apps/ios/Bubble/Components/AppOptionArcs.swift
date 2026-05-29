@@ -22,25 +22,32 @@ struct AppOptionArcs: View {
                     let arcInfo = arcInfoFor(index: index, total: options.count)
                     
                     // Discrete arc segment - tappable
-                    ArcShape(
-                        startAngle: arcInfo.startAngle,
-                        endAngle: arcInfo.endAngle,
-                        radius: radius
-                    )
-                    .stroke(
-                        option.isSelected ? Color.white : Color.white.opacity(0.3),
-                        lineWidth: lineWidth
-                    )
-                    .frame(width: radius * 2, height: radius * 2)
+                    Button {
+                        onToggleOption?(option.id)
+                    } label: {
+                        ArcShape(
+                            startAngle: arcInfo.startAngle,
+                            endAngle: arcInfo.endAngle,
+                            radius: radius
+                        )
+                        .stroke(
+                            option.isSelected ? Color.white : Color.white.opacity(0.3),
+                            lineWidth: lineWidth
+                        )
+                        .frame(width: radius * 2, height: radius * 2)
+                    }
+                    .buttonStyle(.plain)
                     .position(center)
                     .contentShape(ArcTapShape(
                         startAngle: arcInfo.startAngle,
                         endAngle: arcInfo.endAngle,
                         radius: radius
                     ))
-                    .onTapGesture {
-                        onToggleOption?(option.id)
-                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("bubble.option.\(option.id)")
+                    .accessibilityLabel(option.label)
+                    .accessibilityValue(option.isSelected ? "enabled" : "disabled")
+                    .accessibilityAddTraits(.isButton)
                     
                     // Floating text label near the arc with bobbing animation
                     let labelAngle = (arcInfo.startAngle + arcInfo.endAngle) / 2

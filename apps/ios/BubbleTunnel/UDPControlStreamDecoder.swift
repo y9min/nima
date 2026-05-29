@@ -1,11 +1,14 @@
 import Foundation
 
 // Decoder assumptions are pinned to Tun2SocksKit 5.14.4 behavior:
-// FWD_UDP control streams use either len16 or 0x0001+len16 framing.
+// FWD_UDP control streams use either len16, 0x0001+len16, or raw UDP payload framing.
+// For framed UDP payloads, len16 is the datagram payload length after the
+// HEV/SOCKS destination header, not the full header+payload byte count.
 
 enum UDPControlFramingMode: String {
     case plain
     case controlPrefixed
+    case rawPayload
 }
 
 enum UDPControlDecoderError: Error, Equatable {
@@ -20,9 +23,49 @@ enum UDPControlAppendStatus: Equatable {
     case failed(error: UDPControlDecoderError)
 }
 
-struct UDPControlFrame {
+struct UDPControlFrame: Equatable {
     let mode: UDPControlFramingMode
     let payload: [UInt8]
+}
+
+struct UDPControlDecoderDiagnosticSnapshot: Equatable {
+    let state: String
+    let mode: String
+    let bufferedBytes: Int
+    let pendingResyncAttempts: Int
+    let resyncAttempts: Int
+    let resyncSuccesses: Int
+    let maxFrameSize: Int
+}
+
+enum UDPControlFrameCodec {
+    static func buildResponseFrame(
+        mode: UDPControlFramingMode,
+        headerBytes: [UInt8],
+        responsePayload: Data,
+        maxFrameSize: Int
+    ) -> Data? {
+        var frame = headerBytes
+        frame.append(contentsOf: [UInt8](responsePayload))
+        guard !responsePayload.isEmpty,
+              responsePayload.count <= maxFrameSize,
+              responsePayload.count <= UInt16.max,
+              frame.count <= UInt16.max else {
+            return nil
+        }
+
+        if mode == .rawPayload {
+            return Data(frame)
+        }
+
+        var framedData: [UInt8] = []
+        if mode == .controlPrefixed {
+            framedData.append(contentsOf: [0x00, 0x01])
+        }
+        framedData.append(contentsOf: [UInt8(responsePayload.count >> 8), UInt8(responsePayload.count & 0xFF)])
+        framedData.append(contentsOf: frame)
+        return Data(framedData)
+    }
 }
 
 struct UDPControlAppendResult {
@@ -31,16 +74,44 @@ struct UDPControlAppendResult {
 }
 
 final class UDPControlStreamDecoder {
+    private enum DestinationHeaderStatus {
+        case complete(length: Int)
+        case needMoreBytes
+        case invalid
+    }
+
     enum State: Equatable {
         case awaitPrefix2
         case awaitLength2(controlPrefixed: Bool)
         case awaitPayload(length: Int, controlPrefixed: Bool)
+
+        var diagnosticDescription: String {
+            switch self {
+            case .awaitPrefix2:
+                return "await_prefix2"
+            case .awaitLength2(let controlPrefixed):
+                return controlPrefixed ? "await_length2_control_prefixed" : "await_length2_plain"
+            case .awaitPayload(let length, let controlPrefixed):
+                return "await_payload_len_\(length)_\(controlPrefixed ? "control_prefixed" : "plain")"
+            }
+        }
     }
 
     private enum LockedMode {
         case unknown
         case plain
         case controlPrefixed
+
+        var diagnosticDescription: String {
+            switch self {
+            case .unknown:
+                return "unknown"
+            case .plain:
+                return "plain"
+            case .controlPrefixed:
+                return "control_prefixed"
+            }
+        }
     }
 
     private(set) var state: State = .awaitPrefix2
@@ -87,9 +158,12 @@ final class UDPControlStreamDecoder {
 
                 case .plain:
                     guard prefix > 0, prefix <= maxFrameSize else {
-                        if attemptResync(fromInvalidPrefix: prefix) {
+                        if recoverFromInvalidPrefix(prefix) {
                             hadRecovery = true
                             continue
+                        }
+                        if hadRecovery {
+                            return UDPControlAppendResult(frames: emitted, status: .recovered(error: .badLength))
                         }
                         return UDPControlAppendResult(frames: emitted, status: .failed(error: .badLength))
                     }
@@ -100,7 +174,7 @@ final class UDPControlStreamDecoder {
                         state = .awaitLength2(controlPrefixed: true)
                     } else {
                         guard prefix > 0, prefix <= maxFrameSize else {
-                            if attemptResync(fromInvalidPrefix: prefix) {
+                            if recoverFromInvalidPrefix(prefix) {
                                 hadRecovery = true
                                 continue
                             }
@@ -122,7 +196,7 @@ final class UDPControlStreamDecoder {
                 buffer.removeFirst(2)
 
                 guard length > 0, length <= maxFrameSize else {
-                    if lockedMode == .unknown, attemptResync(fromInvalidPrefix: length) {
+                    if lockedMode == .unknown, recoverFromInvalidPrefix(length) {
                         hadRecovery = true
                         continue
                     }
@@ -132,15 +206,22 @@ final class UDPControlStreamDecoder {
                 state = .awaitPayload(length: length, controlPrefixed: controlPrefixed)
 
             case .awaitPayload(let length, let controlPrefixed):
-                guard buffer.count >= length else {
+                guard let frameLength = frameLengthForCurrentBuffer(prefixLength: length) else {
                     if !emitted.isEmpty {
                         return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .ok)
                     }
                     return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .needMoreBytes)
                 }
 
-                let payload = Array(buffer.prefix(length))
-                buffer.removeFirst(length)
+                guard buffer.count >= frameLength else {
+                    if !emitted.isEmpty {
+                        return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .ok)
+                    }
+                    return UDPControlAppendResult(frames: emitted, status: hadRecovery ? .recovered(error: .badLength) : .needMoreBytes)
+                }
+
+                let payload = Array(buffer.prefix(frameLength))
+                buffer.removeFirst(frameLength)
 
                 let mode: UDPControlFramingMode = controlPrefixed ? .controlPrefixed : .plain
                 switch lockedMode {
@@ -176,8 +257,68 @@ final class UDPControlStreamDecoder {
         }
     }
 
+    func diagnosticSnapshot() -> UDPControlDecoderDiagnosticSnapshot {
+        UDPControlDecoderDiagnosticSnapshot(
+            state: state.diagnosticDescription,
+            mode: lockedMode.diagnosticDescription,
+            bufferedBytes: buffer.count,
+            pendingResyncAttempts: pendingResyncAttempts,
+            resyncAttempts: resyncAttempts,
+            resyncSuccesses: resyncSuccesses,
+            maxFrameSize: maxFrameSize
+        )
+    }
+
     private static func readBE16(_ b0: UInt8, _ b1: UInt8) -> Int {
         (Int(b0) << 8) | Int(b1)
+    }
+
+    private func frameLengthForCurrentBuffer(prefixLength: Int) -> Int? {
+        switch Self.destinationHeaderStatus(in: buffer) {
+        case .complete(let headerLength):
+            return headerLength + prefixLength
+        case .needMoreBytes:
+            return nil
+        case .invalid:
+            return prefixLength
+        }
+    }
+
+    private static func destinationHeaderStatus(in bytes: [UInt8]) -> DestinationHeaderStatus {
+        guard !bytes.isEmpty else { return .needMoreBytes }
+
+        if bytes[0] == 0x0a {
+            return addressHeaderStatus(in: bytes, atypOffset: 1)
+        }
+
+        guard bytes[0] == 0x00 else { return .invalid }
+        guard bytes.count >= 3 else {
+            return bytes.allSatisfy { $0 == 0x00 } ? .needMoreBytes : .invalid
+        }
+        guard bytes[1] == 0x00, bytes[2] == 0x00 else { return .invalid }
+        return addressHeaderStatus(in: bytes, atypOffset: 3)
+    }
+
+    private static func addressHeaderStatus(in bytes: [UInt8], atypOffset: Int) -> DestinationHeaderStatus {
+        guard bytes.count > atypOffset else { return .needMoreBytes }
+
+        let requiredHeaderBytes: Int
+        switch bytes[atypOffset] {
+        case 0x01:
+            requiredHeaderBytes = atypOffset + 1 + 4 + 2
+        case 0x04:
+            requiredHeaderBytes = atypOffset + 1 + 16 + 2
+        case 0x03:
+            guard bytes.count > atypOffset + 1 else { return .needMoreBytes }
+            let domainLength = Int(bytes[atypOffset + 1])
+            guard domainLength > 0 else { return .invalid }
+            requiredHeaderBytes = atypOffset + 2 + domainLength + 2
+        default:
+            return .invalid
+        }
+
+        guard bytes.count >= requiredHeaderBytes else { return .needMoreBytes }
+        return .complete(length: requiredHeaderBytes)
     }
 
     func drainDiagnostics() -> (resyncAttempts: Int, resyncSuccesses: Int) {
@@ -187,13 +328,18 @@ final class UDPControlStreamDecoder {
         return out
     }
 
-    private func attemptResync(fromInvalidPrefix prefix: Int) -> Bool {
-        guard lockedMode == .unknown, prefix != 0x0001 else { return false }
+    private func recoverFromInvalidPrefix(_ prefix: Int) -> Bool {
+        guard prefix != 0x0001 else { return false }
         guard pendingResyncAttempts < maxResyncAttempts else { return false }
+        let lowByteLength = prefix & 0xFF
         pendingResyncAttempts += 1
         resyncAttempts += 1
+        if lockedMode == .unknown, lowByteLength > 0, lowByteLength <= maxFrameSize, buffer.count >= lowByteLength {
+            state = .awaitPayload(length: lowByteLength, controlPrefixed: false)
+            return true
+        }
+        guard !buffer.isEmpty else { return false }
         state = .awaitPrefix2
-        buffer.insert(UInt8(prefix & 0xFF), at: 0)
         return true
     }
 }

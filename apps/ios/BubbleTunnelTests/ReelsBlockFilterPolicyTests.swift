@@ -1,6 +1,5 @@
 import XCTest
 import Darwin
-@testable import BubbleTunnel
 
 final class ReelsBlockFilterPolicyTests: XCTestCase {
 
@@ -19,14 +18,14 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
     }
 
     // Policy baseline: reels media block criteria must not regress.
-    func testPolicyBaselineReelsOnMediaHostBlocksNow() {
+    func testPolicyBaselineReelsOnConfidentVideoHostBlocksNow() {
         var policy = FeaturePolicyV1.defaultPolicy()
         policy.set(appId: "instagram", optionId: "reels", isEnabled: true)
         let filter = makeFilter(policy: policy)
 
         let decision = filter.evaluateStream(
-            host: "scontent-lhr8-1.cdninstagram.com",
-            sni: "scontent-lhr8-1.cdninstagram.com",
+            host: "reels-video-lhr8-1.cdninstagram.com",
+            sni: "reels-video-lhr8-1.cdninstagram.com",
             port: 443,
             bytesDown: 3_000,
             connectionAge: 0.2,
@@ -37,14 +36,14 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertEqual(decision.reason, "reels_media_block_now")
     }
 
-    func testPolicyBaselineReelsOffMediaHostAllows() {
+    func testPolicyBaselineReelsOffConfidentVideoHostAllows() {
         var policy = FeaturePolicyV1.defaultPolicy()
         policy.set(appId: "instagram", optionId: "reels", isEnabled: false)
         let filter = makeFilter(policy: policy)
 
         let decision = filter.evaluateStream(
-            host: "scontent-lhr8-1.cdninstagram.com",
-            sni: "scontent-lhr8-1.cdninstagram.com",
+            host: "reels-video-lhr8-1.cdninstagram.com",
+            sni: "reels-video-lhr8-1.cdninstagram.com",
             port: 443,
             bytesDown: 3_000,
             connectionAge: 0.2,
@@ -70,7 +69,7 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
             parallelConnections: 2
         )
         XCTAssertEqual(iDecision.action, .allow)
-        XCTAssertEqual(iDecision.reason, "essential_control_allow")
+        XCTAssertEqual(iDecision.reason, "instagram_control_allow")
 
         let testGatewayDecision = filter.evaluateStream(
             host: "test-gateway.instagram.com",
@@ -81,10 +80,10 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
             parallelConnections: 2
         )
         XCTAssertEqual(testGatewayDecision.action, .allow)
-        XCTAssertEqual(testGatewayDecision.reason, "essential_control_allow")
+        XCTAssertEqual(testGatewayDecision.reason, "instagram_control_allow")
     }
 
-    func testReelsOnNonEssentialControlStillBlocks() {
+    func testReelsOnGatewayControlAllowsDMs() {
         var policy = FeaturePolicyV1.defaultPolicy()
         policy.set(appId: "instagram", optionId: "reels", isEnabled: true)
         let filter = makeFilter(policy: policy)
@@ -98,8 +97,29 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
             parallelConnections: 2
         )
 
-        XCTAssertEqual(decision.action, .blockNow)
-        XCTAssertEqual(decision.reason, "reels_control_block_now")
+        XCTAssertEqual(decision.action, .allow)
+        XCTAssertEqual(decision.reason, "instagram_control_allow")
+    }
+
+    func testReelsOnProfileSearchAndLoginAllows() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        for host in ["www.instagram.com", "accounts.instagram.com", "accountscenter.instagram.com"] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 4_000,
+                connectionAge: 0.3,
+                parallelConnections: 2
+            )
+
+            XCTAssertEqual(decision.action, .allow, host)
+            XCTAssertEqual(decision.reason, "instagram_control_allow", host)
+            XCTAssertEqual(decision.trafficClass, .instagram, host)
+        }
     }
 
     func testReelsOnMessagesAlwaysAllowed() {
@@ -120,8 +140,8 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         let filter = makeFilter(policy: policy)
 
         let mediaDecision = filter.evaluateStream(
-            host: "scontent-lhr8-1.cdninstagram.com",
-            sni: "scontent-lhr8-1.cdninstagram.com",
+            host: "reels-video-lhr8-1.cdninstagram.com",
+            sni: "reels-video-lhr8-1.cdninstagram.com",
             port: 443,
             bytesDown: 3_000,
             connectionAge: 0.2,
@@ -140,6 +160,26 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         )
         XCTAssertEqual(controlDecision.action, .allow)
         XCTAssertEqual(controlDecision.reason, "reels_toggle_off")
+    }
+
+    func testReelsOnUnknownMetaCDNAllowsByDefault() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        for host in ["scontent-lhr8-1.cdninstagram.com", "static.xx.fbcdn.net", "unknown.cdninstagram.com"] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 3_000,
+                connectionAge: 0.2,
+                parallelConnections: 2
+            )
+
+            XCTAssertEqual(decision.action, .allow, host)
+            XCTAssertEqual(decision.reason, "unknown_meta_default_allow", host)
+        }
     }
 
     func testTikTokVideoBlockOnMediaHostBlocksNow() {
@@ -162,6 +202,53 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertEqual(decision.trafficClass, .tiktok)
     }
 
+    func testTikTokVideoBlockOnByteCDNSNIBlocksNow() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        let decision = filter.evaluateStream(
+            host: "203.0.113.44",
+            sni: "lf16-video.bytecdn.com",
+            port: 443,
+            bytesDown: 5_000,
+            connectionAge: 0.3,
+            parallelConnections: 2
+        )
+
+        XCTAssertEqual(decision.action, .blockNow)
+        XCTAssertEqual(decision.reason, "tiktok_video_block_now")
+        XCTAssertEqual(decision.classification.bucket, .tiktokVideo)
+    }
+
+    func testTikTokVideoBlockCoversTikTokVEU() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        let video = filter.evaluateStream(
+            host: "v19.tiktokv.eu",
+            sni: "v19.tiktokv.eu",
+            port: 443,
+            bytesDown: 5_000,
+            connectionAge: 0.3,
+            parallelConnections: 2
+        )
+        XCTAssertEqual(video.action, .blockNow)
+        XCTAssertEqual(video.reason, "tiktok_video_block_now")
+
+        let control = filter.evaluateStream(
+            host: "api.tiktokv.eu",
+            sni: "api.tiktokv.eu",
+            port: 443,
+            bytesDown: 3_000,
+            connectionAge: 0.2,
+            parallelConnections: 1
+        )
+        XCTAssertEqual(control.action, .allow)
+        XCTAssertEqual(control.reason, "tiktok_messages_allow")
+    }
+
     func testTikTokVideoBlockOnControlHostAllows() {
         var policy = FeaturePolicyV1.defaultPolicy()
         policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
@@ -182,6 +269,27 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertEqual(decision.trafficClass, .tiktok)
     }
 
+    func testTikTokVideoBlockOnSearchProfileAndMessagesAllows() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        for host in ["www.tiktok.com", "search.tiktok.com", "im.tiktok.com"] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 3_000,
+                connectionAge: 0.2,
+                parallelConnections: 1
+            )
+
+            XCTAssertEqual(decision.action, .allow, host)
+            XCTAssertEqual(decision.reason, "tiktok_messages_allow", host)
+            XCTAssertEqual(decision.trafficClass, .tiktok, host)
+        }
+    }
+
     func testTikTokVideoBlockOffAllowsTikTokMedia() {
         var policy = FeaturePolicyV1.defaultPolicy()
         policy.set(appId: "tiktok", optionId: "video_block", isEnabled: false)
@@ -198,6 +306,110 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
 
         XCTAssertEqual(decision.action, .allow)
         XCTAssertEqual(decision.reason, "tiktok_video_toggle_off")
+    }
+
+    func testTikTokVideoBlockDoesNotCatchGenericAkamai() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        for host in ["cdn.example.akamaized.net", "d111111abcdef8.cloudfront.net"] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 4_000,
+                connectionAge: 0.2,
+                parallelConnections: 1
+            )
+
+            XCTAssertEqual(decision.action, .allow, host)
+            XCTAssertNotEqual(decision.reason, "tiktok_video_block_now", host)
+            XCTAssertEqual(decision.trafficClass, .generic, host)
+        }
+    }
+
+    func testTikTokVideoBlockDoesNotCatchSafariOrWhatsAppDomains() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        for host in ["web.whatsapp.com", "apple.com", "google.com", "cloudflare.com"] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 4_000,
+                connectionAge: 0.2,
+                parallelConnections: 1
+            )
+
+            XCTAssertEqual(decision.action, .allow, host)
+            XCTAssertNotEqual(decision.reason, "tiktok_video_block_now", host)
+            XCTAssertEqual(decision.trafficClass, .generic, host)
+        }
+    }
+
+    func testEarlySNIGateOnlyBlocksConfirmedTikTokVideo() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        let video = filter.evaluateStream(
+            host: "96.17.179.153",
+            sni: "sf16-ies-music-va.tiktokcdn.com",
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 0
+        )
+        XCTAssertTrue(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(video))
+
+        var reelsPolicy = FeaturePolicyV1.defaultPolicy()
+        reelsPolicy.set(appId: "instagram", optionId: "reels", isEnabled: true)
+        let reelsFilter = makeFilter(policy: reelsPolicy)
+        let reels = reelsFilter.evaluateStream(
+            host: "157.240.22.63",
+            sni: "reels-video-lhr8-1.cdninstagram.com",
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 0
+        )
+        XCTAssertTrue(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(reels))
+
+        let control = filter.evaluateStream(
+            host: "96.17.179.153",
+            sni: "api16-normal-c-useast1a.tiktokv.com",
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 0
+        )
+        XCTAssertFalse(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(control))
+
+        let generic = filter.evaluateStream(
+            host: "93.184.216.34",
+            sni: "web.whatsapp.com",
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 0
+        )
+        XCTAssertFalse(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(generic))
+
+        var offPolicy = FeaturePolicyV1.defaultPolicy()
+        offPolicy.set(appId: "tiktok", optionId: "video_block", isEnabled: false)
+        let offFilter = makeFilter(policy: offPolicy)
+        let disabled = offFilter.evaluateStream(
+            host: "96.17.179.153",
+            sni: "sf16-ies-music-va.tiktokcdn.com",
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 0
+        )
+        XCTAssertFalse(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(disabled))
     }
 
     func testPolicyRevisionRegressionDoesNotDisableTikTokBlock() {
@@ -248,8 +460,8 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         let filter = makeFilter(policy: policy)
 
         let media = filter.evaluateStream(
-            host: "scontent-lhr8-1.cdninstagram.com",
-            sni: "scontent-lhr8-1.cdninstagram.com",
+            host: "reels-video-lhr8-1.cdninstagram.com",
+            sni: "reels-video-lhr8-1.cdninstagram.com",
             port: 443,
             bytesDown: 3_000,
             connectionAge: 0.2,
@@ -266,7 +478,7 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
             connectionAge: 0.2,
             parallelConnections: 2
         )
-        XCTAssertEqual(control.action, .blockNow)
-        XCTAssertEqual(control.reason, "reels_control_block_now")
+        XCTAssertEqual(control.action, .allow)
+        XCTAssertEqual(control.reason, "instagram_control_allow")
     }
 }

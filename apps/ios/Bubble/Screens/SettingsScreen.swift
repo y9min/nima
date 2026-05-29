@@ -5,9 +5,17 @@ struct SettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var vpnManager: VPNManager
 
-    @AppStorage(BubbleConstants.strictUDPBlockEnabledKey,
+    @AppStorage(BubbleConstants.udpSelectiveSafeModeEnabledKey,
                 store: UserDefaults(suiteName: BubbleConstants.appGroupID))
-    private var strictUDPBlockEnabled: Bool = false
+    private var udpSelectiveSafeModeEnabled: Bool = true
+
+    @AppStorage(BubbleConstants.udpDisabledFastRejectEnabledKey,
+                store: UserDefaults(suiteName: BubbleConstants.appGroupID))
+    private var udpDisabledFastRejectEnabled: Bool = false
+
+    @AppStorage(BubbleConstants.tun2socksStartupModeKey,
+                store: UserDefaults(suiteName: BubbleConstants.appGroupID))
+    private var tun2socksStartupMode: String = BubbleConstants.tun2socksStartupModeStagedAfterConnect
 
     @State private var showExtensionLog = false
 
@@ -23,8 +31,8 @@ struct SettingsScreen: View {
                     // VPN Toggle Button
                     vpnToggleButton
 
-                    // Advanced networking toggle
-                    strictUDPSection
+                    // UDP safe mode toggle
+                    udpForwardingSection
 
                     // App Log
                     appLogSection
@@ -96,19 +104,52 @@ struct SettingsScreen: View {
 
     // MARK: - Advanced Controls
 
-    private var strictUDPSection: some View {
-        HStack {
-            Text("Strict QUIC/UDP Block")
-                .font(BubbleFonts.coolvetica(size: 16))
-                .foregroundColor(.white)
-            Spacer()
-            Toggle("", isOn: $strictUDPBlockEnabled)
-                .labelsHidden()
+    private var udpForwardingSection: some View {
+        VStack(spacing: BubbleSpacing.sm) {
+            HStack {
+                Text("Selective UDP Safe Mode")
+                    .font(BubbleFonts.coolvetica(size: 16))
+                    .foregroundColor(.white)
+                Spacer()
+                Toggle("", isOn: $udpSelectiveSafeModeEnabled)
+                    .labelsHidden()
+            }
+
+            HStack {
+                Text("Disable UDP Forwarding")
+                    .font(BubbleFonts.coolvetica(size: 16))
+                    .foregroundColor(.white)
+                Spacer()
+                Toggle("", isOn: $udpDisabledFastRejectEnabled)
+                    .labelsHidden()
+            }
+
+            HStack {
+                Text("Bypass Tun2Socks")
+                    .font(BubbleFonts.coolvetica(size: 16))
+                    .foregroundColor(.white)
+                Spacer()
+                Toggle("", isOn: tun2socksBypassBinding)
+                    .labelsHidden()
+            }
         }
         .padding(.horizontal, BubbleSpacing.md)
         .padding(.vertical, BubbleSpacing.sm)
         .background(Color.white.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var tun2socksBypassBinding: Binding<Bool> {
+        Binding(
+            get: {
+                tun2socksStartupMode == BubbleConstants.tun2socksStartupModeBypassDiagnostic
+            },
+            set: { enabled in
+                tun2socksStartupMode = enabled
+                    ? BubbleConstants.tun2socksStartupModeBypassDiagnostic
+                    : BubbleConstants.tun2socksStartupModeStagedAfterConnect
+            }
+        )
     }
 
     // MARK: - App Log
@@ -155,12 +196,16 @@ struct SettingsScreen: View {
     private var extensionLogSheet: some View {
         NavigationView {
             ScrollView {
-                Text(vpnManager.tunnelLog)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white)
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(vpnManager.tunnelLog.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, line in
+                        Text(String(line))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding()
             }
             .background(Color.black)
             .navigationTitle("Diagnostic Log")
@@ -193,12 +238,16 @@ struct ExtensionLogView: View {
             SkyBackgroundView()
 
             ScrollView {
-                Text(vpnManager.tunnelLog)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white)
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(vpnManager.tunnelLog.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, line in
+                        Text(String(line))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding()
             }
         }
         .navigationBarBackButtonHidden(true)

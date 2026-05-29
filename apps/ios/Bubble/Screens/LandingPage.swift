@@ -43,6 +43,8 @@ struct LandingPage: View {
                             .background(BubbleColors.skyBlue)
                             .clipShape(Circle())
                     }
+                    .accessibilityIdentifier("bubble.landing.go")
+                    .accessibilityLabel("Continue")
                     .padding(.trailing, BubbleSpacing.xl + 10)
                     .padding(.bottom, 14)
                 }

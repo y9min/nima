@@ -10,13 +10,16 @@ enum BubbleConstants {
     static let tunnelLocalAddress = "198.18.0.2"
     static let tunnelSubnetMask = "255.255.255.0"
     static let dnsServers = ["8.8.8.8", "1.1.1.1"]
-    static let mtu: NSNumber = 9000
+    static let mtu: NSNumber = 1500
 
     // MARK: - tun2socks Configuration
-    static let tun2socksTaskStackSize = 24576
+    static let tun2socksTaskStackSize = 65536
     static let tun2socksTCPBufferSize = 4096
     static let tun2socksConnectTimeout = 5000
     static let tun2socksReadWriteTimeout = 60000
+    static let tun2socksPostConnectLaunchDelaySeconds: TimeInterval = 1.0
+    static let tun2socksStartupModeStagedAfterConnect = "staged_after_connect"
+    static let tun2socksStartupModeBypassDiagnostic = "bypass_tun2socks_diagnostic"
 
     // MARK: - SOCKS5 Proxy
     static let socksBindAddress = "127.0.0.1"
@@ -29,8 +32,15 @@ enum BubbleConstants {
     static let udpDecodeFailureCloseThreshold = 3
     static let udpDecodeFailureWindowSeconds: TimeInterval = 4.0
     static let udpDecodeBadLenSoftFailureLimit = 6
+    static let udpRecoveryHexDumpMaxBytes = 48
     static let maxActiveUDPControlStreams = 24
     static let maxQueuedUDPControlStreams = 16
+    static let startupGraceUnknownGenericMinActiveUDP = 12
+    static let startupGraceUnknownGenericMinQueuedUDP = 8
+    static let safeModeMaxActiveUDPControlStreams = 12
+    static let safeModeMaxQueuedUDPControlStreams = 8
+    static let safeModeUDPAdmissionCreateRatePerSecond = 8.0
+    static let safeModeUDPAdmissionCreateRateCapacity = 12
     static let udpAdmissionCreateRatePerSecond = 16.0
     static let udpAdmissionCreateRateCapacity = 24
     static let dnsDedupWindow: TimeInterval = 0.5
@@ -82,10 +92,13 @@ enum BubbleConstants {
     static let dnsFailoverScoreThreshold = 3
     static let dnsFailoverReturnDelaySeconds: TimeInterval = 15.0
     static let dnsFailoverScoreDecayPerSuccess = 2
-    static let hostCooldownDropSeconds: TimeInterval = 10.0
+    static let hostCooldownDropSeconds: TimeInterval = 30.0
     static let classIsolationEngineEnabled = true
     static let genericReservedUDPActiveSlots = 8
     static let genericReservedUDPQueueSlots = 6
+    static let classifyConfidenceHigh = 0.80
+    static let classifyConfidenceLow = 0.45
+    static let classHintTTLSeconds: TimeInterval = 90.0
 
     // MARK: - Logging
     static let appLogFileName = "app_diagnostic_log.txt"
@@ -98,9 +111,16 @@ enum BubbleConstants {
     // MARK: - Stream Blocking
     static let streamBlockDefaultThreshold = 512 * 1024  // 0.5 MB
     static let maxSNIProbePackets = 6
+    static let tcpSNIGateMaxBufferedBytes = 16 * 1024
+    static let tcpSNIGateTimeout: TimeInterval = 1.0
 
     // MARK: - UserDefaults Keys
     static let strictUDPBlockEnabledKey = "strictUDPBlockEnabled"
+    static let udpForwardingDisabledKey = "udpForwardingDisabled"
+    static let udpDisabledFastRejectEnabledKey = "udpDisabledFastRejectEnabled"
+    static let udpSelectiveSafeModeEnabledKey = "udpSelectiveSafeModeEnabled"
+    static let udpSelectiveSafeModeMigratedKey = "udpSelectiveSafeModeMigrated"
+    static let tun2socksStartupModeKey = "vpnLifecycle.tun2socks_startup_mode"
     static let featurePolicyKey = "featurePolicyV1"
     static let classifierTuningKey = "classifierTuningV1"
     static let vpnLifecycleLastStartTSKey = "vpnLifecycle.last_start_ts"
@@ -131,21 +151,196 @@ enum BubbleConstants {
     static let vpnLifecycleInferredCrashKey = "vpnLifecycle.inferred_crash"
     static let vpnLifecycleResolvedStopClassKey = "vpnLifecycle.resolved_stop_class"
     static let vpnLifecycleInferredCrashReasonKey = "vpnLifecycle.inferred_crash_reason"
+    static let vpnLifecyclePendingStopIDKey = "vpnLifecycle.pending_stop_id"
+    static let vpnLifecyclePendingStopSourceKey = "vpnLifecycle.pending_stop_source"
+    static let vpnLifecyclePendingStopTSKey = "vpnLifecycle.pending_stop_ts"
+    static let vpnLifecycleLastStopObservedPendingIDKey = "vpnLifecycle.last_stop_observed_pending_id"
+    static let vpnLifecycleLastStopOriginKey = "vpnLifecycle.last_stop_origin"
+    static let vpnLifecycleSessionIDKey = "vpnLifecycle.session_id"
+    static let vpnLifecycleStopEventIDKey = "vpnLifecycle.stop_event_id"
+    static let vpnLifecycleStopEventStartTSKey = "vpnLifecycle.stop_event_start_ts"
+    static let vpnLifecycleStopCauseFinalKey = "vpnLifecycle.stop_cause_final"
+    static let vpnLifecycleStopCauseConfidenceKey = "vpnLifecycle.stop_cause_confidence"
+    static let vpnLifecycleStopCauseEvidenceKey = "vpnLifecycle.stop_cause_evidence"
+    static let vpnLifecycleStopCauseSignalOrderKey = "vpnLifecycle.stop_signal_order"
+    static let vpnLifecycleStopCauseFinalizedTSKey = "vpnLifecycle.stop_cause_finalized_ts"
+    static let vpnLifecycleStopSignalAppRequestedTSKey = "vpnLifecycle.stop_signal_app_requested_ts"
+    static let vpnLifecycleStopSignalOSStopTSKey = "vpnLifecycle.stop_signal_os_stop_ts"
+    static let vpnLifecycleStopSignalOSStopReasonRawKey = "vpnLifecycle.stop_signal_os_stop_reason_raw"
+    static let vpnLifecycleStopSignalOSStopReasonNameKey = "vpnLifecycle.stop_signal_os_stop_reason_name"
+    static let vpnLifecycleStopSignalTun2SocksExitTSKey = "vpnLifecycle.stop_signal_tun2socks_exit_ts"
+    static let vpnLifecycleStopSignalTun2SocksExitCodeKey = "vpnLifecycle.stop_signal_tun2socks_exit_code"
+    static let vpnLifecycleStopSignalProviderDeinitTSKey = "vpnLifecycle.stop_signal_provider_deinit_ts"
+    static let vpnLifecycleStopSignalStatusDropTSKey = "vpnLifecycle.stop_signal_status_drop_ts"
+    static let vpnLifecycleLastCompletedStopEventIDKey = "vpnLifecycle.last_completed_stop_event_id"
+    static let vpnLifecycleLastCompletedStopCauseFinalKey = "vpnLifecycle.last_completed_stop_cause_final"
+    static let vpnLifecycleLastCompletedStopCauseConfidenceKey = "vpnLifecycle.last_completed_stop_cause_confidence"
+    static let vpnLifecycleLastCompletedStopCauseEvidenceKey = "vpnLifecycle.last_completed_stop_cause_evidence"
+    static let vpnLifecycleLastCompletedStopSignalOrderKey = "vpnLifecycle.last_completed_stop_signal_order"
+    static let vpnLifecycleLastCompletedStopFinalizedTSKey = "vpnLifecycle.last_completed_stop_finalized_ts"
+    static let vpnLifecycleLastCompletedStopSeqKey = "vpnLifecycle.last_completed_stop_seq"
+    static let vpnLifecycleDiagnosticHoldEnabledKey = "vpnLifecycle.diagnostic_hold_enabled"
+    static let vpnLifecycleDiagnosticHoldSecondsKey = "vpnLifecycle.diagnostic_hold_seconds"
+    static let vpnLifecycleDiagnosticProfileEnabledKey = "vpnLifecycle.diagnostic_profile_enabled"
+    static let vpnLifecycleDiagnosticModeSourceKey = "vpnLifecycle.diagnostic_mode_source"
+    static let vpnLifecycleDiagnosticAutoEnabledUntilTSKey = "vpnLifecycle.diagnostic_auto_enabled_until_ts"
+    static let vpnLifecycleDropLoopCountKey = "vpnLifecycle.drop_loop_count"
+    static let vpnLifecycleDropLoopWindowStartTSKey = "vpnLifecycle.drop_loop_window_start_ts"
+    static let vpnLifecycleDiagnosticCompletenessKey = "vpnLifecycle.diagnostic_complete"
+    static let vpnLifecycleRemediationPathKey = "vpnLifecycle.remediation_path"
+    static let vpnLifecycleNextActionKey = "vpnLifecycle.next_action"
+    static let vpnLifecycleDropBoundaryAppStateKey = "vpnLifecycle.drop_boundary_app_state"
+    static let vpnLifecycleDropBoundaryLockSleepHintKey = "vpnLifecycle.drop_boundary_lock_sleep_hint"
+    static let vpnLifecycleDropBoundaryTSKey = "vpnLifecycle.drop_boundary_ts"
+    static let vpnLifecycleDropBoundaryLifecycleEventKey = "vpnLifecycle.drop_boundary_lifecycle_event"
+    static let vpnLifecycleDropBoundaryProtectedDataAvailableKey = "vpnLifecycle.drop_boundary_protected_data_available"
+    static let vpnLifecycleDropBoundaryThermalStateKey = "vpnLifecycle.drop_boundary_thermal_state"
+    static let vpnLifecycleDropBoundaryMemoryWarningAgeSecondsKey = "vpnLifecycle.drop_boundary_memory_warning_age_seconds"
+    static let vpnLifecycleDropBoundaryProfileOpDeltaMSKey = "vpnLifecycle.drop_boundary_profile_op_delta_ms"
+    static let vpnLifecycleStopTerminalSeenStopTunnelTSKey = "vpnLifecycle.stop_terminal_seen_stop_tunnel_ts"
+    static let vpnLifecycleStopTerminalSeenTun2SocksExitTSKey = "vpnLifecycle.stop_terminal_seen_tun2socks_exit_ts"
+    static let vpnLifecycleStopTerminalSeenProviderDeinitTSKey = "vpnLifecycle.stop_terminal_seen_provider_deinit_ts"
+    static let vpnLifecycleProfileLoadAllTSKey = "vpnLifecycle.profile_load_all_ts"
+    static let vpnLifecycleProfileLoadTSKey = "vpnLifecycle.profile_load_ts"
+    static let vpnLifecycleProfileSaveTSKey = "vpnLifecycle.profile_save_ts"
+    static let vpnLifecycleProfileReloadTSKey = "vpnLifecycle.profile_reload_ts"
+    static let vpnLifecycleProfileConfigSignatureKey = "vpnLifecycle.profile_config_signature"
+    static let vpnLifecycleAppStateKey = "vpnLifecycle.app_state"
+    static let vpnLifecycleAppLifecycleLastEventKey = "vpnLifecycle.app_lifecycle_last_event"
+    static let vpnLifecycleAppLifecycleLastEventTSKey = "vpnLifecycle.app_lifecycle_last_event_ts"
+    static let vpnLifecycleLastBreadcrumbKey = "vpnLifecycle.last_breadcrumb"
+    static let vpnLifecycleLastBreadcrumbTSKey = "vpnLifecycle.last_breadcrumb_ts"
+    static let vpnLifecycleLastBreadcrumbDetailsKey = "vpnLifecycle.last_breadcrumb_details"
+    static let vpnLifecycleProviderLastPhaseKey = "vpnLifecycle.provider_last_phase"
+    static let vpnLifecycleProviderLastPhaseTSKey = "vpnLifecycle.provider_last_phase_ts"
+    static let vpnLifecycleProviderHeartbeatSnapshotJSONKey = "vpnLifecycle.provider_last_heartbeat_snapshot_json"
+    static let providerPhaseRingJSONKey = "provider_phase_ring_json"
+    static let udpLastControlStreamJSONKey = "udp_last_control_stream_json"
+    static let udpLastDNSCloseJSONKey = "udp_last_dns_close_json"
+    static let udpLastDecoderEventJSONKey = "udp_last_decoder_event_json"
+    static let tun2socksLastStatsJSONKey = "tun2socks_last_stats_json"
+    static let udpCrashGuardUntilKey = "udp_crash_guard_until"
+    static let udpCrashGuardReasonKey = "udp_crash_guard_reason"
+    static let udpCrashGuardHitsKey = "udp_crash_guard_hits"
+    static let vpnLifecycleAppLastActiveTSKey = "vpnLifecycle.app_last_active_ts"
+    static let vpnLifecycleAppLastInactiveTSKey = "vpnLifecycle.app_last_inactive_ts"
+    static let vpnLifecycleAppLastBackgroundTSKey = "vpnLifecycle.app_last_background_ts"
+    static let vpnLifecycleAppLastForegroundTSKey = "vpnLifecycle.app_last_foreground_ts"
+    static let vpnLifecycleProtectedDataAvailableKey = "vpnLifecycle.protected_data_available"
+    static let vpnLifecycleProtectedDataAvailableTSKey = "vpnLifecycle.protected_data_available_ts"
+    static let vpnLifecycleProtectedDataUnavailableTSKey = "vpnLifecycle.protected_data_unavailable_ts"
+    static let vpnLifecycleAppMemoryWarningTSKey = "vpnLifecycle.app_memory_warning_ts"
+    static let vpnLifecycleAppThermalStateKey = "vpnLifecycle.app_thermal_state"
+    static let vpnLifecycleAppThermalStateTSKey = "vpnLifecycle.app_thermal_state_ts"
+    static let vpnLifecycleStatusDropHistoryTSKey = "vpnLifecycle.status_drop_history_ts"
+    static let vpnLifecycleExternalKillSignatureKey = "vpnLifecycle.external_kill_signature"
+    static let vpnLifecycleExternalKillSignatureTierKey = "vpnLifecycle.external_kill_signature_tier"
+    static let vpnLifecycleExternalKillDetectedTSKey = "vpnLifecycle.external_kill_detected_ts"
+    static let vpnLifecycleExternalKillCadenceSecondsKey = "vpnLifecycle.external_kill_cadence_seconds"
+    static let vpnLifecycleExternalKillDropCadenceWindowCountKey = "vpnLifecycle.external_kill_drop_cadence_window_count"
+    static let vpnLifecycleExternalKillHeartbeatStaleSecondsAtDropKey = "vpnLifecycle.external_kill_heartbeat_stale_seconds_at_drop"
+    static let vpnLifecycleExternalKillReclaimBlockedCountLastWindowKey = "vpnLifecycle.external_kill_reclaim_blocked_count_last_window"
+    static let vpnLifecycleExternalKillPressureCriticalDurationSecondsKey = "vpnLifecycle.external_kill_pressure_critical_duration_seconds"
+    static let vpnLifecycleExternalKillReconnectAttemptTSKey = "vpnLifecycle.external_kill_reconnect_attempt_ts"
+    static let vpnLifecycleExternalKillReconnectAttemptsInWindowKey = "vpnLifecycle.external_kill_reconnect_attempts_in_window"
+    static let vpnLifecycleExternalKillReconnectCapActiveKey = "vpnLifecycle.external_kill_reconnect_cap_active"
+    static let vpnLifecycleExternalKillReconnectNextAllowedTSKey = "vpnLifecycle.external_kill_reconnect_next_allowed_ts"
+    static let vpnLifecycleExternalKillReconnectSuppressionStateKey = "vpnLifecycle.external_kill_reconnect_suppression_state"
+    static let vpnLifecycleLastReconnectDelaySecondsKey = "vpnLifecycle.last_reconnect_delay_seconds"
+    static let vpnLifecycleDiagnosticHoldElapsedMSKey = "vpnLifecycle.diagnostic_hold_elapsed_ms"
+    static let vpnLifecycleDiagnosticHoldCompletedKey = "vpnLifecycle.diagnostic_hold_completed"
+    static let vpnLifecycleExtensionPressureLastSampleTSKey = "vpnLifecycle.extension_pressure_last_sample_ts"
+    static let vpnLifecycleExtensionPressureRuntimeSecondsKey = "vpnLifecycle.extension_pressure_runtime_seconds"
+    static let vpnLifecycleExtensionPressureLevelKey = "vpnLifecycle.extension_pressure_level"
+    static let vpnLifecycleExtensionPressureMemoryMBKey = "vpnLifecycle.extension_pressure_memory_mb"
+    static let vpnLifecycleExtensionPressureCPUPercentKey = "vpnLifecycle.extension_pressure_cpu_percent"
+    static let vpnLifecycleExtensionPressureUDPActiveKey = "vpnLifecycle.extension_pressure_udp_active"
+    static let vpnLifecycleExtensionPressureUDPQueuedKey = "vpnLifecycle.extension_pressure_udp_queued"
+    static let vpnLifecycleExtensionPressureDegradedStateKey = "vpnLifecycle.extension_pressure_degraded_state"
+    static let vpnLifecycleExtensionPressureActionKey = "vpnLifecycle.extension_pressure_action"
+    static let vpnLifecycleExtensionPressureTun2SocksUpPacketsKey = "vpnLifecycle.extension_pressure_tun2socks_up_packets"
+    static let vpnLifecycleExtensionPressureTun2SocksDownPacketsKey = "vpnLifecycle.extension_pressure_tun2socks_down_packets"
+    static let vpnLifecycleExtensionPressureAppLifecycleKey = "vpnLifecycle.extension_pressure_app_lifecycle"
+    static let vpnLifecycleExtensionPressureReclaimBlockedCountKey = "vpnLifecycle.extension_pressure_reclaim_blocked_count"
+    static let vpnLifecycleStartupStabilityPhaseKey = "vpnLifecycle.startup_stability_phase"
+    static let vpnLifecycleStartupProbeCompletedKey = "vpnLifecycle.startup_probe_completed"
+    static let vpnLifecycleStartupProbeCompletedTSKey = "vpnLifecycle.startup_probe_completed_ts"
+    static let vpnLifecycleTransportReadyKey = "vpnLifecycle.transport_ready"
+    static let vpnLifecycleTransportReadyTSKey = "vpnLifecycle.transport_ready_ts"
+    static let vpnLifecycleDNSStartupDrainActiveKey = "vpnLifecycle.dns_startup_drain_active"
+    static let vpnLifecycleDNSStartupDrainClosesKey = "vpnLifecycle.dns_startup_drain_closes"
+    static let vpnLifecycleDNSStartupDrainFramesProcessedKey = "vpnLifecycle.dns_startup_drain_frames_processed"
+    static let vpnLifecycleEarlyReconnectSuppressedKey = "vpnLifecycle.early_reconnect_suppressed"
+    static let vpnLifecycleIOSSafeModeReasonKey = "vpnLifecycle.ios_safe_mode_reason"
+    static let vpnLifecycleAttributionWindowSeconds: TimeInterval = 1.5
+    static let vpnLifecycleDiagnosticHoldDefaultSeconds: TimeInterval = 5.0
+    static let vpnLifecycleDiagnosticAutoEnableWindowSeconds: TimeInterval = 300.0
+    static let vpnLifecycleDiagnosticAutoEnableMinDrops = 3
+    static let vpnLifecyclePolicyReconcileDebounceSeconds: TimeInterval = 2.0
+    static let vpnLifecycleExternalKillCadenceMinSeconds: TimeInterval = 20.0
+    static let vpnLifecycleExternalKillCadenceMaxSeconds: TimeInterval = 240.0
+    static let vpnLifecycleExternalKillDropHistoryWindowSeconds: TimeInterval = 300.0
+    static let vpnLifecycleExternalKillMinDropCountForSupportSignal = 2
+    static let vpnLifecycleExternalKillStaleHeartbeatSeconds: TimeInterval = 20.0
+    static let vpnLifecycleExternalKillSupportSignalWindowSeconds: TimeInterval = 300.0
+    static let vpnLifecycleExternalKillReconnectMinDelaySeconds: TimeInterval = 30.0
+    static let vpnLifecycleExternalKillReconnectMaxDelaySeconds: TimeInterval = 60.0
+    static let vpnLifecycleExternalKillReconnectWindowSeconds: TimeInterval = 300.0
+    static let vpnLifecycleExternalKillReconnectMaxAttemptsPerWindow = 2
+    static let vpnLifecycleStartupProbeDelaySeconds: TimeInterval = 1.0
     static let transportProtectionV2StabilityFirstKey = "transportProtectionV2StabilityFirst"
+    static let extensionPressureSamplerStartSeconds: TimeInterval = 1.0
+    static let extensionPressureSamplerIntervalSeconds: TimeInterval = 1.0
+    static let extensionPressureSoftMemoryMB = 45.0
+    static let extensionPressureHardMemoryMB = 65.0
+    static let extensionPressureCriticalMemoryMB = 85.0
+    static let extensionPressureHardActiveUDP = 16
+    static let extensionPressureHardQueuedUDP = 8
+    static let extensionPressureCriticalActiveUDP = 20
+    static let extensionPressureCriticalQueuedUDP = 12
+    static let extensionPressureHardTargetActiveUDP = 10
+    static let extensionPressureCriticalTargetActiveUDP = 12
+    static let extensionPressureMaxClassHints = 96
+    static let extensionPressureMaxDNSHints = 96
+    static let extensionPressureMaxSuppressionEntries = 96
+    static let extensionPressureMaxSnapshotHistory = 120
+    static let extensionPressureMaxEvents = 240
+    static let extensionPressureSnapshotIntervalSeconds: TimeInterval = 5.0
+    static let extensionPressureCriticalSnapshotMuteSeconds: TimeInterval = 10.0
+    static let tunnelLogFlushIntervalSeconds: TimeInterval = 1.0
+    static let tunnelLogFlushLineThreshold = 24
+    static let tunnelLogFlushByteThreshold = 8 * 1024
+    static let dnsInflightMaxEntries = 64
+    static let dnsTikTokHintMaxTTLSeconds: TimeInterval = 60.0
+    static let blockedStormRetireThreshold = 3
+    static let selectiveSafeModeBlockedDatagramsBeforeRetire = 3
+    static let blockedStormRetireWindowSeconds: TimeInterval = 4.0
+    static let blockedStormRetireNoProgressSeconds: TimeInterval = 3.0
+    static let protectedBlockFailOpenWindowSeconds: TimeInterval = 5.0
+    static let protectedBlockFailOpenTriggerCount = 64
+    static let protectedBlockFailOpenSeconds: TimeInterval = 60.0
 
     // MARK: - Retry suppression and token bucket
     static let blockSuppressionCooldown: TimeInterval = 1.5
-    static let aggressiveBlockSuppressionCooldown: TimeInterval = 15.0
-    static let aggressiveBlockSuppressionStormCooldown: TimeInterval = 45.0
+    static let aggressiveBlockSuppressionCooldown: TimeInterval = 60.0
+    static let aggressiveBlockSuppressionStormCooldown: TimeInterval = 120.0
     static let tiktokRetryTokenBucketCapacity = 2.0
-    static let tiktokRetryTokenBucketRefillPerSecond = 1.0 / 12.0
+    static let tiktokRetryTokenBucketRefillPerSecond = 1.0 / 30.0
+    static let udpDisabledFastRejectLogWindowSeconds: TimeInterval = 5.0
+    static let udpDisabledFastRejectSummaryEvery = 250
+    static let dnsFastLaneParseFailureSummaryWindowSeconds: TimeInterval = 5.0
+    static let dnsFastLaneDisableFailureWindowSeconds: TimeInterval = 5.0
+    static let dnsFastLaneDisableFailureThreshold = 3
 
     // MARK: - Reconnect breaker policy
-    static let reconnectBreakerShortSessionSeconds: TimeInterval = 30.0
+    static let reconnectBreakerShortSessionSeconds: TimeInterval = 15.0
     static let reconnectBreakerHealthySessionResetSeconds: TimeInterval = 60.0
-    static let reconnectBreakerFailureScoreThreshold = 3
-    static let reconnectBreakerBaseCooldownSeconds: TimeInterval = 8.0
-    static let reconnectBreakerMaxCooldownSeconds: TimeInterval = 120.0
+    static let reconnectBreakerFailureScoreThreshold = 4
+    static let reconnectBreakerShortUnknownDropThreshold = 2
+    static let reconnectBreakerShortUnknownDropWindowSeconds: TimeInterval = 120.0
+    static let reconnectBreakerMinCooldownSeconds: TimeInterval = 30.0
+    static let reconnectBreakerBaseCooldownSeconds: TimeInterval = 30.0
+    static let reconnectBreakerMaxCooldownSeconds: TimeInterval = 60.0
     static let reconnectBreakerJitterFraction = 0.20
     static let lifecycleHeartbeatStaleSeconds: TimeInterval = 8.0
 
@@ -154,8 +349,65 @@ enum BubbleConstants {
     static let udpStormQueueMaxAge: TimeInterval = 0.5
     static let udpMaintenanceReclaimWindowSeconds: TimeInterval = 6.0
     static let udpMaintenanceReclaimBudgetPerWindow = 1
+    static let udpStormWindowSeconds: TimeInterval = 10.0
+    static let udpStormExitStabilizationSeconds: TimeInterval = 15.0
+    static let udpStormOpenCountThreshold = 24
+    static let udpStormTimeoutRateThreshold = 0.25
+    static let udpStormRecoveryTimeoutRateThreshold = 0.10
+    static let udpStormQueueThreshold = 6
+    static let udpStormQueueConsecutiveSamples = 3
+    static let udpStormRecoveryActiveThreshold = 10
+    static let udpStormRecoveryQueuedThreshold = 4
+    static let udpStormLowConfidenceIdleTimeout: TimeInterval = 2.0
+    static let udpStormLowConfidenceMaxLifetime: TimeInterval = 10.0
+    static let udpStormSelectiveReclaimMaxPerSweep = 4
+    static let autoReconnectFastPathMaxDelaySeconds: TimeInterval = 4.0
+    static let udpStartupSerialModeSeconds: TimeInterval = 3.0
+    static let udpStartupSerialMaxActiveStreams = 2
+    static let udpCrashGuardSerialModeSeconds: TimeInterval = 30.0
+    static let udpDNSResponseCancelWatchdogDelaySeconds: TimeInterval = 0.35
+    static let udpDNSDeferredCancelDelaySeconds: TimeInterval = 0.05
+    static let dnsStartupDrainWindowSeconds: TimeInterval = 5.0
+    static let dnsStartupDrainIdleSeconds: TimeInterval = 0.20
+    static let dnsStartupDrainMaxAgeSeconds: TimeInterval = 1.25
 
     // MARK: - VPN
     static let vpnDescription = "Bubble Blocker"
     static let vpnServerAddress = "bubble"
+}
+
+enum Tun2SocksStartupMode: String {
+    case stagedAfterConnect = "staged_after_connect"
+    case bypassTun2SocksDiagnostic = "bypass_tun2socks_diagnostic"
+
+    static let defaultMode: Tun2SocksStartupMode = .stagedAfterConnect
+
+    static func resolve(rawValue: String?) -> Tun2SocksStartupMode {
+        guard let rawValue,
+              let mode = Tun2SocksStartupMode(rawValue: rawValue) else {
+            return defaultMode
+        }
+        return mode
+    }
+}
+
+enum TunnelStartupPlanner {
+    static func shouldLaunchTun2Socks(mode: Tun2SocksStartupMode) -> Bool {
+        mode != .bypassTun2SocksDiagnostic
+    }
+
+    static func phaseOrder(for mode: Tun2SocksStartupMode) -> [String] {
+        var phases = [
+            "network_settings_ready",
+            "proxy_ready",
+            "vpn_completion_called",
+            "post_completion_diagnostics_start",
+            "startup_probe_completed"
+        ]
+        if shouldLaunchTun2Socks(mode: mode) {
+            phases.append("tun2socks_launch_scheduled")
+            phases.append("tun2socks_run_dispatching")
+        }
+        return phases
+    }
 }

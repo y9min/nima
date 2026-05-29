@@ -291,6 +291,7 @@ enum AppDiagnosticsLogger {
         } else {
             try? line.data(using: .utf8)?.write(to: fileURL, options: .atomic)
         }
+        applyLockSafeProtection(to: fileURL)
     }
 
     static func readLog() -> String {
@@ -304,5 +305,13 @@ enum AppDiagnosticsLogger {
         let keepFrom = lines.count / 2
         let trimmed = lines[keepFrom...].joined(separator: "\n")
         try? trimmed.data(using: .utf8)?.write(to: fileURL, options: .atomic)
+        applyLockSafeProtection(to: fileURL)
+    }
+
+    private static func applyLockSafeProtection(to fileURL: URL) {
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: fileURL.path
+        )
     }
 }
