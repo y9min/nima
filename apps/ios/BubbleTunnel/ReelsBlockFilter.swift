@@ -44,6 +44,7 @@ struct FeaturePolicyV1: Codable {
     static let defaultToggles: [String: [String: Bool]] = [
         "instagram": [
             "reels": false,
+            "strict_reels": false,
         ],
         "tiktok": [
             "video_block": false,
@@ -79,6 +80,21 @@ struct FeaturePolicyV1: Codable {
         for (appId, strategy) in Self.defaultStrategies where appStrategies[appId] == nil {
             appStrategies[appId] = strategy
         }
+        normalizeInstagramStrictReels()
+    }
+
+    @discardableResult
+    mutating func normalizeInstagramStrictReels() -> Bool {
+        let legacyWasEnabled = appToggles["instagram"]?["reels"] == true
+        let strictWasEnabled = appToggles["instagram"]?["strict_reels"] == true
+        guard legacyWasEnabled || strictWasEnabled else { return false }
+
+        if appToggles["instagram"] == nil {
+            appToggles["instagram"] = Self.defaultToggles["instagram"] ?? [:]
+        }
+        appToggles["instagram"]?["strict_reels"] = true
+        appToggles["instagram"]?["reels"] = false
+        return legacyWasEnabled || !strictWasEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -114,7 +130,7 @@ struct FeaturePolicyV1: Codable {
     }
 }
 
-final class ReelsBlockFilter: ConnectionFilter {
+final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, InstagramMediaHintReporting {
 
     private let sharedDefaults: UserDefaults?
     private var cachedPolicy: FeaturePolicyV1 = .defaultPolicy()
@@ -124,6 +140,16 @@ final class ReelsBlockFilter: ConnectionFilter {
     private var policyDecisionSuppression: [String: (lastSeen: Date, suppressedHits: Int)] = [:]
     private let policyDecisionSuppressionWindow: TimeInterval = 1.5
     private let policyDecisionSummaryEvery = 250
+    private var instagramMediaHints: [String: InstagramMediaHint] = [:]
+    private var instagramMediaHintsAdded = 0
+    private var instagramMediaHintsExpired = 0
+    private var instagramMediaHintBlocks = 0
+
+    private struct InstagramMediaHint {
+        let expiresAt: Date
+        let addedAt: Date
+        let confidence: Double
+    }
 
     init(sharedDefaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID)) {
         self.sharedDefaults = sharedDefaults
@@ -134,23 +160,27 @@ final class ReelsBlockFilter: ConnectionFilter {
 
     func evaluateConnection(host: String, port: UInt16) -> PolicyDecision {
         reloadPolicyIfNeeded(force: false)
-        return evaluateHostPolicy(host: host, port: port, isStreamEvaluation: false)
+        return evaluateHostPolicy(host: host, port: port, isStreamEvaluation: false, bytesDown: 0, now: Date())
     }
 
     func evaluateUDP(host: String, port: UInt16, payloadBytes: Int) -> PolicyDecision {
         reloadPolicyIfNeeded(force: false)
-        return evaluateHostPolicy(host: host, port: port, isStreamEvaluation: false)
+        return evaluateHostPolicy(host: host, port: port, isStreamEvaluation: false, bytesDown: payloadBytes, now: Date())
     }
 
     func evaluateStream(host: String, sni: String?, port: UInt16, bytesDown: Int, connectionAge: TimeInterval, parallelConnections: Int) -> PolicyDecision {
+        evaluateStream(host: host, sni: sni, port: port, bytesDown: bytesDown, connectionAge: connectionAge, parallelConnections: parallelConnections, now: Date())
+    }
+
+    func evaluateStream(host: String, sni: String?, port: UInt16, bytesDown: Int, connectionAge: TimeInterval, parallelConnections: Int, now: Date) -> PolicyDecision {
         reloadPolicyIfNeeded(force: false)
         let domain = (sni ?? host).lowercased()
-        return evaluateHostPolicy(host: domain, port: port, isStreamEvaluation: true)
+        return evaluateHostPolicy(host: domain, port: port, isStreamEvaluation: true, bytesDown: bytesDown, now: now)
     }
 
     // MARK: - Deterministic Policy
 
-    private func evaluateHostPolicy(host: String, port: UInt16, isStreamEvaluation: Bool) -> PolicyDecision {
+    private func evaluateHostPolicy(host: String, port: UInt16, isStreamEvaluation: Bool, bytesDown: Int, now: Date) -> PolicyDecision {
         let lowerHost = host.lowercased()
         let instagramToggles = instagramToggleSnapshot()
         let tiktokToggles = tiktokToggleSnapshot()
@@ -177,7 +207,8 @@ final class ReelsBlockFilter: ConnectionFilter {
             )
         }
 
-        if instagramToggles["reels"] != true {
+        if !isInstagramReelsEnabled(instagramToggles) {
+            clearInstagramMediaHints()
             return allowDecision(
                 classification: classification,
                 toggles: instagramToggles,
@@ -210,6 +241,55 @@ final class ReelsBlockFilter: ConnectionFilter {
             return buildDecision(
                 action: .blockNow,
                 classification: classification,
+                reason: "reels_media_block_now",
+                toggles: instagramToggles,
+                host: lowerHost,
+                strategy: instagramStrategy
+            )
+        }
+
+        if instagramToggles["strict_reels"] == true, isAmbiguousInstagramMediaCDNDomain(lowerHost) {
+            let strictMediaClassification = FlowClassification(
+                bucket: .reels,
+                confidence: 0.78,
+                reasons: ["strict_instagram_media_cdn"]
+            )
+            return buildDecision(
+                action: .blockNow,
+                classification: strictMediaClassification,
+                reason: "reels_strict_media_block_now",
+                toggles: instagramToggles,
+                host: lowerHost,
+                strategy: instagramStrategy
+            )
+        }
+
+        if isStreamEvaluation, let hint = instagramMediaHint(for: lowerHost, port: port, now: now) {
+            instagramMediaHintBlocks += 1
+            let hintClassification = FlowClassification(
+                bucket: .reels,
+                confidence: hint.confidence,
+                reasons: ["instagram_media_hint"]
+            )
+            return buildDecision(
+                action: .blockNow,
+                classification: hintClassification,
+                reason: "reels_media_hint_block_now",
+                toggles: instagramToggles,
+                host: lowerHost,
+                strategy: instagramStrategy
+            )
+        }
+
+        if isLargeAmbiguousInstagramMediaStream(lowerHost, isStreamEvaluation: isStreamEvaluation, bytesDown: bytesDown) {
+            let largeMediaClassification = FlowClassification(
+                bucket: .reels,
+                confidence: 0.62,
+                reasons: ["ambiguous_instagram_media_cdn_large_stream"]
+            )
+            return buildDecision(
+                action: .blockNow,
+                classification: largeMediaClassification,
                 reason: "reels_media_block_now",
                 toggles: instagramToggles,
                 host: lowerHost,
@@ -257,6 +337,80 @@ final class ReelsBlockFilter: ConnectionFilter {
         }
 
         return allowDecision(classification: classification, toggles: toggles, reason: "unknown_tiktok_default_allow", strategy: strategy, host: host)
+    }
+
+    // MARK: - Instagram Media Hints
+
+    func recordBlockedStream(host: String, sni: String?, port: UInt16, decision: PolicyDecision, bytesDown: Int, now: Date = Date()) {
+        pruneInstagramMediaHints(now: now)
+        guard isInstagramReelsEnabled(instagramToggleSnapshot()) else { return }
+        guard decision.reason == "reels_media_block_now" else { return }
+        guard decision.classification.bucket == .reels,
+              decision.trafficClass == .instagram,
+              decision.classification.reasons.contains("ambiguous_instagram_media_cdn_large_stream") else {
+            return
+        }
+        guard bytesDown > BubbleConstants.instagramAmbiguousMediaStreamBlockThreshold else { return }
+        guard let sniHost = sni?.lowercased(), isAmbiguousInstagramMediaCDNDomain(sniHost) else { return }
+
+        let key = instagramMediaHintKey(host: sniHost, port: port)
+        if let existing = instagramMediaHints[key], now < existing.expiresAt {
+            return
+        }
+
+        instagramMediaHints[key] = InstagramMediaHint(
+            expiresAt: now.addingTimeInterval(BubbleConstants.instagramMediaHintTTLSeconds),
+            addedAt: now,
+            confidence: 0.70
+        )
+        instagramMediaHintsAdded += 1
+        TunnelLogger.shared.log(
+            "IG_MEDIA_HINT added host=\(sniHost) port=\(port) ttl_s=\(Int(BubbleConstants.instagramMediaHintTTLSeconds)) source=large_stream"
+        )
+        pruneInstagramMediaHintsToLimit()
+    }
+
+    func instagramMediaHintCounterSnapshot(now: Date = Date()) -> InstagramMediaHintCounterSnapshot {
+        pruneInstagramMediaHints(now: now)
+        return InstagramMediaHintCounterSnapshot(
+            added: instagramMediaHintsAdded,
+            expired: instagramMediaHintsExpired,
+            active: instagramMediaHints.count,
+            blocks: instagramMediaHintBlocks
+        )
+    }
+
+    private func instagramMediaHint(for host: String, port: UInt16, now: Date) -> InstagramMediaHint? {
+        pruneInstagramMediaHints(now: now)
+        guard isAmbiguousInstagramMediaCDNDomain(host) else { return nil }
+        return instagramMediaHints[instagramMediaHintKey(host: host, port: port)]
+    }
+
+    private func instagramMediaHintKey(host: String, port: UInt16) -> String {
+        "\(host.lowercased()):\(port)"
+    }
+
+    private func pruneInstagramMediaHints(now: Date) {
+        let expiredKeys = instagramMediaHints.compactMap { key, hint in
+            now >= hint.expiresAt ? key : nil
+        }
+        guard !expiredKeys.isEmpty else { return }
+        for key in expiredKeys {
+            instagramMediaHints.removeValue(forKey: key)
+        }
+        instagramMediaHintsExpired += expiredKeys.count
+    }
+
+    private func pruneInstagramMediaHintsToLimit() {
+        guard instagramMediaHints.count > BubbleConstants.maxInstagramMediaHints else { return }
+        let overflow = instagramMediaHints.count - BubbleConstants.maxInstagramMediaHints
+        for key in instagramMediaHints.sorted(by: { $0.value.addedAt < $1.value.addedAt }).prefix(overflow).map(\.key) {
+            instagramMediaHints.removeValue(forKey: key)
+        }
+    }
+
+    private func clearInstagramMediaHints() {
+        instagramMediaHints.removeAll()
     }
 
     private func allowDecision(
@@ -412,6 +566,10 @@ final class ReelsBlockFilter: ConnectionFilter {
         return toggles
     }
 
+    private func isInstagramReelsEnabled(_ toggles: [String: Bool]) -> Bool {
+        toggles["strict_reels"] == true || toggles["reels"] == true
+    }
+
     private func tiktokToggleSnapshot() -> [String: Bool] {
         var toggles = FeaturePolicyV1.defaultToggles["tiktok"] ?? [:]
         for (key, value) in cachedPolicy.appToggles["tiktok"] ?? [:] {
@@ -448,6 +606,17 @@ final class ReelsBlockFilter: ConnectionFilter {
             || host.contains("cdninstagram.com")
             || host.contains("fbcdn.net")
             || host.contains("static.xx.fbcdn.net")
+    }
+
+    private func isLargeAmbiguousInstagramMediaStream(_ host: String, isStreamEvaluation: Bool, bytesDown: Int) -> Bool {
+        guard isStreamEvaluation else { return false }
+        guard isAmbiguousInstagramMediaCDNDomain(host) else { return false }
+        return bytesDown > BubbleConstants.instagramAmbiguousMediaStreamBlockThreshold
+    }
+
+    private func isAmbiguousInstagramMediaCDNDomain(_ host: String) -> Bool {
+        host.hasPrefix("scontent-") &&
+            host.contains(".cdninstagram.com")
     }
 
     private func isControlPlaneDomain(_ host: String) -> Bool {
@@ -561,9 +730,15 @@ final class ReelsBlockFilter: ConnectionFilter {
 
         let toggles = instagramToggleSnapshot()
         let tiktokToggles = tiktokToggleSnapshot()
+        if isInstagramReelsEnabled(toggles) {
+            pruneInstagramMediaHints(now: now)
+        } else {
+            clearInstagramMediaHints()
+        }
         TunnelLogger.shared.log(
             "POLICY SNAPSHOT: instagram toggles " +
             "reels=\(toggles["reels"] == true) " +
+            "strict_reels=\(toggles["strict_reels"] == true) " +
             "tiktok.video_block=\(tiktokToggles["video_block"] == true) " +
             "revision=\(cachedPolicy.revision) " +
             "writer=\(cachedPolicy.updatedBy) " +

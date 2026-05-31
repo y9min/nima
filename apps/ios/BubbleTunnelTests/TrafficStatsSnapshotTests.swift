@@ -89,6 +89,13 @@ final class TrafficStatsSnapshotTests: XCTestCase {
           "tiktokDNSHintsExpired": 1,
           "tiktokDNSHintsActive": 4,
           "tiktokUDPBlocksFromDNSHints": 7,
+          "tiktokIPHintsAdded": 6,
+          "tiktokIPHintsExpired": 2,
+          "tiktokIPHintsActive": 4,
+          "tiktokIPHintBlocks": 8,
+          "instagramMediaHintsAdded": 3,
+          "instagramMediaHintsExpired": 1,
+          "instagramMediaHintBlocks": 9,
           "tcpSNIBlockSuppressed": 320,
           "tcpSNIBlockTokenDrops": 40,
           "protectedBlockSuppressionKeys": 12,
@@ -174,6 +181,13 @@ final class TrafficStatsSnapshotTests: XCTestCase {
         XCTAssertEqual(decoded.tiktokDNSHintsExpired, 1)
         XCTAssertEqual(decoded.tiktokDNSHintsActive, 4)
         XCTAssertEqual(decoded.tiktokUDPBlocksFromDNSHints, 7)
+        XCTAssertEqual(decoded.tiktokIPHintsAdded, 6)
+        XCTAssertEqual(decoded.tiktokIPHintsExpired, 2)
+        XCTAssertEqual(decoded.tiktokIPHintsActive, 4)
+        XCTAssertEqual(decoded.tiktokIPHintBlocks, 8)
+        XCTAssertEqual(decoded.instagramMediaHintsAdded, 3)
+        XCTAssertEqual(decoded.instagramMediaHintsExpired, 1)
+        XCTAssertEqual(decoded.instagramMediaHintBlocks, 9)
         XCTAssertEqual(decoded.tcpSNIBlockSuppressed, 320)
         XCTAssertEqual(decoded.tcpSNIBlockTokenDrops, 40)
         XCTAssertEqual(decoded.protectedBlockSuppressionKeys, 12)
@@ -268,6 +282,13 @@ final class TrafficStatsSnapshotTests: XCTestCase {
         XCTAssertEqual(decoded.tiktokDNSHintsExpired, 0)
         XCTAssertEqual(decoded.tiktokDNSHintsActive, 0)
         XCTAssertEqual(decoded.tiktokUDPBlocksFromDNSHints, 0)
+        XCTAssertEqual(decoded.tiktokIPHintsAdded, 0)
+        XCTAssertEqual(decoded.tiktokIPHintsExpired, 0)
+        XCTAssertEqual(decoded.tiktokIPHintsActive, 0)
+        XCTAssertEqual(decoded.tiktokIPHintBlocks, 0)
+        XCTAssertEqual(decoded.instagramMediaHintsAdded, 0)
+        XCTAssertEqual(decoded.instagramMediaHintsExpired, 0)
+        XCTAssertEqual(decoded.instagramMediaHintBlocks, 0)
         XCTAssertEqual(decoded.tcpSNIBlockSuppressed, 0)
         XCTAssertEqual(decoded.tcpSNIBlockTokenDrops, 0)
         XCTAssertEqual(decoded.protectedBlockSuppressionKeys, 0)

@@ -162,12 +162,23 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertEqual(controlDecision.reason, "reels_toggle_off")
     }
 
-    func testReelsOnUnknownMetaCDNAllowsByDefault() {
+    func testStrictReelsBlocksAmbiguousInstagramCDNAndAllowsBroadMetaCDN() {
         var policy = FeaturePolicyV1.defaultPolicy()
-        policy.set(appId: "instagram", optionId: "reels", isEnabled: true)
+        policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
         let filter = makeFilter(policy: policy)
 
-        for host in ["scontent-lhr8-1.cdninstagram.com", "static.xx.fbcdn.net", "unknown.cdninstagram.com"] {
+        let ambiguous = filter.evaluateStream(
+            host: "scontent-lhr8-1.cdninstagram.com",
+            sni: "scontent-lhr8-1.cdninstagram.com",
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 1
+        )
+        XCTAssertEqual(ambiguous.action, .blockNow)
+        XCTAssertEqual(ambiguous.reason, "reels_strict_media_block_now")
+
+        for host in ["static.xx.fbcdn.net", "unknown.cdninstagram.com"] {
             let decision = filter.evaluateStream(
                 host: host,
                 sni: host,
@@ -180,6 +191,168 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
             XCTAssertEqual(decision.action, .allow, host)
             XCTAssertEqual(decision.reason, "unknown_meta_default_allow", host)
         }
+    }
+
+    func testLegacyReelsToggleMigratesToStrictReelsBehavior() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+        let host = "scontent-lhr8-1.cdninstagram.com"
+
+        let decision = filter.evaluateStream(
+            host: host,
+            sni: host,
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 1
+        )
+
+        XCTAssertEqual(decision.action, .blockNow)
+        XCTAssertEqual(decision.reason, "reels_strict_media_block_now")
+        XCTAssertEqual(decision.toggleSnapshot["strict_reels"], true)
+        XCTAssertEqual(decision.toggleSnapshot["reels"], false)
+    }
+
+    func testStrictReelsBlocksAmbiguousInstagramCDNAtConnectionStart() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+        let host = "scontent-lhr8-1.cdninstagram.com"
+
+        let decision = filter.evaluateStream(
+            host: host,
+            sni: host,
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 0
+        )
+
+        XCTAssertEqual(decision.action, .blockNow)
+        XCTAssertEqual(decision.reason, "reels_strict_media_block_now")
+        XCTAssertEqual(decision.classification.bucket, .reels)
+        XCTAssertEqual(decision.trafficClass, .instagram)
+    }
+
+    func testStrictReelsStillAllowsControlAndAvoidsDirectIPAndBroadFBCDN() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        let control = filter.evaluateStream(
+            host: "gateway.instagram.com",
+            sni: "gateway.instagram.com",
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 0
+        )
+        let directIP = filter.evaluateStream(
+            host: "157.240.214.63",
+            sni: nil,
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 0
+        )
+        let fbcdn = filter.evaluateStream(
+            host: "scontent-lhr8-1.fbcdn.net",
+            sni: "scontent-lhr8-1.fbcdn.net",
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 0
+        )
+
+        XCTAssertEqual(control.action, .allow)
+        XCTAssertEqual(control.reason, "instagram_control_allow")
+        XCTAssertEqual(directIP.action, .allow)
+        XCTAssertEqual(directIP.reason, "non_instagram_traffic")
+        XCTAssertEqual(fbcdn.action, .allow)
+        XCTAssertEqual(fbcdn.reason, "unknown_meta_default_allow")
+    }
+
+    func testReelsOffDisablesAmbiguousMediaBlocksAndHints() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "reels", isEnabled: false)
+        let filter = makeFilter(policy: policy)
+        let now = Date(timeIntervalSince1970: 30_000)
+        let host = "scontent-lhr8-1.cdninstagram.com"
+        let largeDecision = filter.evaluateStream(
+            host: host,
+            sni: host,
+            port: 443,
+            bytesDown: BubbleConstants.instagramAmbiguousMediaStreamBlockThreshold + 1,
+            connectionAge: 1.0,
+            parallelConnections: 2,
+            now: now
+        )
+        let blockedDecision = PolicyDecision(
+            action: .blockNow,
+            blockAfterBytes: nil,
+            classification: FlowClassification(bucket: .reels, confidence: 0.62, reasons: ["ambiguous_instagram_media_cdn_large_stream"]),
+            reason: "reels_media_block_now",
+            toggleSnapshot: ["reels": true],
+            policyVersion: 1,
+            intendedAction: nil,
+            appStrategy: AppTransportStrategy.legacyReels.rawValue,
+            trafficClass: .instagram
+        )
+
+        filter.recordBlockedStream(
+            host: "157.240.214.63",
+            sni: host,
+            port: 443,
+            decision: blockedDecision,
+            bytesDown: BubbleConstants.instagramAmbiguousMediaStreamBlockThreshold + 1,
+            now: now
+        )
+        let hintedDecision = filter.evaluateStream(
+            host: "157.240.214.63",
+            sni: host,
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 1,
+            now: now.addingTimeInterval(1)
+        )
+        let counters = filter.instagramMediaHintCounterSnapshot(now: now.addingTimeInterval(1))
+
+        XCTAssertEqual(largeDecision.action, .allow)
+        XCTAssertEqual(largeDecision.reason, "reels_toggle_off")
+        XCTAssertEqual(hintedDecision.action, .allow)
+        XCTAssertEqual(hintedDecision.reason, "reels_toggle_off")
+        XCTAssertEqual(counters.added, 0)
+        XCTAssertEqual(counters.blocks, 0)
+    }
+
+    func testLargeDirectIPAndBroadFBCDNDoNotBlockFromSizeAlone() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        let directIPDecision = filter.evaluateStream(
+            host: "157.240.214.63",
+            sni: nil,
+            port: 443,
+            bytesDown: BubbleConstants.instagramAmbiguousMediaStreamBlockThreshold + 1,
+            connectionAge: 1.0,
+            parallelConnections: 2
+        )
+        let fbcdnDecision = filter.evaluateStream(
+            host: "scontent-lhr8-1.fbcdn.net",
+            sni: "scontent-lhr8-1.fbcdn.net",
+            port: 443,
+            bytesDown: BubbleConstants.instagramAmbiguousMediaStreamBlockThreshold + 1,
+            connectionAge: 1.0,
+            parallelConnections: 2
+        )
+
+        XCTAssertEqual(directIPDecision.action, .allow)
+        XCTAssertEqual(directIPDecision.reason, "non_instagram_traffic")
+        XCTAssertEqual(fbcdnDecision.action, .allow)
+        XCTAssertEqual(fbcdnDecision.reason, "unknown_meta_default_allow")
     }
 
     func testTikTokVideoBlockOnMediaHostBlocksNow() {
@@ -366,7 +539,7 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertTrue(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(video))
 
         var reelsPolicy = FeaturePolicyV1.defaultPolicy()
-        reelsPolicy.set(appId: "instagram", optionId: "reels", isEnabled: true)
+        reelsPolicy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
         let reelsFilter = makeFilter(policy: reelsPolicy)
         let reels = reelsFilter.evaluateStream(
             host: "157.240.22.63",
@@ -377,6 +550,16 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
             parallelConnections: 0
         )
         XCTAssertTrue(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(reels))
+
+        let ambiguousInstagramCDN = reelsFilter.evaluateStream(
+            host: "157.240.22.63",
+            sni: "scontent-lhr8-1.cdninstagram.com",
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 0
+        )
+        XCTAssertTrue(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(ambiguousInstagramCDN))
 
         let control = filter.evaluateStream(
             host: "96.17.179.153",

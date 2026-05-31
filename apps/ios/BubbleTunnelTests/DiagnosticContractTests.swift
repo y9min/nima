@@ -80,6 +80,13 @@ final class DiagnosticContractTests: XCTestCase {
           "udpQUICRejects": 3,
           "dnsOneShotCloses": 6,
           "dnsTrailingFramesDiscarded": 2,
+          "tiktokIPHintsAdded": 4,
+          "tiktokIPHintsExpired": 1,
+          "tiktokIPHintsActive": 3,
+          "tiktokIPHintBlocks": 7,
+          "instagramMediaHintsAdded": 2,
+          "instagramMediaHintsExpired": 1,
+          "instagramMediaHintBlocks": 5,
           "tcpSNIBlockSuppressed": 3,
           "tcpSNIBlockTokenDrops": 1,
           "protectedBlockSuppressionKeys": 2,
@@ -129,6 +136,13 @@ final class DiagnosticContractTests: XCTestCase {
         XCTAssertEqual(snapshot.udpQUICRejects, 3)
         XCTAssertEqual(snapshot.dnsOneShotCloses, 6)
         XCTAssertEqual(snapshot.dnsTrailingFramesDiscarded, 2)
+        XCTAssertEqual(snapshot.tiktokIPHintsAdded, 4)
+        XCTAssertEqual(snapshot.tiktokIPHintsExpired, 1)
+        XCTAssertEqual(snapshot.tiktokIPHintsActive, 3)
+        XCTAssertEqual(snapshot.tiktokIPHintBlocks, 7)
+        XCTAssertEqual(snapshot.instagramMediaHintsAdded, 2)
+        XCTAssertEqual(snapshot.instagramMediaHintsExpired, 1)
+        XCTAssertEqual(snapshot.instagramMediaHintBlocks, 5)
         XCTAssertEqual(snapshot.tcpSNIBlockSuppressed, 3)
         XCTAssertEqual(snapshot.tcpSNIBlockTokenDrops, 1)
         XCTAssertEqual(snapshot.protectedBlockSuppressionKeys, 2)

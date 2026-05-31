@@ -165,6 +165,36 @@ protocol ConnectionFilter {
     func evaluateStream(host: String, sni: String?, port: UInt16, bytesDown: Int, connectionAge: TimeInterval, parallelConnections: Int) -> PolicyDecision
 }
 
+struct InstagramMediaHintCounterSnapshot {
+    let added: Int
+    let expired: Int
+    let active: Int
+    let blocks: Int
+
+    static let zero = InstagramMediaHintCounterSnapshot(added: 0, expired: 0, active: 0, blocks: 0)
+}
+
+struct TikTokIPHintCounterSnapshot {
+    let added: Int
+    let expired: Int
+    let active: Int
+    let blocks: Int
+
+    static let zero = TikTokIPHintCounterSnapshot(added: 0, expired: 0, active: 0, blocks: 0)
+}
+
+protocol StreamObservationRecorder {
+    func recordBlockedStream(host: String, sni: String?, port: UInt16, decision: PolicyDecision, bytesDown: Int, now: Date)
+}
+
+protocol InstagramMediaHintReporting {
+    func instagramMediaHintCounterSnapshot(now: Date) -> InstagramMediaHintCounterSnapshot
+}
+
+protocol TikTokIPHintReporting {
+    func tiktokIPHintCounterSnapshot(now: Date) -> TikTokIPHintCounterSnapshot
+}
+
 enum PolicyAction: String, Codable {
     case allow
     case blockNow = "block_now"
@@ -255,7 +285,7 @@ private struct ParsedAddress {
 
 // MARK: - SOCKS5 Proxy Server
 
-final class SOCKSProxyServer {
+final class SOCKSProxyServer: TikTokIPHintReporting {
     enum UDPForwardingMode: String {
         case selectiveSafeMode = "selective_safe_mode"
         case nativeForwarding = "native_forwarding"
@@ -494,10 +524,16 @@ final class SOCKSProxyServer {
     private var tiktokDNSHintsAdded = 0
     private var tiktokDNSHintsExpired = 0
     private var tiktokUDPBlocksFromDNSHints = 0
+    private var tiktokIPHintsAdded = 0
+    private var tiktokIPHintsExpired = 0
+    private var tiktokIPHintBlocks = 0
     private var instagramDNSHintsAdded = 0
     private var instagramDNSHintsExpired = 0
     private var instagramUDPBlocksFromDNSHints = 0
     private var dnsHintsByIP: [String: DNSIPHint] = [:]
+    private var tiktokIPHintsByKey: [String: TikTokIPHint] = [:]
+    private var recentTikTokVideoBlockEvents: [Date] = []
+    private var recentUnknownTikTokDirectIPAttemptsByKey: [String: [Date]] = [:]
     private var knownBadUDPCache: [String: KnownBadUDPCacheEntry] = [:]
     private var tcpSNIBlockSuppressed = 0
     private var tcpSNIBlockTokenDrops = 0
@@ -785,9 +821,12 @@ final class SOCKSProxyServer {
                 let s = self.classState(for: trafficClass)
                 return "\(trafficClass.rawValue)[active=\(s.activeUDP),queued=\(s.queuedUDP),rejects=\(s.forcedRejects),tokenDrops=\(s.tokenDrops)]"
             }.joined(separator: ",")
+            let statsNow = Date()
+            let tiktokIPHintCounters = self.tiktokIPHintCounterSnapshot(now: statsNow)
+            let instagramMediaHintCounters = self.instagramMediaHintCounters(now: statsNow)
             self.assertQueueInvariants()
             let healthVerdict = self.healthVerdict()
-            self.log.log("SOCKS5 STATS: \(total) total, \(self.activeConnectionCount) active, \(self.activeRelays.count) relays, \(self.statsAllowed) allowed, \(self.statsBlocked) blocked, \(self.statsUDP) UDP, \(self.statsErrors) errors, udpActive=\(self.activeUDPStreams), active_udp_high_water_mark=\(self.udpActivePeak), udpOpened=\(self.totalUDPStreamsOpened), udpClosed=\(self.totalUDPStreamsClosed), queueDepth=\(self.pendingUDPControlQueue.count), queueOldestMs=\(queueOldestAgeMs), queueP95Ms=\(queueP95AgeMs), modeDetected=\(self.udpDecodeModeDetected), resyncAttempts=\(self.udpDecodeResyncAttempted), resyncSuccess=\(self.udpDecodeResyncSuccess), badLenHardFail=\(self.udpDecodeBadLengthHardFail), badLenRate=\(badLenRateText), recoveredContinues=\(self.udpDecodeRecoveredStreamContinues), closeAfterThreshold=\(self.udpDecodeCloseAfterFailureThreshold), decoderSoftDiscards=\(self.decoderSoftDiscards), decoderDensityCloses=\(self.decoderErrorDensityCloses), dnsInflight=\(self.dnsInflight), dnsReservedSlots=\(self.dnsReservedSlotsInUse()), dnsDedupHits=\(self.dnsDedupHits), dnsOneShotCloses=\(self.dnsOneShotCloses), dnsTimeoutCloses=\(self.dnsTimeoutCloses), dnsMalformedCloses=\(self.dnsMalformedCloses), dnsTrailingFramesDiscarded=\(self.dnsTrailingFramesDiscarded), dnsRecoveredOneShotCloses=\(self.dnsRecoveredOneShotCloses), dnsRecoveredFramesDiscarded=\(self.dnsRecoveredFramesDiscarded), dnsFastLane=[requests:\(self.dnsFastLaneRequests),responses:\(self.dnsFastLaneResponses),failures:\(self.dnsFastLaneFailures),parseFailed:\(self.dnsFastLaneParseFailed),close:\(self.dnsFastLaneClose)], dnsStartupDrain=[active:\(self.isDNSStartupDrainActive()),closes:\(self.dnsStartupDrainCloses),frames:\(self.dnsStartupDrainFramesProcessed)], udpClosePhase=\(self.lastUDPClosePhase.rawValue), udpDeferredCancels=\(self.udpDeferredCancels), udpGracefulDNSCloses=\(self.udpGracefulDNSCloses), udpCancelWatchdogFires=\(self.udpCancelWatchdogFires), udpStartupSerialModeActive=\(self.isUDPStartupSerialModeActive()), udpCrashGuardActive=\(self.isUDPCrashGuardActive()), udpCrashGuardReason=\(self.udpCrashGuardReason.isEmpty ? "none" : self.udpCrashGuardReason), startupGraceUDP=[accepted:\(self.startupGraceUDPAccepted),queued:\(self.startupGraceUDPQueued),rejected:\(self.startupGraceUDPRejected)], resolverSwitches=\(self.resolverSwitchCount), udpTimeoutRate=\(timeoutRateText), ttHardening=\(self.tiktokHardeningActions), udpReclaims=\(self.udpReclaimsByReason), hardPressureUDPReclaims=\(self.hardPressureUDPReclaims), tiktokDNSHints=[added:\(self.tiktokDNSHintsAdded),expired:\(self.tiktokDNSHintsExpired),active:\(self.activeDNSHintCount(bucket: .tiktokVideo)),udpBlocks:\(self.tiktokUDPBlocksFromDNSHints)], instagramDNSHints=[added:\(self.instagramDNSHintsAdded),expired:\(self.instagramDNSHintsExpired),active:\(self.activeDNSHintCount(bucket: .reels)),udpBlocks:\(self.instagramUDPBlocksFromDNSHints)], reclaimBudgetExhausted=\(self.maintenanceReclaimBudgetExhaustedCount), stormModeSeconds=\(Int(self.stormModeActiveSeconds())), degradedState=\(self.degradedState.rawValue), degradedTransitions=\(self.degradedTransitions), trippedTransitions=\(self.trippedTransitions), tokenBucketDrops=\(self.tokenBucketDrops), streamBlockSuppressed=\(self.streamBlockSuppressed), streamBlockTokenDrops=\(self.streamBlockTokenDrops), protectedFailOpen=[active:\(Date() < self.protectedBlockFailOpenUntil),activations:\(self.protectedBlockFailOpenActivations),allows:\(self.protectedBlockFailOpenAllows)], udpForcedRejects=\(self.udpForcedRejects), udp_disabled_fast_rejects=\(self.udpDisabledFastRejects), udp_disabled_fast_rejects_suppressed=\(self.udpDisabledFastRejectsSuppressed), udp_non_dns_rejects=\(self.udpNonDNSRejects), udp_quic_rejects=\(self.udpQUICRejects), safeMode=[dnsTCP:\(self.safeModeDNSOverTCP),dnsFail:\(self.safeModeDNSFailures),targetBlocks:\(self.safeModeTargetedUDPBlocks),unknownAllows:\(self.safeModeUnknownUDPAllowed),pressureRejects:\(self.safeModeUDPRejectedByPressure),knownBadCacheHits:\(self.safeModeKnownBadUDPCacheHits)], udp_forwarding_mode=\(self.udpForwardingMode()), provider_last_phase=\(self.providerLastPhase()), admissionRejects=\(self.admissionRejectsByReason), graceActive=\(self.hasAnyProtectionGrace()), flagMode=\(self.stabilityFirstModeEnabled ? "stability_first_v2" : "legacy"), udpSocketReuseHitRate=\(String(format: "%.2f", self.udpSocketReuseHitRate())), tcpEarlySNI=[block:\(self.tcpEarlySNIBlocks),allow:\(self.tcpEarlySNIAllows),fallback:\(self.tcpEarlySNIFallbacks),suppressed:\(self.tcpSNIBlockSuppressed),tokenDrops:\(self.tcpSNIBlockTokenDrops)], resolverTimeoutStreaks=[8.8.8.8:\(resolver88Streak),1.1.1.1:\(resolver11Streak)], snapshots=\(self.snapshotHistory.count), mem=\(memMB)MB")
+            self.log.log("SOCKS5 STATS: \(total) total, \(self.activeConnectionCount) active, \(self.activeRelays.count) relays, \(self.statsAllowed) allowed, \(self.statsBlocked) blocked, \(self.statsUDP) UDP, \(self.statsErrors) errors, udpActive=\(self.activeUDPStreams), active_udp_high_water_mark=\(self.udpActivePeak), udpOpened=\(self.totalUDPStreamsOpened), udpClosed=\(self.totalUDPStreamsClosed), queueDepth=\(self.pendingUDPControlQueue.count), queueOldestMs=\(queueOldestAgeMs), queueP95Ms=\(queueP95AgeMs), modeDetected=\(self.udpDecodeModeDetected), resyncAttempts=\(self.udpDecodeResyncAttempted), resyncSuccess=\(self.udpDecodeResyncSuccess), badLenHardFail=\(self.udpDecodeBadLengthHardFail), badLenRate=\(badLenRateText), recoveredContinues=\(self.udpDecodeRecoveredStreamContinues), closeAfterThreshold=\(self.udpDecodeCloseAfterFailureThreshold), decoderSoftDiscards=\(self.decoderSoftDiscards), decoderDensityCloses=\(self.decoderErrorDensityCloses), dnsInflight=\(self.dnsInflight), dnsReservedSlots=\(self.dnsReservedSlotsInUse()), dnsDedupHits=\(self.dnsDedupHits), dnsOneShotCloses=\(self.dnsOneShotCloses), dnsTimeoutCloses=\(self.dnsTimeoutCloses), dnsMalformedCloses=\(self.dnsMalformedCloses), dnsTrailingFramesDiscarded=\(self.dnsTrailingFramesDiscarded), dnsRecoveredOneShotCloses=\(self.dnsRecoveredOneShotCloses), dnsRecoveredFramesDiscarded=\(self.dnsRecoveredFramesDiscarded), dnsFastLane=[requests:\(self.dnsFastLaneRequests),responses:\(self.dnsFastLaneResponses),failures:\(self.dnsFastLaneFailures),parseFailed:\(self.dnsFastLaneParseFailed),close:\(self.dnsFastLaneClose)], dnsStartupDrain=[active:\(self.isDNSStartupDrainActive()),closes:\(self.dnsStartupDrainCloses),frames:\(self.dnsStartupDrainFramesProcessed)], udpClosePhase=\(self.lastUDPClosePhase.rawValue), udpDeferredCancels=\(self.udpDeferredCancels), udpGracefulDNSCloses=\(self.udpGracefulDNSCloses), udpCancelWatchdogFires=\(self.udpCancelWatchdogFires), udpStartupSerialModeActive=\(self.isUDPStartupSerialModeActive()), udpCrashGuardActive=\(self.isUDPCrashGuardActive()), udpCrashGuardReason=\(self.udpCrashGuardReason.isEmpty ? "none" : self.udpCrashGuardReason), startupGraceUDP=[accepted:\(self.startupGraceUDPAccepted),queued:\(self.startupGraceUDPQueued),rejected:\(self.startupGraceUDPRejected)], resolverSwitches=\(self.resolverSwitchCount), udpTimeoutRate=\(timeoutRateText), ttHardening=\(self.tiktokHardeningActions), udpReclaims=\(self.udpReclaimsByReason), hardPressureUDPReclaims=\(self.hardPressureUDPReclaims), tiktokDNSHints=[added:\(self.tiktokDNSHintsAdded),expired:\(self.tiktokDNSHintsExpired),active:\(self.activeDNSHintCount(bucket: .tiktokVideo)),udpBlocks:\(self.tiktokUDPBlocksFromDNSHints)], tiktokIPHints=[added:\(tiktokIPHintCounters.added),expired:\(tiktokIPHintCounters.expired),active:\(tiktokIPHintCounters.active),blocks:\(tiktokIPHintCounters.blocks)], instagramDNSHints=[added:\(self.instagramDNSHintsAdded),expired:\(self.instagramDNSHintsExpired),active:\(self.activeDNSHintCount(bucket: .reels)),udpBlocks:\(self.instagramUDPBlocksFromDNSHints)], instagramMediaHints=[added:\(instagramMediaHintCounters.added),expired:\(instagramMediaHintCounters.expired),active:\(instagramMediaHintCounters.active),blocks:\(instagramMediaHintCounters.blocks)], reclaimBudgetExhausted=\(self.maintenanceReclaimBudgetExhaustedCount), stormModeSeconds=\(Int(self.stormModeActiveSeconds())), degradedState=\(self.degradedState.rawValue), degradedTransitions=\(self.degradedTransitions), trippedTransitions=\(self.trippedTransitions), tokenBucketDrops=\(self.tokenBucketDrops), streamBlockSuppressed=\(self.streamBlockSuppressed), streamBlockTokenDrops=\(self.streamBlockTokenDrops), protectedFailOpen=[active:\(Date() < self.protectedBlockFailOpenUntil),activations:\(self.protectedBlockFailOpenActivations),allows:\(self.protectedBlockFailOpenAllows)], udpForcedRejects=\(self.udpForcedRejects), udp_disabled_fast_rejects=\(self.udpDisabledFastRejects), udp_disabled_fast_rejects_suppressed=\(self.udpDisabledFastRejectsSuppressed), udp_non_dns_rejects=\(self.udpNonDNSRejects), udp_quic_rejects=\(self.udpQUICRejects), safeMode=[dnsTCP:\(self.safeModeDNSOverTCP),dnsFail:\(self.safeModeDNSFailures),targetBlocks:\(self.safeModeTargetedUDPBlocks),unknownAllows:\(self.safeModeUnknownUDPAllowed),pressureRejects:\(self.safeModeUDPRejectedByPressure),knownBadCacheHits:\(self.safeModeKnownBadUDPCacheHits)], udp_forwarding_mode=\(self.udpForwardingMode()), provider_last_phase=\(self.providerLastPhase()), admissionRejects=\(self.admissionRejectsByReason), graceActive=\(self.hasAnyProtectionGrace()), flagMode=\(self.stabilityFirstModeEnabled ? "stability_first_v2" : "legacy"), udpSocketReuseHitRate=\(String(format: "%.2f", self.udpSocketReuseHitRate())), tcpEarlySNI=[block:\(self.tcpEarlySNIBlocks),allow:\(self.tcpEarlySNIAllows),fallback:\(self.tcpEarlySNIFallbacks),suppressed:\(self.tcpSNIBlockSuppressed),tokenDrops:\(self.tcpSNIBlockTokenDrops)], resolverTimeoutStreaks=[8.8.8.8:\(resolver88Streak),1.1.1.1:\(resolver11Streak)], snapshots=\(self.snapshotHistory.count), mem=\(memMB)MB")
             self.log.log("PROTECTION STATE: state=\(self.degradedState.rawValue) queue=\(self.pendingUDPControlQueue.count) timeout_rate=\(timeoutRateText) forced_rejects=\(self.udpForcedRejects) token_drops=\(self.tokenBucketDrops) stream_token_drops=\(self.streamBlockTokenDrops) class_stats=[\(classStats)] churn=\(self.requeueChurnCount) invariant_violations=\(self.queueInvariantViolationCount) health_verdict=\(healthVerdict)")
             self.log.log("SUPPRESSION STATS: tcp=\(self.blockedSuppressedTCP) udp=\(self.blockedSuppressedUDP) keys=\(self.blockedSuppression.count) protected_block_suppression_keys=\(self.blockedSuppression.count) tcp_early_sni_block=\(self.tcpEarlySNIBlocks) tcp_early_sni_allow=\(self.tcpEarlySNIAllows) tcp_early_sni_fallback=\(self.tcpEarlySNIFallbacks) tcp_sni_block_suppressed=\(self.tcpSNIBlockSuppressed) tcp_sni_block_token_drops=\(self.tcpSNIBlockTokenDrops)")
             self.pruneSuppressionState(now: Date())
@@ -1010,6 +1049,8 @@ final class SOCKSProxyServer {
             )
         }.sorted { $0.id > $1.id }
 
+        let tiktokIPHintCounters = tiktokIPHintCounterSnapshot()
+        let instagramMediaHintCounters = instagramMediaHintCounters()
         let stats = StatsSnapshot(
             totalConns: connectionCount,
             tcpAllowed: statsAllowed,
@@ -1104,6 +1145,13 @@ final class SOCKSProxyServer {
             tiktokDNSHintsExpired: tiktokDNSHintsExpired,
             tiktokDNSHintsActive: activeDNSHintCount(bucket: .tiktokVideo),
             tiktokUDPBlocksFromDNSHints: tiktokUDPBlocksFromDNSHints,
+            tiktokIPHintsAdded: tiktokIPHintCounters.added,
+            tiktokIPHintsExpired: tiktokIPHintCounters.expired,
+            tiktokIPHintsActive: tiktokIPHintCounters.active,
+            tiktokIPHintBlocks: tiktokIPHintCounters.blocks,
+            instagramMediaHintsAdded: instagramMediaHintCounters.added,
+            instagramMediaHintsExpired: instagramMediaHintCounters.expired,
+            instagramMediaHintBlocks: instagramMediaHintCounters.blocks,
             tcpSNIBlockSuppressed: tcpSNIBlockSuppressed,
             tcpSNIBlockTokenDrops: tcpSNIBlockTokenDrops,
             protectedBlockSuppressionKeys: blockedSuppression.count,
@@ -1488,7 +1536,13 @@ final class SOCKSProxyServer {
     // MARK: - CONNECT (TCP)
 
     private func handleConnect(client: NWConnection, id: Int, host: String, port: UInt16) {
-        let decision = self.filter.evaluateConnection(host: host, port: port)
+        let initialDecision = self.filter.evaluateConnection(host: host, port: port)
+        let decision = self.evaluateTikTokDirectIPDecision(
+            host: host,
+            port: port,
+            initialDecision: initialDecision,
+            now: Date()
+        ) ?? initialDecision
 
         switch decision.action {
         case .blockNow:
@@ -1621,6 +1675,7 @@ final class SOCKSProxyServer {
                         connectionAge: 0,
                         parallelConnections: self.activeRelays.count
                     )
+                    self.recordTikTokIPHintFromSNI(ip: host, port: port, sni: sni, decision: sniDecision, now: Date())
                     if Self.shouldEarlyBlockFromSNIDecision(sniDecision) {
                         self.finishTCPSNIGateBlock(
                             client: client,
@@ -4435,6 +4490,14 @@ final class SOCKSProxyServer {
         let addedAt: Date
     }
 
+    private struct TikTokIPHint {
+        let domain: String?
+        let source: String
+        let expiresAt: Date
+        let addedAt: Date
+        let confidence: Double
+    }
+
     private struct KnownBadUDPCacheEntry {
         let decision: PolicyDecision
         let bucket: ContentBucket
@@ -4647,10 +4710,13 @@ final class SOCKSProxyServer {
 
     static func isKnownBlockedVideoDecision(_ decision: PolicyDecision) -> Bool {
         guard decision.action == .blockNow else { return false }
-        if decision.reason == "tiktok_video_block_now" {
+        if decision.reason == "tiktok_video_block_now" ||
+            decision.reason == "tiktok_ip_hint_block_now" {
             return decision.classification.bucket == .tiktokVideo && decision.trafficClass == .tiktok
         }
-        if decision.reason == "reels_media_block_now" {
+        if decision.reason == "reels_media_block_now" ||
+            decision.reason == "reels_media_hint_block_now" ||
+            decision.reason == "reels_strict_media_block_now" {
             return decision.classification.bucket == .reels && decision.trafficClass == .instagram
         }
         return false
@@ -4745,6 +4811,15 @@ final class SOCKSProxyServer {
             if matched.bucket == .tiktokVideo {
                 tiktokDNSHintsAdded += 1
                 recordClassHint(host: key, trafficClass: .tiktok, confidence: 0.90, now: now)
+                recordTikTokIPHint(
+                    ip: key,
+                    port: 443,
+                    domain: matched.domain,
+                    source: "dns",
+                    ttl: ttl,
+                    confidence: 0.90,
+                    now: now
+                )
                 log.log("UDP_DNS_HINT host=\(matched.domain) ip=\(key) bucket=tiktok_video ttl_s=\(Int(ttl))")
             } else if matched.bucket == .reels {
                 instagramDNSHintsAdded += 1
@@ -4815,6 +4890,233 @@ final class SOCKSProxyServer {
         return dnsHintsByIP.values.filter { $0.bucket == bucket && now < $0.expiresAt }.count
     }
 
+    private func instagramMediaHintCounters(now: Date = Date()) -> InstagramMediaHintCounterSnapshot {
+        (filter as? InstagramMediaHintReporting)?.instagramMediaHintCounterSnapshot(now: now) ?? .zero
+    }
+
+    func tiktokIPHintCounterSnapshot(now: Date = Date()) -> TikTokIPHintCounterSnapshot {
+        pruneTikTokIPHints(now: now)
+        return TikTokIPHintCounterSnapshot(
+            added: tiktokIPHintsAdded,
+            expired: tiktokIPHintsExpired,
+            active: tiktokIPHintsByKey.count,
+            blocks: tiktokIPHintBlocks
+        )
+    }
+
+    private func tiktokIPHintKey(ip: String, port: UInt16) -> String {
+        "\(ip.lowercased()):\(port)"
+    }
+
+    private func isIPAddressLiteral(_ host: String) -> Bool {
+        let normalized = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        if normalized.split(separator: ".").count == 4 {
+            return normalized.split(separator: ".").allSatisfy { part in
+                guard let value = Int(part), value >= 0, value <= 255 else { return false }
+                return String(value) == String(part) || (part.count > 1 && part.first == "0")
+            }
+        }
+        guard normalized.contains(":") else { return false }
+        return normalized.unicodeScalars.allSatisfy { scalar in
+            (48...57).contains(Int(scalar.value)) ||
+            (97...102).contains(Int(scalar.value)) ||
+            scalar.value == 58 || scalar.value == 46
+        }
+    }
+
+    private func isDirectTikTokIPHintCandidate(host: String, port: UInt16) -> Bool {
+        port == 443 && isIPAddressLiteral(host)
+    }
+
+    private func recordTikTokIPHint(
+        ip: String,
+        port: UInt16,
+        domain: String?,
+        source: String,
+        ttl: TimeInterval,
+        confidence: Double,
+        now: Date = Date()
+    ) {
+        guard isDirectTikTokIPHintCandidate(host: ip, port: port) else { return }
+        let cappedTTL = min(ttl, source == "retry_burst" ? BubbleConstants.tiktokRetryBurstIPHintTTLSeconds : BubbleConstants.tiktokIPHintTTLSeconds)
+        guard cappedTTL > 0 else { return }
+        let key = tiktokIPHintKey(ip: ip, port: port)
+        let expiresAt = now.addingTimeInterval(cappedTTL)
+        if let existing = tiktokIPHintsByKey[key],
+           now < existing.expiresAt,
+           existing.expiresAt >= expiresAt,
+           existing.source == source,
+           existing.domain == domain?.lowercased() {
+            return
+        }
+
+        tiktokIPHintsByKey[key] = TikTokIPHint(
+            domain: domain?.lowercased(),
+            source: source,
+            expiresAt: expiresAt,
+            addedAt: now,
+            confidence: confidence
+        )
+        tiktokIPHintsAdded += 1
+        log.log(
+            "TT_IP_HINT added ip=\(ip.lowercased()) port=\(port) host=\(domain?.lowercased() ?? "n/a") source=\(source) ttl_s=\(Int(cappedTTL))"
+        )
+        pruneTikTokIPHintsToLimit()
+    }
+
+    private func recordTikTokIPHintFromSNI(ip: String, port: UInt16, sni: String, decision: PolicyDecision, now: Date = Date()) {
+        guard isDirectTikTokIPHintCandidate(host: ip, port: port) else { return }
+        guard decision.reason == "tiktok_video_block_now",
+              decision.classification.bucket == .tiktokVideo,
+              decision.trafficClass == .tiktok else {
+            return
+        }
+        recordTikTokIPHint(
+            ip: ip,
+            port: port,
+            domain: sni,
+            source: "sni",
+            ttl: BubbleConstants.tiktokIPHintTTLSeconds,
+            confidence: 0.95,
+            now: now
+        )
+    }
+
+    private func tiktokIPHint(for ip: String, port: UInt16, now: Date) -> TikTokIPHint? {
+        pruneTikTokIPHints(now: now)
+        guard isDirectTikTokIPHintCandidate(host: ip, port: port) else { return nil }
+        let key = tiktokIPHintKey(ip: ip, port: port)
+        guard let hint = tiktokIPHintsByKey[key] else { return nil }
+        if now >= hint.expiresAt {
+            tiktokIPHintsByKey.removeValue(forKey: key)
+            tiktokIPHintsExpired += 1
+            log.log("TT_IP_HINT expired ip=\(ip.lowercased()) port=\(port) host=\(hint.domain ?? "n/a") source=\(hint.source)")
+            return nil
+        }
+        return hint
+    }
+
+    private func pruneTikTokIPHints(now: Date = Date()) {
+        let expiredKeys = tiktokIPHintsByKey.compactMap { key, hint in
+            now >= hint.expiresAt ? key : nil
+        }
+        guard !expiredKeys.isEmpty else { return }
+        for key in expiredKeys {
+            if let hint = tiktokIPHintsByKey.removeValue(forKey: key) {
+                tiktokIPHintsExpired += 1
+                log.log("TT_IP_HINT expired ip=\(key) host=\(hint.domain ?? "n/a") source=\(hint.source)")
+            }
+        }
+    }
+
+    private func pruneTikTokIPHintsToLimit() {
+        guard tiktokIPHintsByKey.count > BubbleConstants.maxTikTokIPHints else { return }
+        let overflow = tiktokIPHintsByKey.count - BubbleConstants.maxTikTokIPHints
+        for key in tiktokIPHintsByKey.sorted(by: { $0.value.addedAt < $1.value.addedAt }).prefix(overflow).map(\.key) {
+            tiktokIPHintsByKey.removeValue(forKey: key)
+        }
+    }
+
+    private func recordTikTokVideoBlockEventIfNeeded(_ decision: PolicyDecision, now: Date) {
+        guard decision.reason == "tiktok_video_block_now",
+              decision.classification.bucket == .tiktokVideo,
+              decision.trafficClass == .tiktok else {
+            return
+        }
+        recentTikTokVideoBlockEvents = recentTikTokVideoBlockEvents.filter {
+            now.timeIntervalSince($0) <= BubbleConstants.tiktokRetryBurstBlockedHostWindow
+        }
+        recentTikTokVideoBlockEvents.append(now)
+    }
+
+    private func hasTikTokVideoBlockBurst(now: Date) -> Bool {
+        recentTikTokVideoBlockEvents = recentTikTokVideoBlockEvents.filter {
+            now.timeIntervalSince($0) <= BubbleConstants.tiktokRetryBurstBlockedHostWindow
+        }
+        return recentTikTokVideoBlockEvents.count >= BubbleConstants.tiktokRetryBurstBlockedHostThreshold
+    }
+
+    private func isUnknownDirectIPAttempt(_ decision: PolicyDecision) -> Bool {
+        decision.action != .blockNow &&
+            (decision.classification.bucket == .unknown ||
+             decision.trafficClass == .generic ||
+             decision.trafficClass == .unknown ||
+             decision.classification.confidence < BubbleConstants.classifyConfidenceLow)
+    }
+
+    private func recordUnknownTikTokDirectIPAttemptAndMaybeHint(host: String, port: UInt16, decision: PolicyDecision, now: Date) {
+        guard isDirectTikTokIPHintCandidate(host: host, port: port) else { return }
+        guard isUnknownDirectIPAttempt(decision), hasTikTokVideoBlockBurst(now: now) else { return }
+
+        let key = tiktokIPHintKey(ip: host, port: port)
+        var attempts = recentUnknownTikTokDirectIPAttemptsByKey[key] ?? []
+        attempts = attempts.filter {
+            now.timeIntervalSince($0) <= BubbleConstants.tiktokRetryBurstUnknownIPAttemptWindow
+        }
+        attempts.append(now)
+        recentUnknownTikTokDirectIPAttemptsByKey[key] = attempts
+
+        guard attempts.count >= BubbleConstants.tiktokRetryBurstUnknownIPAttemptThreshold else { return }
+        recordTikTokIPHint(
+            ip: host,
+            port: port,
+            domain: nil,
+            source: "retry_burst",
+            ttl: BubbleConstants.tiktokRetryBurstIPHintTTLSeconds,
+            confidence: 0.66,
+            now: now
+        )
+    }
+
+    private func buildTikTokIPHintDecision(host: String, port: UInt16, hint: TikTokIPHint) -> PolicyDecision? {
+        let policyHost = hint.domain ?? "v16.tiktokcdn.com"
+        let policyDecision = filter.evaluateStream(
+            host: policyHost,
+            sni: policyHost,
+            port: port,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: activeRelays.count
+        )
+        guard policyDecision.action == .blockNow,
+              policyDecision.reason == "tiktok_video_block_now",
+              policyDecision.classification.bucket == .tiktokVideo,
+              policyDecision.trafficClass == .tiktok else {
+            return nil
+        }
+
+        return PolicyDecision(
+            action: .blockNow,
+            blockAfterBytes: nil,
+            classification: FlowClassification(
+                bucket: .tiktokVideo,
+                confidence: hint.confidence,
+                reasons: ["tiktok_ip_hint", "source_\(hint.source)"]
+            ),
+            reason: "tiktok_ip_hint_block_now",
+            toggleSnapshot: policyDecision.toggleSnapshot,
+            policyVersion: policyDecision.policyVersion,
+            intendedAction: nil,
+            appStrategy: policyDecision.appStrategy,
+            trafficClass: .tiktok
+        )
+    }
+
+    private func evaluateTikTokDirectIPDecision(host: String, port: UInt16, initialDecision: PolicyDecision, now: Date = Date()) -> PolicyDecision? {
+        guard isDirectTikTokIPHintCandidate(host: host, port: port) else { return nil }
+        recordUnknownTikTokDirectIPAttemptAndMaybeHint(host: host, port: port, decision: initialDecision, now: now)
+        guard let hint = tiktokIPHint(for: host, port: port, now: now),
+              let decision = buildTikTokIPHintDecision(host: host, port: port, hint: hint) else {
+            return nil
+        }
+
+        tiktokIPHintBlocks += 1
+        log.log(
+            "TT_POLICY ip=\(host.lowercased()) host=\(hint.domain ?? "n/a") bucket=tiktok_video action=block_now reason=tiktok_ip_hint_block_now source=\(hint.source)"
+        )
+        return decision
+    }
+
     private func shouldDropFromHostCooldown(host: String, port: UInt16, bucket: ContentBucket, now: Date = Date()) -> Bool {
         let key = hostCooldownKey(host: host, port: port, bucket: bucket)
         guard let until = hostCooldownUntilByKey[key], now < until else { return false }
@@ -4860,6 +5162,7 @@ final class SOCKSProxyServer {
 
         let now = Date()
         recentProtectedBlockEvents.append(now)
+        recordTikTokVideoBlockEventIfNeeded(decision, now: now)
         if shouldFailOpenProtectedBlock(host: host, port: port, decision: decision, transport: transport, now: now) {
             return .failOpen
         }
@@ -4939,7 +5242,11 @@ final class SOCKSProxyServer {
     }
 
     private func suppressionCooldown(for reason: String) -> TimeInterval {
-        if reason == "tiktok_video_block_now" || reason == "reels_media_block_now" {
+        if reason == "tiktok_video_block_now" ||
+            reason == "tiktok_ip_hint_block_now" ||
+            reason == "reels_media_block_now" ||
+            reason == "reels_media_hint_block_now" ||
+            reason == "reels_strict_media_block_now" {
             if extensionPressureLevel.rank >= ExtensionPressureLevel.hard.rank {
                 return BubbleConstants.aggressiveBlockSuppressionStormCooldown
             }
@@ -5809,10 +6116,13 @@ final class SOCKSProxyServer {
 
     static func shouldEarlyBlockFromSNIDecision(_ decision: PolicyDecision) -> Bool {
         guard decision.action == .blockNow else { return false }
-        if decision.reason == "tiktok_video_block_now" {
+        if decision.reason == "tiktok_video_block_now" ||
+            decision.reason == "tiktok_ip_hint_block_now" {
             return decision.classification.bucket == .tiktokVideo && decision.trafficClass == .tiktok
         }
-        if decision.reason == "reels_media_block_now" {
+        if decision.reason == "reels_media_block_now" ||
+            decision.reason == "reels_media_hint_block_now" ||
+            decision.reason == "reels_strict_media_block_now" {
             return decision.classification.bucket == .reels && decision.trafficClass == .instagram
         }
         return false
@@ -5839,6 +6149,105 @@ final class SOCKSProxyServer {
             tcpEarlySNIBlocks += 1
             statsBlocked += 1
         }
+        switch gate {
+        case .allow:
+            return "allow"
+        case .failOpen:
+            return "fail_open"
+        case .suppress:
+            return "suppress"
+        case .dropFast:
+            return "drop_fast"
+        case .rejectNewStream:
+            return "reject_new_stream"
+        }
+    }
+
+    func testRecordBlockedStreamObservation(host: String, sni: String?, port: UInt16, decision: PolicyDecision, bytesDown: Int, now: Date = Date()) {
+        queue.sync {
+            (filter as? StreamObservationRecorder)?.recordBlockedStream(
+                host: host,
+                sni: sni,
+                port: port,
+                decision: decision,
+                bytesDown: bytesDown,
+                now: now
+            )
+        }
+    }
+
+    func testSeedTikTokIPHint(ip: String, port: UInt16 = 443, domain: String? = "v16.tiktokcdn-us.com", source: String = "dns", ttl: TimeInterval = BubbleConstants.tiktokIPHintTTLSeconds, now: Date = Date()) {
+        queue.sync {
+            recordTikTokIPHint(
+                ip: ip,
+                port: port,
+                domain: domain,
+                source: source,
+                ttl: ttl,
+                confidence: source == "retry_burst" ? 0.66 : 0.90,
+                now: now
+            )
+        }
+    }
+
+    func testRecordTikTokSNIHint(ip: String, port: UInt16 = 443, sni: String, now: Date = Date()) {
+        queue.sync {
+            let decision = filter.evaluateStream(
+                host: ip,
+                sni: sni,
+                port: port,
+                bytesDown: 0,
+                connectionAge: 0,
+                parallelConnections: 0
+            )
+            recordTikTokIPHintFromSNI(ip: ip, port: port, sni: sni, decision: decision, now: now)
+        }
+    }
+
+    func testRecordTikTokVideoBlockEvent(now: Date = Date()) {
+        queue.sync {
+            recordTikTokVideoBlockEventIfNeeded(protectedTikTokVideoDecisionForTest(), now: now)
+        }
+    }
+
+    func testEvaluateTCPAdmissionDecision(host: String, port: UInt16 = 443, now: Date = Date()) -> (action: String, reason: String) {
+        queue.sync {
+            let initial = filter.evaluateConnection(host: host, port: port)
+            let decision = evaluateTikTokDirectIPDecision(host: host, port: port, initialDecision: initial, now: now) ?? initial
+            return (decision.action.rawValue, decision.reason)
+        }
+    }
+
+    func testEvaluateTCPAdmissionProtection(host: String, port: UInt16 = 443, now: Date = Date()) -> (action: String, reason: String, gate: String) {
+        queue.sync {
+            let initial = filter.evaluateConnection(host: host, port: port)
+            let decision = evaluateTikTokDirectIPDecision(host: host, port: port, initialDecision: initial, now: now) ?? initial
+            let gate = evaluateProtectionGate(host: host, port: port, decision: decision, transport: "tcp", stage: .admission)
+            return (decision.action.rawValue, decision.reason, Self.testGateName(gate))
+        }
+    }
+
+    func testTikTokIPHintCounterSnapshot(now: Date = Date()) -> TikTokIPHintCounterSnapshot {
+        queue.sync {
+            tiktokIPHintCounterSnapshot(now: now)
+        }
+    }
+
+    private func protectedTikTokVideoDecisionForTest() -> PolicyDecision {
+        PolicyDecision(
+            action: .blockNow,
+            blockAfterBytes: nil,
+            classification: FlowClassification(bucket: .tiktokVideo, confidence: 0.99, reasons: ["test_tiktok_video_block"]),
+            reason: "tiktok_video_block_now",
+            toggleSnapshot: ["video_block": true],
+            policyVersion: 1,
+            intendedAction: nil,
+            appStrategy: AppTransportStrategy.hardenedVideo.rawValue,
+            trafficClass: .tiktok
+        )
+    }
+
+    private static func testGateName(_ gate: ProtectionGateResult) -> String {
         switch gate {
         case .allow:
             return "allow"
@@ -6606,6 +7015,17 @@ final class SOCKSProxyServer {
         let hintedClass = classifyEarly(host: sni, port: tracker.port)
         recordClassHint(host: tracker.host, trafficClass: hintedClass.trafficClass, confidence: hintedClass.confidence)
         recordClassHint(host: sni, trafficClass: hintedClass.trafficClass, confidence: hintedClass.confidence)
+        if isDirectTikTokIPHintCandidate(host: tracker.host, port: tracker.port) {
+            let sniDecision = filter.evaluateStream(
+                host: tracker.host,
+                sni: sni,
+                port: tracker.port,
+                bytesDown: tracker.bytesDown,
+                connectionAge: Date().timeIntervalSince(tracker.startTime),
+                parallelConnections: activeRelays.count
+            )
+            recordTikTokIPHintFromSNI(ip: tracker.host, port: tracker.port, sni: sni, decision: sniDecision)
+        }
     }
 
     private func recordUploadMetadataIfNeeded(_ data: Data, tracker: RelayTracker) {
@@ -6753,6 +7173,14 @@ final class SOCKSProxyServer {
                                 detail: "Killed at \(tracker.bytesDown)B",
                                 bytesDown: tracker.bytesDown,
                                 decision: streamDecision
+                            )
+                            (self.filter as? StreamObservationRecorder)?.recordBlockedStream(
+                                host: tracker.host,
+                                sni: tracker.sni,
+                                port: tracker.port,
+                                decision: streamDecision,
+                                bytesDown: tracker.bytesDown,
+                                now: Date()
                             )
                             self.logRelayEnd(tracker: tracker, reason: "stream-blocked")
                             source.cancel()

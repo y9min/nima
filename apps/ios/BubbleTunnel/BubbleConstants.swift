@@ -110,6 +110,16 @@ enum BubbleConstants {
 
     // MARK: - Stream Blocking
     static let streamBlockDefaultThreshold = 512 * 1024  // 0.5 MB
+    static let instagramAmbiguousMediaStreamBlockThreshold = 2 * 1024 * 1024  // 2 MB
+    static let instagramMediaHintTTLSeconds: TimeInterval = 45.0
+    static let maxInstagramMediaHints = 64
+    static let tiktokIPHintTTLSeconds: TimeInterval = 60.0
+    static let tiktokRetryBurstIPHintTTLSeconds: TimeInterval = 20.0
+    static let maxTikTokIPHints = 96
+    static let tiktokRetryBurstUnknownIPAttemptWindow: TimeInterval = 2.0
+    static let tiktokRetryBurstUnknownIPAttemptThreshold = 3
+    static let tiktokRetryBurstBlockedHostWindow: TimeInterval = 3.0
+    static let tiktokRetryBurstBlockedHostThreshold = 5
     static let maxSNIProbePackets = 6
     static let tcpSNIGateMaxBufferedBytes = 16 * 1024
     static let tcpSNIGateTimeout: TimeInterval = 1.0

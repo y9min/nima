@@ -36,7 +36,8 @@ struct FeaturePolicyV1: Codable {
 
     static let defaultToggles: [String: [String: Bool]] = [
         "instagram": [
-            "reels": false
+            "reels": false,
+            "strict_reels": false
         ],
         "tiktok": [
             "video_block": false
@@ -71,6 +72,21 @@ struct FeaturePolicyV1: Codable {
         for (appId, strategy) in Self.defaultStrategies where appStrategies[appId] == nil {
             appStrategies[appId] = strategy
         }
+        normalizeInstagramStrictReels()
+    }
+
+    @discardableResult
+    mutating func normalizeInstagramStrictReels() -> Bool {
+        let legacyWasEnabled = appToggles["instagram"]?["reels"] == true
+        let strictWasEnabled = appToggles["instagram"]?["strict_reels"] == true
+        guard legacyWasEnabled || strictWasEnabled else { return false }
+
+        if appToggles["instagram"] == nil {
+            appToggles["instagram"] = Self.defaultToggles["instagram"] ?? [:]
+        }
+        appToggles["instagram"]?["strict_reels"] = true
+        appToggles["instagram"]?["reels"] = false
+        return legacyWasEnabled || !strictWasEnabled
     }
 
     mutating func bumpRevision(updatedBy: String) {
@@ -178,7 +194,12 @@ final class AppOptionsService {
         if let policyData = defaults?.data(forKey: BubbleConstants.featurePolicyKey),
            let policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: policyData) {
             var mergedPolicy = policy
+            let shouldPersistMigration = policy.appToggles["instagram"]?["reels"] == true
             mergedPolicy.mergeDefaults()
+            if shouldPersistMigration {
+                mergedPolicy.bumpRevision(updatedBy: "app.options.migrate_strict_reels")
+                persistPolicy(mergedPolicy)
+            }
             for (appId, states) in mergedPolicy.appToggles {
                 if optionStates[appId] == nil {
                     optionStates[appId] = [:]
@@ -231,13 +252,21 @@ final class AppOptionsService {
             optionStates[appId] = [:]
         }
         var policy = loadFeaturePolicy()
-        let currentState = policy.appToggles[appId]?[optionId] ?? false
+        let effectiveOptionId = appId == "instagram" && optionId == "reels" ? "strict_reels" : optionId
+        let currentState = policy.appToggles[appId]?[effectiveOptionId] ?? false
         let newState = !currentState
-        policy.set(appId: appId, optionId: optionId, isEnabled: newState)
+        policy.set(appId: appId, optionId: effectiveOptionId, isEnabled: newState)
+        if appId == "instagram" {
+            policy.set(appId: appId, optionId: "reels", isEnabled: false)
+        }
         policy.mergeDefaults()
         policy.bumpRevision(updatedBy: "app.options.toggle")
         persistPolicy(policy)
-        optionStates[appId]?[optionId] = newState
+        if let updatedStates = policy.appToggles[appId] {
+            for (updatedOptionId, isEnabled) in updatedStates {
+                optionStates[appId]?[updatedOptionId] = isEnabled
+            }
+        }
         AppDiagnosticsLogger.log(
             "OPTION_TOGGLE app=\(appId) option=\(optionId) new_state=\(newState) revision=\(policy.revision) source=\(source)"
         )

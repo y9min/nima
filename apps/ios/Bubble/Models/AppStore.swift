@@ -11,7 +11,7 @@ final class AppStore {
             iconName: "camera.fill",
             platform: "instagram",
             options: [
-                BlockingOption(id: "reels", label: "reels", isEnabled: false)
+                BlockingOption(id: "strict_reels", label: "reels", isEnabled: false)
             ]
         ),
         BlockedApp(

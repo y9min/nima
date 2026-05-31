@@ -126,6 +126,18 @@ private final class CountingUDPFilter: ConnectionFilter {
 }
 
 final class TransportProtectionDecisionTests: XCTestCase {
+    private func makeInstagramFilter(reelsEnabled: Bool = true) -> ReelsBlockFilter {
+        let suite = "test.transport.instagram.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)
+        defaults?.removePersistentDomain(forName: suite)
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: reelsEnabled)
+        if let data = try? JSONEncoder().encode(policy) {
+            defaults?.set(data, forKey: BubbleConstants.featurePolicyKey)
+        }
+        return ReelsBlockFilter(sharedDefaults: defaults)
+    }
+
     private func protectedTikTokVideoDecision() -> PolicyDecision {
         PolicyDecision(
             action: .blockNow,
@@ -137,6 +149,20 @@ final class TransportProtectionDecisionTests: XCTestCase {
             intendedAction: nil,
             appStrategy: AppTransportStrategy.hardenedVideo.rawValue,
             trafficClass: .tiktok
+        )
+    }
+
+    private func protectedInstagramReelsHintDecision() -> PolicyDecision {
+        PolicyDecision(
+            action: .blockNow,
+            blockAfterBytes: nil,
+            classification: FlowClassification(bucket: .reels, confidence: 0.70, reasons: ["instagram_media_hint"]),
+            reason: "reels_media_hint_block_now",
+            toggleSnapshot: ["reels": true],
+            policyVersion: 1,
+            intendedAction: nil,
+            appStrategy: AppTransportStrategy.legacyReels.rawValue,
+            trafficClass: .instagram
         )
     }
 
@@ -861,6 +887,8 @@ final class TransportProtectionDecisionTests: XCTestCase {
         let hints = SOCKSProxyServer.testParseDNSAddressAnswers(response)
         let decision = server.testEvaluateUDPPolicy(host: "203.0.113.44", port: 443)
         let counters = server.testDNSHintCounterSnapshot()
+        let tcpDecision = server.testEvaluateTCPAdmissionDecision(host: "203.0.113.44", port: 443)
+        let ipCounters = server.testTikTokIPHintCounterSnapshot()
 
         XCTAssertEqual(hints.first?.domain, "v16.tiktokcdn-us.com")
         XCTAssertEqual(hints.first?.ip, "203.0.113.44")
@@ -870,6 +898,11 @@ final class TransportProtectionDecisionTests: XCTestCase {
         XCTAssertEqual(counters.added, 1)
         XCTAssertEqual(counters.active, 1)
         XCTAssertEqual(counters.udpBlocks, 1)
+        XCTAssertEqual(tcpDecision.action, "block_now")
+        XCTAssertEqual(tcpDecision.reason, "tiktok_ip_hint_block_now")
+        XCTAssertEqual(ipCounters.added, 1)
+        XCTAssertEqual(ipCounters.active, 1)
+        XCTAssertEqual(ipCounters.blocks, 1)
     }
 
     func testSelectiveUDPPolicyAllowsDNSAndUnknownUDP() {
@@ -997,6 +1030,112 @@ final class TransportProtectionDecisionTests: XCTestCase {
         XCTAssertNil(decision.source)
     }
 
+    func testDirectTCPIPWithoutTikTokHintRemainsAllowed() {
+        let server = SOCKSProxyServer(filter: TikTokDNSHintFilter())
+
+        let decision = server.testEvaluateTCPAdmissionDecision(host: "198.51.100.10", port: 443)
+
+        XCTAssertEqual(decision.action, "allow")
+        XCTAssertEqual(decision.reason, "stub_allow")
+    }
+
+    func testDirectTCPIPWithFreshTikTokDNSHintBlocks() {
+        let server = SOCKSProxyServer(filter: TikTokDNSHintFilter())
+        let now = Date(timeIntervalSince1970: 50_000)
+
+        server.testSeedTikTokIPHint(ip: "203.0.113.44", domain: "v16.tiktokcdn-us.com", source: "dns", now: now)
+        let decision = server.testEvaluateTCPAdmissionDecision(host: "203.0.113.44", port: 443, now: now.addingTimeInterval(1))
+        let counters = server.testTikTokIPHintCounterSnapshot(now: now.addingTimeInterval(1))
+
+        XCTAssertEqual(decision.action, "block_now")
+        XCTAssertEqual(decision.reason, "tiktok_ip_hint_block_now")
+        XCTAssertEqual(counters.added, 1)
+        XCTAssertEqual(counters.active, 1)
+        XCTAssertEqual(counters.blocks, 1)
+    }
+
+    func testDirectTCPIPWithFreshTikTokSNIHintBlocksNextAttempt() {
+        let server = SOCKSProxyServer(filter: TikTokDNSHintFilter())
+        let now = Date(timeIntervalSince1970: 51_000)
+
+        server.testRecordTikTokSNIHint(ip: "203.0.113.45", sni: "lf16-video.bytecdn.com", now: now)
+        let decision = server.testEvaluateTCPAdmissionDecision(host: "203.0.113.45", port: 443, now: now.addingTimeInterval(1))
+        let counters = server.testTikTokIPHintCounterSnapshot(now: now.addingTimeInterval(1))
+
+        XCTAssertEqual(decision.action, "block_now")
+        XCTAssertEqual(decision.reason, "tiktok_ip_hint_block_now")
+        XCTAssertEqual(counters.added, 1)
+        XCTAssertEqual(counters.active, 1)
+        XCTAssertEqual(counters.blocks, 1)
+    }
+
+    func testRetryBurstCreatesExactTikTokIPHintForRepeatedUnknownIP() {
+        let server = SOCKSProxyServer(filter: TikTokDNSHintFilter())
+        let now = Date(timeIntervalSince1970: 52_000)
+        for offset in [0.0, 0.2, 0.4, 0.6, 0.8] {
+            server.testRecordTikTokVideoBlockEvent(now: now.addingTimeInterval(offset))
+        }
+
+        let first = server.testEvaluateTCPAdmissionDecision(host: "203.0.113.46", port: 443, now: now.addingTimeInterval(1.0))
+        let second = server.testEvaluateTCPAdmissionDecision(host: "203.0.113.46", port: 443, now: now.addingTimeInterval(1.4))
+        let third = server.testEvaluateTCPAdmissionDecision(host: "203.0.113.46", port: 443, now: now.addingTimeInterval(1.8))
+        let counters = server.testTikTokIPHintCounterSnapshot(now: now.addingTimeInterval(1.8))
+
+        XCTAssertEqual(first.action, "allow")
+        XCTAssertEqual(second.action, "allow")
+        XCTAssertEqual(third.action, "block_now")
+        XCTAssertEqual(third.reason, "tiktok_ip_hint_block_now")
+        XCTAssertEqual(counters.added, 1)
+        XCTAssertEqual(counters.active, 1)
+        XCTAssertEqual(counters.blocks, 1)
+    }
+
+    func testRandomAkamaiIPOutsideTikTokBurstAllows() {
+        let server = SOCKSProxyServer(filter: TikTokDNSHintFilter())
+        let now = Date(timeIntervalSince1970: 53_000)
+
+        let first = server.testEvaluateTCPAdmissionDecision(host: "23.45.67.89", port: 443, now: now)
+        let second = server.testEvaluateTCPAdmissionDecision(host: "23.45.67.89", port: 443, now: now.addingTimeInterval(0.5))
+        let third = server.testEvaluateTCPAdmissionDecision(host: "23.45.67.89", port: 443, now: now.addingTimeInterval(1.0))
+        let counters = server.testTikTokIPHintCounterSnapshot(now: now.addingTimeInterval(1.0))
+
+        XCTAssertEqual(first.action, "allow")
+        XCTAssertEqual(second.action, "allow")
+        XCTAssertEqual(third.action, "allow")
+        XCTAssertEqual(counters.added, 0)
+        XCTAssertEqual(counters.blocks, 0)
+    }
+
+    func testExpiredTikTokIPHintStopsBlocking() {
+        let server = SOCKSProxyServer(filter: TikTokDNSHintFilter())
+        let now = Date(timeIntervalSince1970: 54_000)
+
+        server.testSeedTikTokIPHint(ip: "203.0.113.47", domain: "v16.tiktokcdn-us.com", source: "dns", ttl: 1, now: now)
+        let decision = server.testEvaluateTCPAdmissionDecision(host: "203.0.113.47", port: 443, now: now.addingTimeInterval(2))
+        let counters = server.testTikTokIPHintCounterSnapshot(now: now.addingTimeInterval(2))
+
+        XCTAssertEqual(decision.action, "allow")
+        XCTAssertEqual(decision.reason, "stub_allow")
+        XCTAssertEqual(counters.expired, 1)
+        XCTAssertEqual(counters.active, 0)
+        XCTAssertEqual(counters.blocks, 0)
+    }
+
+    func testTikTokIPHintBlocksPassThroughProtectionGate() {
+        let server = SOCKSProxyServer(filter: TikTokDNSHintFilter())
+        let now = Date(timeIntervalSince1970: 55_000)
+
+        server.testSeedTikTokIPHint(ip: "203.0.113.48", domain: "v16.tiktokcdn-us.com", source: "dns", now: now)
+        let first = server.testEvaluateTCPAdmissionProtection(host: "203.0.113.48", port: 443, now: now.addingTimeInterval(1))
+        let second = server.testEvaluateTCPAdmissionProtection(host: "203.0.113.48", port: 443, now: now.addingTimeInterval(1.1))
+
+        XCTAssertEqual(first.action, "block_now")
+        XCTAssertEqual(first.reason, "tiktok_ip_hint_block_now")
+        XCTAssertEqual(first.gate, "allow")
+        XCTAssertEqual(second.action, "block_now")
+        XCTAssertEqual(second.gate, "suppress")
+    }
+
     func testMalformedDNSResponseDoesNotCreateHints() {
         let hints = SOCKSProxyServer.testParseDNSAddressAnswers(Data([0x12, 0x34, 0x81]))
 
@@ -1023,6 +1162,59 @@ final class TransportProtectionDecisionTests: XCTestCase {
         XCTAssertEqual(counters.blockedSuppressedTCP, 1)
         XCTAssertEqual(counters.tcpSNIBlockSuppressed, 1)
         XCTAssertEqual(counters.protectedBlockSuppressionKeys, 1)
+    }
+
+    func testStrictInstagramBlocksAmbiguousMediaWithoutStreamHint() {
+        let filter = makeInstagramFilter()
+        let server = SOCKSProxyServer(filter: filter)
+        let now = Date(timeIntervalSince1970: 40_000)
+        let sni = "scontent-lhr8-1.cdninstagram.com"
+        let strictDecision = filter.evaluateStream(
+            host: "157.240.214.63",
+            sni: sni,
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 1,
+            now: now
+        )
+
+        server.testRecordBlockedStreamObservation(
+            host: "157.240.214.63",
+            sni: sni,
+            port: 443,
+            decision: strictDecision,
+            bytesDown: 0,
+            now: now
+        )
+        let counters = filter.instagramMediaHintCounterSnapshot(now: now.addingTimeInterval(1))
+
+        XCTAssertEqual(strictDecision.action, .blockNow)
+        XCTAssertEqual(strictDecision.reason, "reels_strict_media_block_now")
+        XCTAssertEqual(counters.added, 0)
+        XCTAssertEqual(counters.active, 0)
+    }
+
+    func testEarlySNIBlockUsesProtectionGateForRepeatedInstagramMediaHint() {
+        let server = SOCKSProxyServer(filter: StubConnectionFilter())
+        let decision = protectedInstagramReelsHintDecision()
+        let sni = "scontent-lhr8-1.cdninstagram.com"
+
+        XCTAssertTrue(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(decision))
+        XCTAssertEqual(
+            server.testRecordTCPSNIBlockForProtectionOnly(sni: sni, port: 443, decision: decision),
+            "allow"
+        )
+        XCTAssertEqual(
+            server.testRecordTCPSNIBlockForProtectionOnly(sni: sni, port: 443, decision: decision),
+            "suppress"
+        )
+
+        let counters = server.testProtectionCounterSnapshot()
+        XCTAssertEqual(counters.statsBlocked, 1)
+        XCTAssertEqual(counters.tcpEarlySNIBlocks, 1)
+        XCTAssertEqual(counters.blockedSuppressedTCP, 1)
+        XCTAssertEqual(counters.tcpSNIBlockSuppressed, 1)
     }
 
     private static func dnsResponse(question: String, answerNamePointerToQuestion: Bool, ttl: UInt32, ip: [UInt8]) -> Data {

@@ -3,7 +3,7 @@
     "appId": "instagram",
     "options": [
       {
-        "id": "reels",
+        "id": "strict_reels",
         "label": "reels",
         "isSelected": false
       }

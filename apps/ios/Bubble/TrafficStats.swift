@@ -117,6 +117,13 @@ struct StatsSnapshot: Codable {
     let tiktokDNSHintsExpired: Int
     let tiktokDNSHintsActive: Int
     let tiktokUDPBlocksFromDNSHints: Int
+    let tiktokIPHintsAdded: Int
+    let tiktokIPHintsExpired: Int
+    let tiktokIPHintsActive: Int
+    let tiktokIPHintBlocks: Int
+    let instagramMediaHintsAdded: Int
+    let instagramMediaHintsExpired: Int
+    let instagramMediaHintBlocks: Int
     let tcpSNIBlockSuppressed: Int
     let tcpSNIBlockTokenDrops: Int
     let protectedBlockSuppressionKeys: Int
@@ -230,6 +237,13 @@ struct StatsSnapshot: Codable {
         tiktokDNSHintsExpired: Int = 0,
         tiktokDNSHintsActive: Int = 0,
         tiktokUDPBlocksFromDNSHints: Int = 0,
+        tiktokIPHintsAdded: Int = 0,
+        tiktokIPHintsExpired: Int = 0,
+        tiktokIPHintsActive: Int = 0,
+        tiktokIPHintBlocks: Int = 0,
+        instagramMediaHintsAdded: Int = 0,
+        instagramMediaHintsExpired: Int = 0,
+        instagramMediaHintBlocks: Int = 0,
         tcpSNIBlockSuppressed: Int = 0,
         tcpSNIBlockTokenDrops: Int = 0,
         protectedBlockSuppressionKeys: Int = 0,
@@ -342,6 +356,13 @@ struct StatsSnapshot: Codable {
         self.tiktokDNSHintsExpired = tiktokDNSHintsExpired
         self.tiktokDNSHintsActive = tiktokDNSHintsActive
         self.tiktokUDPBlocksFromDNSHints = tiktokUDPBlocksFromDNSHints
+        self.tiktokIPHintsAdded = tiktokIPHintsAdded
+        self.tiktokIPHintsExpired = tiktokIPHintsExpired
+        self.tiktokIPHintsActive = tiktokIPHintsActive
+        self.tiktokIPHintBlocks = tiktokIPHintBlocks
+        self.instagramMediaHintsAdded = instagramMediaHintsAdded
+        self.instagramMediaHintsExpired = instagramMediaHintsExpired
+        self.instagramMediaHintBlocks = instagramMediaHintBlocks
         self.tcpSNIBlockSuppressed = tcpSNIBlockSuppressed
         self.tcpSNIBlockTokenDrops = tcpSNIBlockTokenDrops
         self.protectedBlockSuppressionKeys = protectedBlockSuppressionKeys
@@ -456,6 +477,13 @@ struct StatsSnapshot: Codable {
         case tiktokDNSHintsExpired
         case tiktokDNSHintsActive
         case tiktokUDPBlocksFromDNSHints
+        case tiktokIPHintsAdded
+        case tiktokIPHintsExpired
+        case tiktokIPHintsActive
+        case tiktokIPHintBlocks
+        case instagramMediaHintsAdded
+        case instagramMediaHintsExpired
+        case instagramMediaHintBlocks
         case tcpSNIBlockSuppressed
         case tcpSNIBlockTokenDrops
         case protectedBlockSuppressionKeys
@@ -571,6 +599,13 @@ struct StatsSnapshot: Codable {
         tiktokDNSHintsExpired = try c.decodeIfPresent(Int.self, forKey: .tiktokDNSHintsExpired) ?? 0
         tiktokDNSHintsActive = try c.decodeIfPresent(Int.self, forKey: .tiktokDNSHintsActive) ?? 0
         tiktokUDPBlocksFromDNSHints = try c.decodeIfPresent(Int.self, forKey: .tiktokUDPBlocksFromDNSHints) ?? 0
+        tiktokIPHintsAdded = try c.decodeIfPresent(Int.self, forKey: .tiktokIPHintsAdded) ?? 0
+        tiktokIPHintsExpired = try c.decodeIfPresent(Int.self, forKey: .tiktokIPHintsExpired) ?? 0
+        tiktokIPHintsActive = try c.decodeIfPresent(Int.self, forKey: .tiktokIPHintsActive) ?? 0
+        tiktokIPHintBlocks = try c.decodeIfPresent(Int.self, forKey: .tiktokIPHintBlocks) ?? 0
+        instagramMediaHintsAdded = try c.decodeIfPresent(Int.self, forKey: .instagramMediaHintsAdded) ?? 0
+        instagramMediaHintsExpired = try c.decodeIfPresent(Int.self, forKey: .instagramMediaHintsExpired) ?? 0
+        instagramMediaHintBlocks = try c.decodeIfPresent(Int.self, forKey: .instagramMediaHintBlocks) ?? 0
         tcpSNIBlockSuppressed = try c.decodeIfPresent(Int.self, forKey: .tcpSNIBlockSuppressed) ?? 0
         tcpSNIBlockTokenDrops = try c.decodeIfPresent(Int.self, forKey: .tcpSNIBlockTokenDrops) ?? 0
         protectedBlockSuppressionKeys = try c.decodeIfPresent(Int.self, forKey: .protectedBlockSuppressionKeys) ?? suppressionKeysActive
