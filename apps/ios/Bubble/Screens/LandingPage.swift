@@ -14,7 +14,7 @@ struct LandingPage: View {
 
                 // Title block - positioned closer to top, slightly to the right
                 VStack(alignment: .leading, spacing: BubbleSpacing.xs) {
-                    Text("BUBBLE")
+                    Text("NIMA")
                         .font(BubbleFonts.titleLarge)
                         .foregroundStyle(.white)
                     

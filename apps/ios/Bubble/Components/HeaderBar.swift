@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct HeaderBar: View {
-    var title: String = "BUBBLE"
+    var title: String = "NIMA"
 
     var body: some View {
         HStack {

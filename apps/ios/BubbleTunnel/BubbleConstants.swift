@@ -382,8 +382,8 @@ enum BubbleConstants {
     static let dnsStartupDrainMaxAgeSeconds: TimeInterval = 1.25
 
     // MARK: - VPN
-    static let vpnDescription = "Bubble Blocker"
-    static let vpnServerAddress = "bubble"
+    static let vpnDescription = "Nima Blocker"
+    static let vpnServerAddress = "nima"
 }
 
 enum Tun2SocksStartupMode: String {

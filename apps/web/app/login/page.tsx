@@ -129,7 +129,7 @@ export default function LoginPage() {
     <SkyBackground animateClouds>
       <div style={containerStyle}>
         <div style={cardStyle}>
-          <div style={titleStyle}>BUBBLE</div>
+          <div style={titleStyle}>NIMA</div>
           <div style={subtitleStyle}>into the clouds.</div>
 
           <form action={action}>

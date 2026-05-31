@@ -31,6 +31,8 @@ targets:
     info:
       path: Bubble/Info.plist
       properties:
+        CFBundleDisplayName: Nima
+        CFBundleName: Nima
         UIAppFonts:
           - SK Pupok Solid 400.ttf
           - Coolvetica Rg.otf

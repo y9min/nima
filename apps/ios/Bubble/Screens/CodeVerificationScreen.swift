@@ -19,7 +19,7 @@ struct CodeVerificationScreen: View {
                 
                 // Title block
                 VStack(alignment: .leading, spacing: BubbleSpacing.xs) {
-                    Text("BUBBLE")
+                    Text("NIMA")
                         .font(BubbleFonts.titleLarge)
                         .foregroundStyle(.white)
                     
