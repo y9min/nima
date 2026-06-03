@@ -206,6 +206,7 @@ enum TrafficClass: String, Codable, CaseIterable {
     case generic
     case tiktok
     case instagram
+    case x
     case unknown
 }
 
@@ -572,6 +573,7 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
     private let classManifests: [AppClassManifest] = [
         AppClassManifest(appId: .tiktok, hostTokens: ["tiktok", "musical.ly", "byte", "ibytedtos", "tiktokcdn"]),
         AppClassManifest(appId: .instagram, hostTokens: ["instagram", "fbcdn", "facebook", "fbvideo", "cdninstagram"]),
+        AppClassManifest(appId: .x, hostTokens: ["x.com", "twitter", "twimg", "t.co"]),
     ]
     private var stateSecondsByMode: [String: TimeInterval] = [:]
     private var lastStateSampleAt = Date()
@@ -3744,7 +3746,7 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
     }
 
     private func dequeueNextPendingUDPControl() -> PendingUDPControl? {
-        let priority: [TrafficClass] = [.generic, .instagram, .tiktok, .unknown]
+        let priority: [TrafficClass] = [.generic, .instagram, .x, .tiktok, .unknown]
         for trafficClass in priority {
             if let idx = pendingUDPControlQueue.firstIndex(where: { $0.trafficClass == trafficClass }) {
                 return pendingUDPControlQueue.remove(at: idx)
@@ -3754,7 +3756,7 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
     }
 
     private func isProtectedBlockedBucket(_ bucket: ContentBucket) -> Bool {
-        bucket == .tiktokVideo || bucket == .reels
+        bucket == .tiktokVideo || bucket == .reels || bucket == .xFeedMedia || bucket == .xFeedAPI
     }
 
     private func shouldUseHardenedPath(_ decision: PolicyDecision) -> Bool {
@@ -4719,6 +4721,12 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
             decision.reason == "reels_strict_media_block_now" {
             return decision.classification.bucket == .reels && decision.trafficClass == .instagram
         }
+        if decision.reason == "x_feed_media_block_now" {
+            return decision.classification.bucket == .xFeedMedia && decision.trafficClass == .x
+        }
+        if decision.reason == "x_strict_feed_api_block_now" {
+            return decision.classification.bucket == .xFeedAPI && decision.trafficClass == .x
+        }
         return false
     }
 
@@ -5602,11 +5610,11 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
         if port == 53 {
             return true
         }
-        if bucket == .messages || bucket == .tiktokControl || bucket == .instagramControl {
+        if bucket == .messages || bucket == .tiktokControl || bucket == .instagramControl || bucket == .xControl {
             return true
         }
         switch reason {
-        case "messages_allow", "tiktok_messages_allow", "instagram_control_allow":
+        case "messages_allow", "tiktok_messages_allow", "instagram_control_allow", "x_control_allow":
             return true
         default:
             return false
@@ -5614,7 +5622,7 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
     }
 
     static func isPreservedQueuedTrafficClass(_ trafficClass: TrafficClass) -> Bool {
-        trafficClass == .tiktok || trafficClass == .instagram
+        trafficClass == .tiktok || trafficClass == .instagram || trafficClass == .x
     }
 
     static func shouldBypassGraceForStreamUnderPressure(
@@ -6125,6 +6133,12 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
             decision.reason == "reels_strict_media_block_now" {
             return decision.classification.bucket == .reels && decision.trafficClass == .instagram
         }
+        if decision.reason == "x_feed_media_block_now" {
+            return decision.classification.bucket == .xFeedMedia && decision.trafficClass == .x
+        }
+        if decision.reason == "x_strict_feed_api_block_now" {
+            return decision.classification.bucket == .xFeedAPI && decision.trafficClass == .x
+        }
         return false
     }
 
@@ -6388,7 +6402,7 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
 #endif
 
     static func isTargetTrafficClass(_ trafficClass: TrafficClass) -> Bool {
-        trafficClass == .tiktok || trafficClass == .instagram
+        trafficClass == .tiktok || trafficClass == .instagram || trafficClass == .x
     }
 
     private struct AppClassConfig {
@@ -6430,7 +6444,7 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
                 createRatePerSecond: BubbleConstants.udpAdmissionCreateRatePerSecond * 0.5,
                 createRateCapacity: max(2, BubbleConstants.udpAdmissionCreateRateCapacity / 2)
             )
-        case .instagram:
+        case .instagram, .x:
             return AppClassConfig(
                 maxActive: max(2, BubbleConstants.maxActiveUDPControlStreams / 2),
                 maxQueued: max(2, BubbleConstants.maxQueuedUDPControlStreams / 2),

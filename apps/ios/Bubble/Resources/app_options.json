@@ -18,5 +18,20 @@
         "isSelected": false
       }
     ]
+  },
+  "x": {
+    "appId": "x",
+    "options": [
+      {
+        "id": "feed_block",
+        "label": "feed",
+        "isSelected": false
+      },
+      {
+        "id": "strict_feed_block",
+        "label": "strict",
+        "isSelected": false
+      }
+    ]
   }
 }

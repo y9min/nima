@@ -41,11 +41,16 @@ struct FeaturePolicyV1: Codable {
         ],
         "tiktok": [
             "video_block": false
+        ],
+        "x": [
+            "feed_block": false,
+            "strict_feed_block": false
         ]
     ]
     static let defaultStrategies: [String: String] = [
         "instagram": "legacy_reels",
-        "tiktok": "hardened_video"
+        "tiktok": "hardened_video",
+        "x": "dm_preserving_feed"
     ]
 
     static func defaultPolicy() -> FeaturePolicyV1 {

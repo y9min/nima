@@ -636,6 +636,234 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertEqual(afterStaleWrite.reason, "tiktok_video_block_now")
     }
 
+    func testMergeDefaultsAddsXFeedBlockDisabled() {
+        var policy = FeaturePolicyV1(
+            appToggles: [
+                "instagram": ["strict_reels": false],
+                "tiktok": ["video_block": false]
+            ],
+            appStrategies: [
+                "instagram": .legacyReels,
+                "tiktok": .hardenedVideo
+            ]
+        )
+
+        policy.mergeDefaults()
+
+        XCTAssertEqual(policy.appToggles["x"]?["feed_block"], false)
+        XCTAssertEqual(policy.appToggles["x"]?["strict_feed_block"], false)
+        XCTAssertEqual(policy.appStrategies["x"], .dmPreservingFeed)
+    }
+
+    func testXFeedBlockOffAllowsXMediaAndSharedAPIHosts() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "x", optionId: "feed_block", isEnabled: false)
+        policy.set(appId: "x", optionId: "strict_feed_block", isEnabled: false)
+        let filter = makeFilter(policy: policy)
+
+        let hostsAndBuckets: [(String, ContentBucket)] = [
+            ("api.twitter.com", .xFeedAPI),
+            ("api.x.com", .xFeedAPI),
+            ("pbs.twimg.com", .xFeedMedia),
+            ("video.twimg.com", .xFeedMedia)
+        ]
+
+        for (host, bucket) in hostsAndBuckets {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 5_000,
+                connectionAge: 0.2,
+                parallelConnections: 2
+            )
+
+            XCTAssertEqual(decision.action, .allow, host)
+            XCTAssertEqual(decision.reason, "x_feed_toggle_off", host)
+            XCTAssertEqual(decision.classification.bucket, bucket, host)
+            XCTAssertEqual(decision.trafficClass, .x, host)
+        }
+    }
+
+    func testXFeedBlockBlocksFeedAndMediaHosts() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "x", optionId: "feed_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        for host in ["x.com", "twitter.com", "abs.twimg.com", "pbs.twimg.com", "video.twimg.com"] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 5_000,
+                connectionAge: 0.2,
+                parallelConnections: 2
+            )
+
+            XCTAssertEqual(decision.action, .blockNow, host)
+            XCTAssertEqual(decision.reason, "x_feed_media_block_now", host)
+            XCTAssertEqual(decision.classification.bucket, .xFeedMedia, host)
+            XCTAssertEqual(decision.trafficClass, .x, host)
+            XCTAssertTrue(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(decision), host)
+        }
+    }
+
+    func testXFeedBlockAllowsDMAndControlHosts() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "x", optionId: "feed_block", isEnabled: true)
+        policy.set(appId: "x", optionId: "strict_feed_block", isEnabled: false)
+        let filter = makeFilter(policy: policy)
+
+        for host in [
+            "chat-ws.x.com",
+            "realm-west1.x.com",
+            "realm-east1.x.com",
+            "realm-b.x.com",
+            "api-stream.twitter.com",
+            "probe.twitter.com"
+        ] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 3_000,
+                connectionAge: 0.2,
+                parallelConnections: 1
+            )
+
+            XCTAssertEqual(decision.action, .allow, host)
+            XCTAssertEqual(decision.reason, "x_control_allow", host)
+            XCTAssertEqual(decision.classification.bucket, .xControl, host)
+            XCTAssertEqual(decision.trafficClass, .x, host)
+        }
+    }
+
+    func testXFeedBlockAllowsSharedAPIHostsWhenStrictIsOff() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "x", optionId: "feed_block", isEnabled: true)
+        policy.set(appId: "x", optionId: "strict_feed_block", isEnabled: false)
+        let filter = makeFilter(policy: policy)
+
+        for host in ["api.x.com", "api.twitter.com"] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 3_000,
+                connectionAge: 0.2,
+                parallelConnections: 1
+            )
+
+            XCTAssertEqual(decision.action, .allow, host)
+            XCTAssertEqual(decision.reason, "x_control_allow", host)
+            XCTAssertEqual(decision.classification.bucket, .xFeedAPI, host)
+            XCTAssertEqual(decision.trafficClass, .x, host)
+        }
+    }
+
+    func testXStrictFeedBlockBlocksSharedAPIHosts() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "x", optionId: "feed_block", isEnabled: true)
+        policy.set(appId: "x", optionId: "strict_feed_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        for host in ["api.x.com", "api.twitter.com"] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 3_000,
+                connectionAge: 0.2,
+                parallelConnections: 1
+            )
+
+            XCTAssertEqual(decision.action, .blockNow, host)
+            XCTAssertEqual(decision.reason, "x_strict_feed_api_block_now", host)
+            XCTAssertEqual(decision.classification.bucket, .xFeedAPI, host)
+            XCTAssertEqual(decision.trafficClass, .x, host)
+            XCTAssertTrue(SOCKSProxyServer.shouldEarlyBlockFromSNIDecision(decision), host)
+        }
+    }
+
+    func testXStrictFeedBlockWorksWhenFeedBlockIsOff() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "x", optionId: "feed_block", isEnabled: false)
+        policy.set(appId: "x", optionId: "strict_feed_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        let apiDecision = filter.evaluateStream(
+            host: "api.twitter.com",
+            sni: "api.twitter.com",
+            port: 443,
+            bytesDown: 3_000,
+            connectionAge: 0.2,
+            parallelConnections: 1
+        )
+        XCTAssertEqual(apiDecision.action, .blockNow)
+        XCTAssertEqual(apiDecision.reason, "x_strict_feed_api_block_now")
+        XCTAssertEqual(apiDecision.classification.bucket, .xFeedAPI)
+
+        let mediaDecision = filter.evaluateStream(
+            host: "video.twimg.com",
+            sni: "video.twimg.com",
+            port: 443,
+            bytesDown: 5_000,
+            connectionAge: 0.2,
+            parallelConnections: 2
+        )
+        XCTAssertEqual(mediaDecision.action, .blockNow)
+        XCTAssertEqual(mediaDecision.reason, "x_feed_media_block_now")
+        XCTAssertEqual(mediaDecision.classification.bucket, .xFeedMedia)
+    }
+
+    func testXStrictFeedBlockAllowsPreservedDMAndControlHosts() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "x", optionId: "strict_feed_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        for host in [
+            "chat-ws.x.com",
+            "realm-west1.x.com",
+            "realm-east1.x.com",
+            "realm-b.x.com",
+            "api-stream.twitter.com",
+            "probe.twitter.com"
+        ] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 3_000,
+                connectionAge: 0.2,
+                parallelConnections: 1
+            )
+
+            XCTAssertEqual(decision.action, .allow, host)
+            XCTAssertEqual(decision.reason, "x_control_allow", host)
+            XCTAssertEqual(decision.classification.bucket, .xControl, host)
+            XCTAssertEqual(decision.trafficClass, .x, host)
+        }
+    }
+
+    func testXFeedBlockAllowsUnknownXHostByDefault() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "x", optionId: "feed_block", isEnabled: true)
+        policy.set(appId: "x", optionId: "strict_feed_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        let decision = filter.evaluateStream(
+            host: "help.x.com",
+            sni: "help.x.com",
+            port: 443,
+            bytesDown: 3_000,
+            connectionAge: 0.2,
+            parallelConnections: 1
+        )
+
+        XCTAssertEqual(decision.action, .allow)
+        XCTAssertEqual(decision.reason, "unknown_x_default_allow")
+    }
+
     func testInstagramBehaviorInvariantForMediaAndControl() {
         var policy = FeaturePolicyV1.defaultPolicy()
         policy.set(appId: "instagram", optionId: "reels", isEnabled: true)

@@ -5,6 +5,9 @@ enum ContentBucket: String, Codable, CaseIterable {
     case instagramControl = "instagram_control"
     case tiktokVideo = "tiktok_video"
     case tiktokControl = "tiktok_control"
+    case xFeedMedia = "x_feed_media"
+    case xFeedAPI = "x_feed_api"
+    case xControl = "x_control"
     case messages
     case unknown
 }
@@ -12,6 +15,7 @@ enum ContentBucket: String, Codable, CaseIterable {
 enum AppTransportStrategy: String, Codable {
     case legacyReels = "legacy_reels"
     case hardenedVideo = "hardened_video"
+    case dmPreservingFeed = "dm_preserving_feed"
 }
 
 struct FeaturePolicyV1: Codable {
@@ -48,12 +52,17 @@ struct FeaturePolicyV1: Codable {
         ],
         "tiktok": [
             "video_block": false,
+        ],
+        "x": [
+            "feed_block": false,
+            "strict_feed_block": false,
         ]
     ]
 
     static let defaultStrategies: [String: AppTransportStrategy] = [
         "instagram": .legacyReels,
         "tiktok": .hardenedVideo,
+        "x": .dmPreservingFeed,
     ]
 
     static func defaultPolicy() -> FeaturePolicyV1 {
@@ -184,9 +193,11 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
         let lowerHost = host.lowercased()
         let instagramToggles = instagramToggleSnapshot()
         let tiktokToggles = tiktokToggleSnapshot()
+        let xToggles = xToggleSnapshot()
         let classification = classify(host: lowerHost, port: port)
         let instagramStrategy = strategy(forAppId: "instagram")
         let tiktokStrategy = strategy(forAppId: "tiktok")
+        let xStrategy = strategy(forAppId: "x")
 
         if classification.bucket == .messages {
             return allowDecision(
@@ -204,6 +215,15 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
                 classification: classification,
                 toggles: tiktokToggles,
                 strategy: tiktokStrategy
+            )
+        }
+
+        if isXHost(lowerHost) {
+            return evaluateXPolicy(
+                host: lowerHost,
+                classification: classification,
+                toggles: xToggles,
+                strategy: xStrategy
             )
         }
 
@@ -339,6 +359,52 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
         return allowDecision(classification: classification, toggles: toggles, reason: "unknown_tiktok_default_allow", strategy: strategy, host: host)
     }
 
+    private func evaluateXPolicy(
+        host: String,
+        classification: FlowClassification,
+        toggles: [String: Bool],
+        strategy: AppTransportStrategy
+    ) -> PolicyDecision {
+        if isXPreservedControlOrMessagingDomain(host) {
+            return allowDecision(classification: classification, toggles: toggles, reason: "x_control_allow", strategy: strategy, host: host)
+        }
+
+        let feedBlockEnabled = toggles["feed_block"] == true || toggles["strict_feed_block"] == true
+        let strictFeedBlockEnabled = toggles["strict_feed_block"] == true
+
+        if !feedBlockEnabled {
+            return allowDecision(classification: classification, toggles: toggles, reason: "x_feed_toggle_off", strategy: strategy, host: host)
+        }
+
+        if strictFeedBlockEnabled, isXStrictFeedAPIDomain(host) {
+            return buildDecision(
+                action: .blockNow,
+                classification: classification,
+                reason: "x_strict_feed_api_block_now",
+                toggles: toggles,
+                host: host,
+                strategy: strategy
+            )
+        }
+
+        if isXStrictFeedAPIDomain(host) {
+            return allowDecision(classification: classification, toggles: toggles, reason: "x_control_allow", strategy: strategy, host: host)
+        }
+
+        if isXFeedMediaDomain(host) {
+            return buildDecision(
+                action: .blockNow,
+                classification: classification,
+                reason: "x_feed_media_block_now",
+                toggles: toggles,
+                host: host,
+                strategy: strategy
+            )
+        }
+
+        return allowDecision(classification: classification, toggles: toggles, reason: "unknown_x_default_allow", strategy: strategy, host: host)
+    }
+
     // MARK: - Instagram Media Hints
 
     func recordBlockedStream(host: String, sni: String?, port: UInt16, decision: PolicyDecision, bytesDown: Int, now: Date = Date()) {
@@ -463,6 +529,11 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
                 "TCP_POLICY host=\(host) action=\(action.rawValue) reason=\(reason) bucket=\(bucketLogName) confidence=\(String(format: "%.2f", classification.confidence))"
             )
         }
+        if classification.bucket == .xFeedMedia || classification.bucket == .xFeedAPI || classification.bucket == .xControl || reason == "unknown_x_default_allow" {
+            TunnelLogger.shared.log(
+                "X_POLICY host=\(host) action=\(action.rawValue) reason=\(reason) bucket=\(bucketLogName) confidence=\(String(format: "%.2f", classification.confidence))"
+            )
+        }
         if classification.bucket == .reels || classification.bucket == .instagramControl || reason == "unknown_meta_default_allow" {
             TunnelLogger.shared.log(
                 "IG_POLICY host=\(host) bucket=\(bucketLogName) action=\(action.rawValue) reason=\(reason) confidence=\(String(format: "%.2f", classification.confidence))"
@@ -521,6 +592,8 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
             return .tiktok
         case .reels, .instagramControl:
             return .instagram
+        case .xFeedMedia, .xFeedAPI, .xControl:
+            return .x
         case .messages, .unknown:
             return .generic
         }
@@ -539,6 +612,22 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
 
         if isTikTokVideoDomain(host) {
             return FlowClassification(bucket: .tiktokVideo, confidence: 0.99, reasons: ["tiktok_video_domain"])
+        }
+
+        if isXPreservedControlOrMessagingDomain(host) {
+            return FlowClassification(bucket: .xControl, confidence: 0.96, reasons: ["x_control_domain"])
+        }
+
+        if isXStrictFeedAPIDomain(host) {
+            return FlowClassification(bucket: .xFeedAPI, confidence: 0.92, reasons: ["x_strict_feed_api_domain"])
+        }
+
+        if isXFeedMediaDomain(host) {
+            return FlowClassification(bucket: .xFeedMedia, confidence: 0.99, reasons: ["x_feed_media_domain"])
+        }
+
+        if isXHost(host) {
+            return FlowClassification(bucket: .unknown, confidence: 0.35, reasons: ["unknown_x_default_allow"])
         }
 
         if isConfidentInstagramReelsVideoDomain(host) {
@@ -573,6 +662,14 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
     private func tiktokToggleSnapshot() -> [String: Bool] {
         var toggles = FeaturePolicyV1.defaultToggles["tiktok"] ?? [:]
         for (key, value) in cachedPolicy.appToggles["tiktok"] ?? [:] {
+            toggles[key] = value
+        }
+        return toggles
+    }
+
+    private func xToggleSnapshot() -> [String: Bool] {
+        var toggles = FeaturePolicyV1.defaultToggles["x"] ?? [:]
+        for (key, value) in cachedPolicy.appToggles["x"] ?? [:] {
             toggles[key] = value
         }
         return toggles
@@ -695,6 +792,39 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
             || host.contains("byteoversea.com")
     }
 
+    private func isXHost(_ host: String) -> Bool {
+        host == "x.com"
+            || host.hasSuffix(".x.com")
+            || host == "twitter.com"
+            || host.hasSuffix(".twitter.com")
+            || host == "twimg.com"
+            || host.hasSuffix(".twimg.com")
+            || host == "t.co"
+            || host.hasSuffix(".t.co")
+    }
+
+    private func isXPreservedControlOrMessagingDomain(_ host: String) -> Bool {
+        host == "api-stream.twitter.com"
+            || host == "probe.twitter.com"
+            || host == "chat-ws.x.com"
+            || (host.hasPrefix("realm-") && host.hasSuffix(".x.com"))
+    }
+
+    private func isXStrictFeedAPIDomain(_ host: String) -> Bool {
+        host == "api.twitter.com"
+            || host == "api.x.com"
+    }
+
+    private func isXFeedMediaDomain(_ host: String) -> Bool {
+        host == "x.com"
+            || host == "www.x.com"
+            || host == "twitter.com"
+            || host == "www.twitter.com"
+            || host == "abs.twimg.com"
+            || host == "pbs.twimg.com"
+            || host == "video.twimg.com"
+    }
+
     private func reloadPolicyIfNeeded(force: Bool) {
         let now = Date()
         if !force, now.timeIntervalSince(lastPolicyReload) < policyReloadInterval {
@@ -730,6 +860,7 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
 
         let toggles = instagramToggleSnapshot()
         let tiktokToggles = tiktokToggleSnapshot()
+        let xToggles = xToggleSnapshot()
         if isInstagramReelsEnabled(toggles) {
             pruneInstagramMediaHints(now: now)
         } else {
@@ -740,6 +871,8 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
             "reels=\(toggles["reels"] == true) " +
             "strict_reels=\(toggles["strict_reels"] == true) " +
             "tiktok.video_block=\(tiktokToggles["video_block"] == true) " +
+            "x.feed_block=\(xToggles["feed_block"] == true) " +
+            "x.strict_feed_block=\(xToggles["strict_feed_block"] == true) " +
             "revision=\(cachedPolicy.revision) " +
             "writer=\(cachedPolicy.updatedBy) " +
             "all_toggles=\(cachedPolicy.appToggles) " +

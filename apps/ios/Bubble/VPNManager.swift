@@ -1202,12 +1202,16 @@ final class VPNManager: ObservableObject {
 
     private func shouldVPNBeOnFromPolicy() -> Bool {
         guard let data = sharedDefaults?.data(forKey: BubbleConstants.featurePolicyKey),
-              let policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
+              var policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
             return false
         }
-        let instagramOn = policy.appToggles["instagram"]?["reels"] == true
+        policy.mergeDefaults()
+        let instagramOn = policy.appToggles["instagram"]?["strict_reels"] == true ||
+            policy.appToggles["instagram"]?["reels"] == true
         let tiktokOn = policy.appToggles["tiktok"]?["video_block"] == true
-        return instagramOn || tiktokOn
+        let xOn = policy.appToggles["x"]?["feed_block"] == true ||
+            policy.appToggles["x"]?["strict_feed_block"] == true
+        return instagramOn || tiktokOn || xOn
     }
 
     private var manualOffRequested: Bool {
@@ -2030,9 +2034,10 @@ final class VPNManager: ObservableObject {
 
     private func renderPolicySummary() -> String {
         guard let data = sharedDefaults?.data(forKey: BubbleConstants.featurePolicyKey),
-              let policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
+              var policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
             return "featurePolicyV1 missing"
         }
+        policy.mergeDefaults()
 
         return [
             "revision=\(policy.revision)",

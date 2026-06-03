@@ -122,6 +122,7 @@ struct BubbleApp: App {
             .preferredColorScheme(.dark)
             .task {
                 SVGCache.shared.preload(svgNames: ["instagram", "kalshi", "fanduel"])
+                SVGCache.shared.preload(svgNames: ["home_mountains"], size: CGSize(width: 500, height: 280))
             }
             .task {
                 await authStore.listenForAuthChanges()
