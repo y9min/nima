@@ -77,7 +77,7 @@ struct HomeScreen: View {
             Color.clear.frame(height: layout.topPadding)
 
             HomeLogo()
-                .frame(width: layout.logoSize.width, height: layout.logoSize.height)
+                .frame(width: layout.logoSize.width * 0.9, height: layout.logoSize.height * 0.9)
 
             Color.clear.frame(height: layout.logoToGreeting)
 
@@ -149,17 +149,19 @@ struct HomeScreen: View {
     }
 
     private var blockingVPNState: BlockingVPNState {
-        guard !blockedAppIDs.isEmpty else { return .ready }
-
         switch vpnManager.vpnStatus {
         case .invalid:
-            return .permissionRequired
-        case .connected, .connecting, .reasserting:
-            return .ready
-        case .disconnected, .disconnecting:
-            return .starting
+            return blockedAppIDs.isEmpty ? .disconnected : .permissionRequired
+        case .disconnected:
+            return .disconnected
+        case .connecting, .reasserting:
+            return .connecting
+        case .connected:
+            return .connected
+        case .disconnecting:
+            return .disconnecting
         @unknown default:
-            return .starting
+            return .disconnected
         }
     }
 
@@ -241,11 +243,11 @@ private struct HomeGreeting: View {
     let scale: CGFloat
 
     private var titleSize: CGFloat {
-        min(40, max(30, 36 * scale))
+        min(36, max(27, 32.4 * scale))
     }
 
     private var subcopySize: CGFloat {
-        min(22, max(17, 20 * scale))
+        min(19.8, max(15.3, 18 * scale))
     }
 
     private var headlineFont: Font {
@@ -270,7 +272,7 @@ private struct HomeGreeting: View {
                     .minimumScaleFactor(0.74)
                     .overlay(alignment: .bottomLeading) {
                         LimeScribble()
-                            .frame(width: 92 * scale, height: 9 * scale)
+                            .frame(width: 82.8 * scale, height: 8.1 * scale)
                             .padding(.leading, 2)
                             .offset(y: 6 * scale)
                     }
@@ -337,7 +339,7 @@ private struct StreakCard: View {
                     headlineView
 
                     Text(supportingCopy)
-                        .font(BubbleFonts.coolvetica(size: 17 * visualScale))
+                        .font(BubbleFonts.coolvetica(size: 13.6 * visualScale))
                         .foregroundStyle(HomeDashboardPalette.muted.opacity(0.95))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
@@ -409,13 +411,13 @@ private struct StreakCard: View {
     private var headlineView: some View {
         if currentStreakDays > 0 {
             Text("\(currentStreakDays) day streak")
-                .font(.system(size: 29.7 * visualScale, weight: .semibold, design: .rounded))
+                .font(.system(size: 23.76 * visualScale, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.64)
         } else {
             Text("Start a streak")
-                .font(.system(size: 30 * visualScale, weight: .medium, design: .rounded))
+                .font(.system(size: 24 * visualScale, weight: .medium, design: .rounded))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)

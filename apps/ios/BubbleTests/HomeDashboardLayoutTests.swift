@@ -60,3 +60,67 @@ final class HomeDashboardLayoutTests: XCTestCase {
         XCTAssertTrue(layout.requiresScroll)
     }
 }
+
+final class BlockingRingStateTests: XCTestCase {
+    func testNoBlockedAppsShowsEmptyRingAndBlockCopy() {
+        let state = BlockingRingState(blockedAppIDs: [])
+
+        XCTAssertEqual(state, .empty)
+        XCTAssertFalse(state.isInstagramBlocked)
+        XCTAssertFalse(state.isTikTokBlocked)
+        XCTAssertFalse(state.hasBlockedApp)
+        XCTAssertEqual(state.centerTitle, "BLOCK")
+    }
+
+    func testInstagramBlockedLightsLeftHalf() {
+        let state = BlockingRingState(blockedAppIDs: ["instagram"])
+
+        XCTAssertEqual(state, .instagramOnly)
+        XCTAssertTrue(state.isInstagramBlocked)
+        XCTAssertFalse(state.isTikTokBlocked)
+        XCTAssertTrue(state.hasBlockedApp)
+        XCTAssertEqual(state.centerTitle, "BLOCK")
+    }
+
+    func testTikTokBlockedLightsRightHalf() {
+        let state = BlockingRingState(blockedAppIDs: ["tiktok"])
+
+        XCTAssertEqual(state, .tiktokOnly)
+        XCTAssertFalse(state.isInstagramBlocked)
+        XCTAssertTrue(state.isTikTokBlocked)
+        XCTAssertTrue(state.hasBlockedApp)
+        XCTAssertEqual(state.centerTitle, "BLOCK")
+    }
+
+    func testBothBlockedShowsFullRingAndUnblockCopy() {
+        let state = BlockingRingState(blockedAppIDs: ["instagram", "tiktok"])
+
+        XCTAssertEqual(state, .both)
+        XCTAssertTrue(state.isInstagramBlocked)
+        XCTAssertTrue(state.isTikTokBlocked)
+        XCTAssertTrue(state.hasBlockedApp)
+        XCTAssertEqual(state.centerTitle, "UNBLOCK")
+    }
+}
+
+final class BlockingConnectionIndicatorStateTests: XCTestCase {
+    func testDisconnectedVPNShowsDisconnectedIndicator() {
+        XCTAssertEqual(BlockingVPNState.disconnected.connectionIndicatorState, .disconnected)
+    }
+
+    func testConnectingVPNShowsTransitioningIndicator() {
+        XCTAssertEqual(BlockingVPNState.connecting.connectionIndicatorState, .transitioning)
+    }
+
+    func testDisconnectingVPNShowsTransitioningIndicator() {
+        XCTAssertEqual(BlockingVPNState.disconnecting.connectionIndicatorState, .transitioning)
+    }
+
+    func testConnectedVPNShowsConnectedIndicator() {
+        XCTAssertEqual(BlockingVPNState.connected.connectionIndicatorState, .connected)
+    }
+
+    func testPermissionRequiredShowsPermissionIndicator() {
+        XCTAssertEqual(BlockingVPNState.permissionRequired.connectionIndicatorState, .permissionRequired)
+    }
+}

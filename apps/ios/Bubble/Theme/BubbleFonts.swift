@@ -3,6 +3,14 @@ import SwiftUI
 enum BubbleFonts {
     // MARK: - Font Families
 
+    static func inter(size: CGFloat) -> Font {
+        .custom("InterVariable", size: size)
+    }
+
+    static func inter(size: CGFloat, weight: Font.Weight) -> Font {
+        .custom("InterVariable", size: size).weight(weight)
+    }
+
     static func pupok(size: CGFloat) -> Font {
         .custom("SKPupok-Solid", size: size)
     }
