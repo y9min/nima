@@ -47,6 +47,18 @@ final class AppStore {
         scheduleVPNReconciliation(triggerSource: source)
     }
 
+    func setScheduledBlockedAppIDs(_ appIDs: Set<String>, source: String = "time_windows") {
+        let didChange = optionsService.setScheduledBlockedAppIDs(appIDs, source: source)
+        refreshFromOptionsService()
+        if didChange {
+            scheduleVPNReconciliation(triggerSource: source)
+        }
+    }
+
+    func isAppScheduled(_ appId: String) -> Bool {
+        optionsService.isAppScheduled(appId)
+    }
+
     func configureVPNAutostart(startVPN: @escaping () -> Void, stopVPN: @escaping () -> Void, vpnStatus: @escaping () -> NEVPNStatus) {
         vpnStartHandler = startVPN
         vpnStopHandler = stopVPN

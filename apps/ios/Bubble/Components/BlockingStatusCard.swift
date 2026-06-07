@@ -6,6 +6,7 @@ struct BlockingDashboardApp: Identifiable, Equatable {
     let name: String
     let platform: String
     let isBlocked: Bool
+    var isScheduled: Bool = false
 }
 
 enum BlockingVPNState: Equatable {
@@ -111,6 +112,8 @@ struct BlockingStatusCard: View {
     let sessionEndsAt: Date?
     var onToggleApp: (String) -> Void
     var onRequestVPNPermission: () -> Void
+    var onAddTimeWindow: () -> Void = {}
+    var onEndScheduledWindow: (String) -> Void = { _ in }
 
     @State private var draggingAppID: String?
     @State private var dragOffsets: [String: CGSize] = [:]
@@ -203,13 +206,15 @@ struct BlockingStatusCard: View {
                         )
                     )
                     .onTapGesture {
-                        onToggleApp(app.id)
+                        if !app.isScheduled {
+                            onToggleApp(app.id)
+                        }
                     }
                     .accessibilityElement(children: .ignore)
                     .accessibilityIdentifier("bubble.app.\(app.id)")
                     .accessibilityLabel("\(app.name.capitalized) \(app.isBlocked ? "blocked" : "not blocked")")
                     .accessibilityValue(app.isBlocked ? "enabled" : "disabled")
-                    .accessibilityHint(app.isBlocked ? "Double tap, drag outward, or drag to the center to unblock" : "Double tap or drag to the center to block")
+                    .accessibilityHint(app.isScheduled ? "Drag outward or to the center to end the current window" : (app.isBlocked ? "Double tap, drag outward, or drag to the center to unblock" : "Double tap or drag to the center to block"))
 
                     if app.isBlocked, let label = blockedLabel(for: app) {
                         BlockedAppStatusPill(text: label, scale: layout.visualScale)
@@ -238,9 +243,12 @@ struct BlockingStatusCard: View {
                         .position(layout.timePillCenter)
                         .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 } else if mode == .idle {
-                    AddTimeWindowPill(scale: layout.visualScale)
-                        .position(layout.timePillCenter)
-                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                    Button(action: onAddTimeWindow) {
+                        AddTimeWindowPill(scale: layout.visualScale)
+                    }
+                    .buttonStyle(.plain)
+                    .position(layout.timePillCenter)
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 }
 
                 #if DEBUG
@@ -353,15 +361,20 @@ struct BlockingStatusCard: View {
                     value.translation.width * value.translation.width +
                     value.translation.height * value.translation.height
                 )
+                let isUnblockDrag = droppedInTarget || (
+                    app.isBlocked && isOutwardUnlockDrag(
+                        translation: value.translation,
+                        startCenter: startCenter,
+                        targetCenter: targetCenter
+                    ) && dragDistance > 24
+                )
 
-                if droppedInTarget {
-                    onToggleApp(app.id)
-                } else if app.isBlocked && isOutwardUnlockDrag(
-                    translation: value.translation,
-                    startCenter: startCenter,
-                    targetCenter: targetCenter
-                ) && dragDistance > 24 {
-                    onToggleApp(app.id)
+                if isUnblockDrag {
+                    if app.isScheduled {
+                        onEndScheduledWindow(app.id)
+                    } else {
+                        onToggleApp(app.id)
+                    }
                 }
 
                 withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
@@ -706,7 +719,7 @@ struct TimeRemainingPill: View {
 
     private func remainingText(at date: Date) -> String {
         let remaining = max(0, endDate.timeIntervalSince(date))
-        let totalMinutes = Int(remaining / 60)
+        let totalMinutes = Int(ceil(remaining / 60))
         let hours = totalMinutes / 60
         let minutes = totalMinutes % 60
 
@@ -808,18 +821,15 @@ struct RadialBlockDial: View {
                     .frame(width: size * 0.78, height: size * 0.78)
                     .blur(radius: 0.5)
 
-                if ringState.isTikTokBlocked {
+                if ringState == .both {
+                    activeRing(size: size, lineWidth: activeRingWidth)
+                        .transition(.opacity)
+                } else if ringState.isTikTokBlocked {
                     activeHalfRing(from: 0, to: 0.5, size: size, lineWidth: activeRingWidth)
                         .transition(.opacity)
-                }
-
-                if ringState.isInstagramBlocked {
+                } else if ringState.isInstagramBlocked {
                     activeHalfRing(from: 0.5, to: 1, size: size, lineWidth: activeRingWidth)
                         .transition(.opacity)
-                }
-
-                if ringState == .both {
-                    ringJoinHighlights(size: size, lineWidth: activeRingWidth)
                 }
 
                 Circle()
@@ -924,33 +934,35 @@ struct RadialBlockDial: View {
         }
     }
 
-    private func ringJoinHighlights(size: CGFloat, lineWidth: CGFloat) -> some View {
+    private func activeRing(size: CGFloat, lineWidth: CGFloat) -> some View {
         let ringDiameter = size * 0.78
+        let strokeStyle = StrokeStyle(lineWidth: lineWidth, lineCap: .round)
 
         return ZStack {
-            joinHighlight(lineWidth: lineWidth)
-                .offset(y: -ringDiameter / 2)
+            Circle()
+                .stroke(BlockingCardStyle.accent.opacity(0.64), style: strokeStyle)
+                .frame(width: ringDiameter, height: ringDiameter)
+                .blur(radius: 10)
+                .opacity(isDropTargeted ? 0.72 : 0.52)
 
-            joinHighlight(lineWidth: lineWidth)
-                .offset(y: ringDiameter / 2)
-        }
-    }
-
-    private func joinHighlight(lineWidth: CGFloat) -> some View {
-        Capsule()
-            .fill(
-                LinearGradient(
-                    colors: [
-                        .white.opacity(0.28),
-                        BlockingCardStyle.accentHot.opacity(0.16),
-                        .white.opacity(0.18)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
+            Circle()
+                .stroke(
+                    AngularGradient(
+                        colors: [
+                            BlockingCardStyle.accentHot,
+                            BlockingCardStyle.accent,
+                            BlockingCardStyle.accentHot,
+                            BlockingCardStyle.accent
+                        ],
+                        center: .center,
+                        startAngle: .degrees(-90),
+                        endAngle: .degrees(270)
+                    ),
+                    style: strokeStyle
                 )
-            )
-            .frame(width: lineWidth * 0.72, height: lineWidth * 2.2)
-            .blur(radius: 0.35)
+                .frame(width: ringDiameter, height: ringDiameter)
+                .shadow(color: BlockingCardStyle.accent.opacity(0.52), radius: 8)
+        }
     }
 
 }

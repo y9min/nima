@@ -24,6 +24,7 @@ targets:
     platform: iOS
     sources:
       - path: Bubble
+      - path: Shared
     dependencies:
       - package: Supabase
       - target: BubbleTunnel
@@ -64,6 +65,7 @@ targets:
     platform: iOS
     sources:
       - BubbleTunnel
+      - Shared/TimeWindowCore.swift
     dependencies:
       - package: Tun2SocksKit
       - sdk: NetworkExtension.framework
@@ -97,6 +99,7 @@ targets:
       - path: BubbleTunnel/TrafficStats.swift
       - path: BubbleTunnel/TunnelLogger.swift
       - path: BubbleTunnel/UDPControlStreamDecoder.swift
+      - path: Shared/TimeWindowCore.swift
     dependencies:
       - package: Tun2SocksKit
     settings:

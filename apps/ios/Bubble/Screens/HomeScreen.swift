@@ -4,16 +4,21 @@ import UIKit
 
 struct HomeScreen: View {
     @Environment(AppStore.self) private var store
+    @Environment(TimeWindowStore.self) private var timeWindowStore
     @Environment(AuthStore.self) private var authStore
     @Environment(\.sizeCategory) private var contentSizeCategory
     @EnvironmentObject private var vpnManager: VPNManager
     @State private var blockSessionEndsAt: Date?
     @State private var blockSessionStartedAt: Date?
+    @State private var appIDPendingWindowEnd: String?
 
     var onSelectApp: (BlockedApp) -> Void
+    var onTimeWindows: (() -> Void)? = nil
+    var onAddTimeWindow: (() -> Void)? = nil
     var onSignIn: (() -> Void)? = nil
     var onSettings: (() -> Void)? = nil
     var onTrafficDashboard: (() -> Void)? = nil
+    var showsDock = true
 
     var body: some View {
         GeometryReader { proxy in
@@ -52,14 +57,17 @@ struct HomeScreen: View {
                     #endif
                 }
 
-                HomeBottomDock(
-                    scale: layout.scale,
-                    onHome: {},
-                    onLimits: openLimits,
-                    onSettings: { onSettings?() }
-                )
-                .frame(width: layout.contentWidth, height: layout.dockHeight)
-                .padding(.bottom, layout.dockBottomPadding)
+                if showsDock {
+                    AppBottomDock(
+                        selected: .home,
+                        scale: layout.scale,
+                        onHome: {},
+                        onWindows: openLimits,
+                        onSettings: { onSettings?() }
+                    )
+                    .frame(width: layout.contentWidth, height: layout.dockHeight)
+                    .padding(.bottom, layout.dockBottomPadding)
+                }
             }
         }
         .navigationBarBackButtonHidden(true)
@@ -69,6 +77,19 @@ struct HomeScreen: View {
         }
         .onChange(of: blockedAppIDs) { _, _ in
             syncSessionEndDate()
+        }
+        .alert("End current window?", isPresented: isShowingEndWindowConfirmation) {
+            Button("End Window", role: .destructive) {
+                if let appIDPendingWindowEnd {
+                    timeWindowStore.endActiveWindow(for: appIDPendingWindowEnd)
+                }
+                appIDPendingWindowEnd = nil
+            }
+            Button("Cancel", role: .cancel) {
+                appIDPendingWindowEnd = nil
+            }
+        } message: {
+            Text("This will end the current window. You can pause it instead in the windows tab.")
         }
     }
 
@@ -81,7 +102,7 @@ struct HomeScreen: View {
 
             Color.clear.frame(height: layout.logoToGreeting)
 
-            HomeGreeting(name: displayName, scale: layout.scale)
+            HomeGreeting(name: displayName, scale: layout.scale, scheduleSummary: timeWindowStore.activeSummary)
                 .frame(width: layout.contentWidth, height: layout.greetingHeight, alignment: .leading)
 
             Color.clear.frame(height: layout.greetingToBlocker)
@@ -89,12 +110,18 @@ struct HomeScreen: View {
             BlockingStatusCard(
                 apps: dashboardApps,
                 vpnState: blockingVPNState,
-                sessionEndsAt: blockSessionEndsAt,
+                sessionEndsAt: blockerSessionEndsAt,
                 onToggleApp: { appId in
                     toggleBlockState(for: appId)
                 },
                 onRequestVPNPermission: {
                     requestVPNPermission()
+                },
+                onAddTimeWindow: {
+                    openAddTimeWindow()
+                },
+                onEndScheduledWindow: { appID in
+                    appIDPendingWindowEnd = appID
                 }
             )
             .frame(width: layout.contentWidth, height: layout.blockerHeight)
@@ -114,11 +141,13 @@ struct HomeScreen: View {
     private var dashboardApps: [BlockingDashboardApp] {
         ["instagram", "tiktok"].compactMap { appId in
             guard let app = store.app(for: appId) else { return nil }
+            let isScheduled = timeWindowStore.isAppScheduled(app.id)
             return BlockingDashboardApp(
                 id: app.id,
                 name: app.name,
                 platform: app.platform ?? app.id,
-                isBlocked: app.options.contains { $0.isEnabled }
+                isBlocked: app.options.contains { $0.isEnabled } || isScheduled,
+                isScheduled: isScheduled
             )
         }
     }
@@ -128,6 +157,21 @@ struct HomeScreen: View {
             .filter { $0.isBlocked }
             .map(\.id)
             .sorted()
+    }
+
+    private var isShowingEndWindowConfirmation: Binding<Bool> {
+        Binding(
+            get: { appIDPendingWindowEnd != nil },
+            set: { isPresented in
+                if !isPresented {
+                    appIDPendingWindowEnd = nil
+                }
+            }
+        )
+    }
+
+    private var blockerSessionEndsAt: Date? {
+        timeWindowStore.soonestActiveWindowEndDate() ?? blockSessionEndsAt
     }
 
     private var displayName: String {
@@ -170,6 +214,9 @@ struct HomeScreen: View {
               let optionId = app.options.first?.id else {
             return
         }
+        guard !timeWindowStore.isAppScheduled(appId), !store.isAppScheduled(appId) else {
+            return
+        }
 
         let isCurrentlyBlocked = app.options.contains { $0.isEnabled }
         if !isCurrentlyBlocked && vpnManager.vpnStatus == .invalid {
@@ -206,41 +253,27 @@ struct HomeScreen: View {
     }
 
     private func openLimits() {
-        if let app = store.app(for: "instagram") {
-            onSelectApp(app)
-        }
+        onTimeWindows?()
+    }
+
+    private func openAddTimeWindow() {
+        onAddTimeWindow?()
     }
 }
 
 private enum HomeDashboardPalette {
-    static let background = Color(red: 0.0, green: 0.118, blue: 0.067)
-    static let card = Color(red: 0.004, green: 0.102, blue: 0.059)
-    static let border = Color(red: 0.282, green: 0.376, blue: 0.333)
-    static let accent = Color(red: 0.675, green: 0.867, blue: 0.137)
-    static let muted = Color(red: 0.647, green: 0.682, blue: 0.624)
-    static let dock = Color(red: 0.016, green: 0.141, blue: 0.082).opacity(0.78)
-}
-
-private struct HomeLogo: View {
-    var body: some View {
-        Group {
-            if let image = UIImage.homeDashboardResource(named: "nima_logo", fileExtension: "png") {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-            } else {
-                Text("nima")
-                    .font(.system(size: 52, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-            }
-        }
-        .accessibilityLabel("nima")
-    }
+    static let background = AppChromePalette.background
+    static let card = AppChromePalette.card
+    static let border = AppChromePalette.border
+    static let accent = AppChromePalette.accent
+    static let muted = AppChromePalette.muted
+    static let dock = AppChromePalette.dock
 }
 
 private struct HomeGreeting: View {
     let name: String
     let scale: CGFloat
+    let scheduleSummary: String?
 
     private var titleSize: CGFloat {
         min(36, max(27, 32.4 * scale))
@@ -279,7 +312,7 @@ private struct HomeGreeting: View {
                     .padding(.bottom, 5 * scale)
             }
 
-            Text("you’re keeping social,\nnot scrolling")
+            Text(scheduleSummary ?? "you’re keeping social,\nnot scrolling")
                 .font(.system(size: subcopySize, weight: .regular, design: .rounded))
                 .foregroundStyle(HomeDashboardPalette.muted.opacity(0.92))
                 .lineSpacing(-2)
@@ -594,138 +627,6 @@ private struct StreakBadgeSparkles: View {
     }
 }
 
-private struct HomeBottomDock: View {
-    let scale: CGFloat
-    let onHome: () -> Void
-    let onLimits: () -> Void
-    let onSettings: () -> Void
-
-    private var visualScale: CGFloat {
-        min(1.08, max(0.9, scale))
-    }
-
-    var body: some View {
-        HStack {
-            dockItem(label: "home", icon: "house", isSelected: true, action: onHome)
-            dockItem(label: "limits", icon: "clock", isSelected: false, action: onLimits)
-            dockItem(label: "settings", icon: "gearshape", isSelected: false, action: onSettings)
-        }
-        .padding(.horizontal, 30 * visualScale)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            LiquidGlassDockBackground(cornerRadius: 24 * visualScale)
-        )
-    }
-
-    private func dockItem(label: String, icon: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 3 * visualScale) {
-                Image(systemName: icon)
-                    .font(.system(size: 22 * visualScale, weight: .medium))
-                Text(label)
-                    .font(BubbleFonts.coolvetica(size: 13.5 * visualScale))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .foregroundStyle(isSelected ? HomeDashboardPalette.accent : HomeDashboardPalette.muted)
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct LiquidGlassDockBackground: View {
-    let cornerRadius: CGFloat
-
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-    }
-
-    @ViewBuilder
-    var body: some View {
-        Group {
-            if #available(iOS 26.0, *) {
-                ios26Glass
-            } else {
-                fallbackGlass
-            }
-        }
-        .overlay(
-            shape
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(0.22),
-                            HomeDashboardPalette.accent.opacity(0.18),
-                            .black.opacity(0.1)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-        )
-        .overlay(alignment: .top) {
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [.white.opacity(0.28), .white.opacity(0.03)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(height: 1.2)
-                .padding(.horizontal, 28)
-                .padding(.top, 2)
-        }
-        .shadow(color: .black.opacity(0.24), radius: 26, y: 12)
-        .shadow(color: HomeDashboardPalette.accent.opacity(0.08), radius: 18, y: -2)
-    }
-
-    @available(iOS 26.0, *)
-    private var ios26Glass: some View {
-        shape
-            .fill(.clear)
-            .glassEffect(
-                .regular
-                    .tint(HomeDashboardPalette.dock.opacity(0.58))
-                    .interactive(),
-                in: shape
-            )
-            .overlay(
-                shape.fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.08),
-                            HomeDashboardPalette.card.opacity(0.48),
-                            HomeDashboardPalette.dock.opacity(0.36)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            )
-    }
-
-    private var fallbackGlass: some View {
-        shape
-            .fill(.ultraThinMaterial)
-            .overlay(
-                shape.fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.06),
-                            HomeDashboardPalette.dock.opacity(0.86),
-                            HomeDashboardPalette.card.opacity(0.7)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            )
-    }
-}
-
 #if DEBUG
 private struct HomeDashboardDebugOverlay: View {
     let layout: HomeDashboardLayout
@@ -762,21 +663,10 @@ private struct HomeDashboardDebugOverlay: View {
 }
 #endif
 
-private extension UIImage {
-    static func homeDashboardResource(named name: String, fileExtension: String) -> UIImage? {
-        if let image = UIImage(named: name) {
-            return image
-        }
-        guard let path = Bundle.main.path(forResource: name, ofType: fileExtension) else {
-            return nil
-        }
-        return UIImage(contentsOfFile: path)
-    }
-}
-
 #Preview {
     HomeScreen(onSelectApp: { _ in }, onSignIn: {})
         .environment(AppStore())
+        .environment(TimeWindowStore())
         .environment(GridPositionStore())
         .environment(AuthStore())
         .environmentObject(VPNManager())

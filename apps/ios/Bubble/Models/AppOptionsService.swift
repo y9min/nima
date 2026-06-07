@@ -168,13 +168,15 @@ final class AppOptionsService {
     static let shared = AppOptionsService()
 
     private var cachedData: [String: AppOptionsData] = [:]
-    private var optionStates: [String: [String: Bool]] = [:] // appId -> optionId -> isSelected
+    private var optionStates: [String: [String: Bool]] = [:] // effective appId -> optionId -> isSelected
+    private var manualPolicy: FeaturePolicyV1 = .defaultPolicy()
+    private var scheduledAppIDs: Set<String> = []
     private let defaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
 
     private init() {
         loadData()
         loadSavedStates()
-        syncFeaturePolicyIfMissing()
+        persistEffectivePolicy(updatedBy: "app.options.init")
     }
 
     func loadData() {
@@ -196,39 +198,24 @@ final class AppOptionsService {
     }
 
     private func loadSavedStates() {
-        if let policyData = defaults?.data(forKey: BubbleConstants.featurePolicyKey),
-           let policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: policyData) {
-            var mergedPolicy = policy
-            let shouldPersistMigration = policy.appToggles["instagram"]?["reels"] == true
-            mergedPolicy.mergeDefaults()
-            if shouldPersistMigration {
-                mergedPolicy.bumpRevision(updatedBy: "app.options.migrate_strict_reels")
-                persistPolicy(mergedPolicy)
-            }
-            for (appId, states) in mergedPolicy.appToggles {
-                if optionStates[appId] == nil {
-                    optionStates[appId] = [:]
-                }
-                for (optionId, isSelected) in states {
-                    optionStates[appId]?[optionId] = isSelected
-                }
-            }
-            return
+        let persistedManual = loadPersistedPolicy(forKey: BubbleConstants.manualFeaturePolicyKey)
+        let legacyEffective = loadPersistedPolicy(forKey: BubbleConstants.featurePolicyKey)
+        var loadedPolicy = persistedManual ?? legacyEffective ?? FeaturePolicyV1.defaultPolicy()
+        let shouldPersistMigration = loadedPolicy.appToggles["instagram"]?["reels"] == true
+
+        loadedPolicy.mergeDefaults()
+        if shouldPersistMigration || persistedManual == nil {
+            loadedPolicy.bumpRevision(updatedBy: persistedManual == nil ? "app.options.bootstrap_manual" : "app.options.migrate_strict_reels")
         }
+
+        manualPolicy = loadedPolicy
+        persistManualPolicy()
     }
 
-    private func syncFeaturePolicyIfMissing() {
-        guard defaults?.data(forKey: BubbleConstants.featurePolicyKey) == nil else { return }
-        var policy = FeaturePolicyV1.defaultPolicy()
-        policy.mergeDefaults()
-        policy.bumpRevision(updatedBy: "app.options.bootstrap")
-        persistPolicy(policy)
-    }
-
-    private func loadFeaturePolicy() -> FeaturePolicyV1 {
-        guard let data = defaults?.data(forKey: BubbleConstants.featurePolicyKey),
+    private func loadPersistedPolicy(forKey key: String) -> FeaturePolicyV1? {
+        guard let data = defaults?.data(forKey: key),
               let decoded = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
-            return .defaultPolicy()
+            return nil
         }
         var policy = decoded
         policy.mergeDefaults()
@@ -256,35 +243,90 @@ final class AppOptionsService {
         if optionStates[appId] == nil {
             optionStates[appId] = [:]
         }
-        var policy = loadFeaturePolicy()
         let effectiveOptionId = appId == "instagram" && optionId == "reels" ? "strict_reels" : optionId
-        let currentState = policy.appToggles[appId]?[effectiveOptionId] ?? false
+        let currentState = manualPolicy.appToggles[appId]?[effectiveOptionId] ?? false
         let newState = !currentState
-        policy.set(appId: appId, optionId: effectiveOptionId, isEnabled: newState)
+        manualPolicy.set(appId: appId, optionId: effectiveOptionId, isEnabled: newState)
         if appId == "instagram" {
-            policy.set(appId: appId, optionId: "reels", isEnabled: false)
+            manualPolicy.set(appId: appId, optionId: "reels", isEnabled: false)
         }
-        policy.mergeDefaults()
-        policy.bumpRevision(updatedBy: "app.options.toggle")
-        persistPolicy(policy)
-        if let updatedStates = policy.appToggles[appId] {
-            for (updatedOptionId, isEnabled) in updatedStates {
-                optionStates[appId]?[updatedOptionId] = isEnabled
-            }
-        }
+        manualPolicy.mergeDefaults()
+        manualPolicy.bumpRevision(updatedBy: "app.options.toggle")
+        persistManualPolicy()
+        let effectivePolicy = persistEffectivePolicy(updatedBy: "app.options.toggle")
         AppDiagnosticsLogger.log(
-            "OPTION_TOGGLE app=\(appId) option=\(optionId) new_state=\(newState) revision=\(policy.revision) source=\(source)"
+            "OPTION_TOGGLE app=\(appId) option=\(optionId) manual_state=\(newState) effective_revision=\(effectivePolicy.revision) source=\(source)"
         )
     }
 
-    private func persistPolicy(_ policy: FeaturePolicyV1) {
+    @discardableResult
+    func setScheduledBlockedAppIDs(_ appIDs: Set<String>, source: String = "time_windows") -> Bool {
+        let normalized = appIDs.intersection(["instagram", "tiktok"])
+        guard normalized != scheduledAppIDs else { return false }
+        scheduledAppIDs = normalized
+        let effectivePolicy = persistEffectivePolicy(updatedBy: source)
+        AppDiagnosticsLogger.log(
+            "SCHEDULED_BLOCKERS apps=\(normalized.sorted()) effective_revision=\(effectivePolicy.revision) source=\(source)"
+        )
+        return true
+    }
+
+    func isAppScheduled(_ appId: String) -> Bool {
+        scheduledAppIDs.contains(appId)
+    }
+
+    func isOptionManuallySelected(appId: String, optionId: String) -> Bool {
+        let effectiveOptionId = appId == "instagram" && optionId == "reels" ? "strict_reels" : optionId
+        return manualPolicy.appToggles[appId]?[effectiveOptionId] ?? false
+    }
+
+    @discardableResult
+    private func persistEffectivePolicy(updatedBy: String) -> FeaturePolicyV1 {
+        var effectivePolicy = manualPolicy
+        applyScheduledApps(to: &effectivePolicy)
+        effectivePolicy.mergeDefaults()
+        let currentRevision = loadPersistedPolicy(forKey: BubbleConstants.featurePolicyKey)?.revision ?? 0
+        effectivePolicy.revision = max(currentRevision, manualPolicy.revision) + 1
+        effectivePolicy.updatedAt = Date().timeIntervalSince1970
+        effectivePolicy.updatedBy = updatedBy
+        persistPolicy(effectivePolicy, forKey: BubbleConstants.featurePolicyKey)
+        refreshOptionStates(from: effectivePolicy)
+        return effectivePolicy
+    }
+
+    private func persistManualPolicy() {
+        persistPolicy(manualPolicy, forKey: BubbleConstants.manualFeaturePolicyKey)
+    }
+
+    private func persistPolicy(_ policy: FeaturePolicyV1, forKey key: String) {
         if let data = try? JSONEncoder().encode(policy) {
-            defaults?.set(data, forKey: BubbleConstants.featurePolicyKey)
+            defaults?.set(data, forKey: key)
         }
     }
 
     func isOptionSelected(appId: String, optionId: String) -> Bool {
         return optionStates[appId]?[optionId] ?? false
+    }
+
+    private func refreshOptionStates(from policy: FeaturePolicyV1) {
+        for (appId, states) in policy.appToggles {
+            if optionStates[appId] == nil {
+                optionStates[appId] = [:]
+            }
+            for (optionId, isSelected) in states {
+                optionStates[appId]?[optionId] = isSelected
+            }
+        }
+    }
+
+    private func applyScheduledApps(to policy: inout FeaturePolicyV1) {
+        if scheduledAppIDs.contains("instagram") {
+            policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+            policy.set(appId: "instagram", optionId: "reels", isEnabled: false)
+        }
+        if scheduledAppIDs.contains("tiktok") {
+            policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        }
     }
 }
 

@@ -5,10 +5,12 @@ struct BubbleApp: App {
     @StateObject private var vpnManager = VPNManager()
     @State private var path = NavigationPath()
     @State private var store = AppStore()
+    @State private var timeWindowStore = TimeWindowStore()
     @State private var gridPositionStore = GridPositionStore()
     @State private var authStore = AuthStore()
 
     init() {
+        TimeWindowNotificationCoordinator.shared.install()
         let sharedDefaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
         Self.migrateUDPSelectiveSafeModeDefault(sharedDefaults)
         sharedDefaults?.register(defaults: [
@@ -58,7 +60,7 @@ struct BubbleApp: App {
     var body: some Scene {
         WindowGroup {
             NavigationStack(path: $path) {
-                HomeScreen(
+                MainTabsScreen(
                     onSelectApp: { app in
                         path.append(Route.blockingOptions(appId: app.id))
                     },
@@ -75,7 +77,7 @@ struct BubbleApp: App {
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case .home:
-                        HomeScreen(
+                        MainTabsScreen(
                             onSelectApp: { app in
                                 path.append(Route.blockingOptions(appId: app.id))
                             },
@@ -89,6 +91,15 @@ struct BubbleApp: App {
                                 path.append(Route.trafficDashboard)
                             }
                         )
+                    case .timeWindows:
+                        TimeWindowsScreen(
+                            onHome: {
+                                path = NavigationPath()
+                            },
+                            onSettings: {
+                                path.append(Route.settings)
+                            }
+                        )
                     case .blockingOptions(let appId):
                         BlockingOptionsScreen(appId: appId)
                     case .magicSignIn:
@@ -98,13 +109,11 @@ struct BubbleApp: App {
                             },
                             onDemoLogin: {
                                 path = NavigationPath()
-                                path.append(Route.home)
                             }
                         )
                     case .codeVerification(let email):
                         CodeVerificationScreen(email: email, onVerified: {
                             path = NavigationPath()
-                            path.append(Route.home)
                         })
                     case .settings:
                         SettingsScreen()
@@ -116,6 +125,7 @@ struct BubbleApp: App {
                 }
             }
             .environment(store)
+            .environment(timeWindowStore)
             .environment(gridPositionStore)
             .environment(authStore)
             .environmentObject(vpnManager)
@@ -133,6 +143,17 @@ struct BubbleApp: App {
                     startVPN: { vpnManager.startVPN(source: "app_store.autostart") },
                     stopVPN: { vpnManager.stopVPN(source: "app_store.autostop") },
                     vpnStatus: { vpnManager.vpnStatus }
+                )
+                timeWindowStore.configure(
+                    applyScheduledApps: { appIDs, source in
+                        store.setScheduledBlockedAppIDs(appIDs, source: source)
+                    },
+                    startProtection: { source in
+                        vpnManager.startVPN(source: source)
+                    },
+                    requestHomeFocus: {
+                        path = NavigationPath()
+                    }
                 )
             }
         }

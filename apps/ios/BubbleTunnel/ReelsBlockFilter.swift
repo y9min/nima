@@ -143,7 +143,7 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
 
     private let sharedDefaults: UserDefaults?
     private var cachedPolicy: FeaturePolicyV1 = .defaultPolicy()
-    private var highestSeenPolicyRevision = 0
+    private var highestSeenPolicyRevisions: [String: Int] = [:]
     private var lastPolicyReload = Date.distantPast
     private let policyReloadInterval: TimeInterval = 1.0
     private var policyDecisionSuppression: [String: (lastSeen: Date, suppressedHits: Int)] = [:]
@@ -833,28 +833,15 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
         lastPolicyReload = now
 
         var policySource = "cached"
-        if let data = sharedDefaults?.data(forKey: BubbleConstants.featurePolicyKey) {
-            if let decoded = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) {
-                var merged = decoded
-                merged.mergeDefaults()
-                if merged.revision < highestSeenPolicyRevision {
-                    TunnelLogger.shared.log(
-                        "POLICY RELOAD: stale revision rejected incoming=\(merged.revision) highest=\(highestSeenPolicyRevision) writer=\(merged.updatedBy)"
-                    )
-                } else {
-                    cachedPolicy = merged
-                    highestSeenPolicyRevision = merged.revision
-                    policySource = "featurePolicyV1"
-                }
-            } else {
-                TunnelLogger.shared.log("POLICY RELOAD: featurePolicyV1 decode failed; keeping cached policy")
-            }
+        if let loadedPolicy = loadCurrentPolicy(now: now) {
+            cachedPolicy = loadedPolicy.policy
+            policySource = loadedPolicy.source
         } else {
             if force {
                 cachedPolicy = .defaultPolicy()
                 policySource = "default_policy"
             } else {
-                TunnelLogger.shared.log("POLICY RELOAD: featurePolicyV1 missing; keeping cached policy")
+                TunnelLogger.shared.log("POLICY RELOAD: policy missing; keeping cached policy")
             }
         }
 
@@ -878,5 +865,87 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
             "all_toggles=\(cachedPolicy.appToggles) " +
             "source=\(policySource)"
         )
+    }
+
+    private func loadCurrentPolicy(now: Date) -> (policy: FeaturePolicyV1, source: String)? {
+        let manual = loadPolicy(forKey: BubbleConstants.manualFeaturePolicyKey)
+        let effectiveFallback = loadPolicy(forKey: BubbleConstants.featurePolicyKey)
+        let policyKey = manual == nil ? BubbleConstants.featurePolicyKey : BubbleConstants.manualFeaturePolicyKey
+        guard var policy = manual ?? effectiveFallback else { return nil }
+        guard acceptsPolicyRevision(policy, forKey: policyKey) else { return nil }
+
+        let pauseAll = sharedDefaults?.bool(forKey: BubbleConstants.timeWindowsPauseAllKey) ?? false
+        let windows = loadTimeWindows()
+        let endedWindowIDs = loadEndedWindowIDs(now: now)
+        let scheduledAppIDs = TimeWindowScheduleEvaluator.scheduledAppIDs(
+            from: windows,
+            now: now,
+            pauseAll: pauseAll,
+            endedWindowIDs: endedWindowIDs
+        )
+        applyScheduledApps(scheduledAppIDs, to: &policy)
+        policy.mergeDefaults()
+
+        if !scheduledAppIDs.isEmpty {
+            policy.updatedBy = "tunnel.time_windows"
+        }
+
+        let source = [
+            manual == nil ? "featurePolicyV1" : "manualFeaturePolicyV1",
+            scheduledAppIDs.isEmpty ? nil : "timeWindows=\(scheduledAppIDs.sorted().joined(separator: ","))",
+            pauseAll ? "pauseAll=true" : nil
+        ]
+        .compactMap { $0 }
+        .joined(separator: "+")
+        return (policy, source)
+    }
+
+    private func acceptsPolicyRevision(_ policy: FeaturePolicyV1, forKey key: String) -> Bool {
+        let highestSeen = highestSeenPolicyRevisions[key] ?? Int.min
+        guard policy.revision >= highestSeen else {
+            TunnelLogger.shared.log(
+                "POLICY RELOAD: ignoring stale \(key) revision=\(policy.revision) highest_seen=\(highestSeen) writer=\(policy.updatedBy)"
+            )
+            return false
+        }
+        highestSeenPolicyRevisions[key] = policy.revision
+        return true
+    }
+
+    private func loadPolicy(forKey key: String) -> FeaturePolicyV1? {
+        guard let data = sharedDefaults?.data(forKey: key) else { return nil }
+        guard let decoded = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
+            TunnelLogger.shared.log("POLICY RELOAD: \(key) decode failed")
+            return nil
+        }
+        var policy = decoded
+        policy.mergeDefaults()
+        return policy
+    }
+
+    private func loadTimeWindows() -> [TimeWindow] {
+        guard let data = sharedDefaults?.data(forKey: BubbleConstants.timeWindowsKey) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([TimeWindow].self, from: data)) ?? []
+    }
+
+    private func loadEndedWindowIDs(now: Date) -> Set<String> {
+        guard let stored = sharedDefaults?.dictionary(forKey: BubbleConstants.timeWindowsEndedUntilKey) as? [String: TimeInterval] else {
+            return []
+        }
+        return Set(stored.compactMap { windowID, endTimestamp in
+            endTimestamp > now.timeIntervalSince1970 ? windowID : nil
+        })
+    }
+
+    private func applyScheduledApps(_ appIDs: Set<String>, to policy: inout FeaturePolicyV1) {
+        if appIDs.contains("instagram") {
+            policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+            policy.set(appId: "instagram", optionId: "reels", isEnabled: false)
+        }
+        if appIDs.contains("tiktok") {
+            policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        }
     }
 }

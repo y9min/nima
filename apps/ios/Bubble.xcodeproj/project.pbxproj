@@ -15,8 +15,10 @@
 		1745DD2428B33688DEE75E4D /* UDPControlStreamDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7831C0FFFBDC9598861EA2C /* UDPControlStreamDecoder.swift */; };
 		175B55D8F51D048B9FEFF95B /* BlockedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64DB7E7C0A427B4897386603 /* BlockedApp.swift */; };
 		1B08C1D1E4F938FD85DF35F0 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 445A2945A3CB5B3A7B942D72 /* PacketTunnelProvider.swift */; };
+		1B0F445A404C069E94CF65C4 /* TimeWindowStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F6E89613AD57D1454C5219 /* TimeWindowStore.swift */; };
 		1FDC9A48B273F1E91F3216E3 /* LandingPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DECDACBEC0EF265C1407E1A /* LandingPage.swift */; };
 		2432B603BEB1AAC5017E8F44 /* HarnessScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20345791A014E523FE297C46 /* HarnessScenarioTests.swift */; };
+		2645E2B1DF020C3950113C23 /* TimeWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF64A7F1BEAFEC1BD3A79328 /* TimeWindowTests.swift */; };
 		26827D46EC95D3B01646A294 /* SK Pupok Solid 400.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A3FA39A10AAC758E79448541 /* SK Pupok Solid 400.ttf */; };
 		277E9995B4CE17920C7359B3 /* AppCluster.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C4502521522E3E2BE93F73 /* AppCluster.swift */; };
 		280BFBB48D2EC57A67614BEF /* BubbleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51B12D2A976C53EEB139FC50 /* BubbleApp.swift */; };
@@ -24,6 +26,9 @@
 		29C03421B2FA898846150362 /* BubbleConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E39F390556A0370CDEDBCA /* BubbleConstants.swift */; };
 		2B09EAA1E3FBC07F48AD7BCB /* TunnelLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEA7BE93263D6CD81892233 /* TunnelLogger.swift */; };
 		3422D1868715CE563B813F46 /* PageIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B814D56804DA2A853F0CC7 /* PageIndicator.swift */; };
+		36E4D2232065D5D4B8FA6990 /* EmojiCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 444A7DDCA8B8BA12DCC540D4 /* EmojiCatalog.swift */; };
+		38F2D4FAF5CC09E6302008DA /* home_tiktok_blocking_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = F0AFDCF4802F366B72A9A6CA /* home_tiktok_blocking_icon.png */; };
+		398FC437ADA81901008DB06E /* emoji_catalog.tsv in Resources */ = {isa = PBXBuildFile; fileRef = F541CAC2E2A9AB648D401824 /* emoji_catalog.tsv */; };
 		3AC691E9CD1580465E66E643 /* HexCoordinate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9432F97BCE16A023A0A8E1EC /* HexCoordinate.swift */; };
 		3D24A9C6B91CA4CF08C13CA6 /* HomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97236875B7F5FA2B9FE201A3 /* HomeScreen.swift */; };
 		3EBF87D830A1629BCEB7B827 /* BubbleSpacing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2657A23991F8E73241EC8D2A /* BubbleSpacing.swift */; };
@@ -35,6 +40,7 @@
 		55B0C1B5A6CF3AA8C6AEF432 /* AppOptionArcs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B4EC3C0F908E65D671403F /* AppOptionArcs.swift */; };
 		55B9C498EF03C4B9380E9BA0 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E46F6CBC4504443A3E050DE /* AppStore.swift */; };
 		55D4EC2A401DF52521899789 /* home_mountains.svg in Resources */ = {isa = PBXBuildFile; fileRef = 8643A73D520CEDB8B864F283 /* home_mountains.svg */; };
+		570E6CC63ED329CC3923960D /* AppChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD0F0FEE8BB2598F0C7DE05 /* AppChrome.swift */; };
 		5C89AF10E0C29C7AD7F8F06B /* generate_app_icons.sh in Resources */ = {isa = PBXBuildFile; fileRef = FD7690CC40D5611A9C232A9E /* generate_app_icons.sh */; };
 		5E51D90B00405BF5451CF760 /* TransportProtectionDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F179C32219BE04FB1C22AA3 /* TransportProtectionDecisionTests.swift */; };
 		63985968494496186AAAAE97 /* SocialMediaIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 221C01C91E8FC62806530668 /* SocialMediaIcon.swift */; };
@@ -44,11 +50,13 @@
 		6AB0C375DDD14ACE8678338E /* SupabaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3EF496D1E6382443B39705A /* SupabaseClient.swift */; };
 		6C7C6CFB4CD7288B0D1F0A69 /* BlockingOptionsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB2E25C599188EFFAA656AA /* BlockingOptionsScreen.swift */; };
 		6DDAA9B83BDB927ECCD6C3A3 /* BubbleConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1667E69648547EFD349BE102 /* BubbleConstants.swift */; };
+		71822AB1F25DBC71BA51ED4E /* TimeWindowCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD8125FF359F09C371E5E696 /* TimeWindowCore.swift */; };
 		7187CAA7759A0FB102770E7D /* SVGView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11372BC005F536F03A206A0C /* SVGView.swift */; };
 		719237408D687FDB4691D3C0 /* BubbleConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E39F390556A0370CDEDBCA /* BubbleConstants.swift */; };
 		72EE538982BA6E9FE10180A0 /* nima_logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 0CC67A0124138EABA163B004 /* nima_logo.png */; };
 		746F1052E1F56D98DD9862E5 /* HomeDashboardLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D775F4EB96EDE4AB8391427A /* HomeDashboardLayoutTests.swift */; };
 		77360022D99ABB4F598AB215 /* ReelsBlockFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B82904CB1FDF6F2C986DA64 /* ReelsBlockFilter.swift */; };
+		7800CB8C2C5D9DF832A44A35 /* TimeWindowsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0539B9C9F2715CF3DB4B8084 /* TimeWindowsScreen.swift */; };
 		7A387AD7BC78C4104BEAE0E9 /* DomainThresholdsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 954C43ECE20E610B3B6A4552 /* DomainThresholdsStore.swift */; };
 		7ABE34A84D812EAF332BB4BF /* TrafficStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25ECD808F4AB24AD78B25C73 /* TrafficStats.swift */; };
 		7ACC24B7F11F3FEB7E430EFF /* MagicSignInScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E171A52D23611FA571259FA /* MagicSignInScreen.swift */; };
@@ -56,6 +64,7 @@
 		8199BCF44719F74292618D17 /* fanduel.svg in Resources */ = {isa = PBXBuildFile; fileRef = 1FB8B9D12B287276CD1AA084 /* fanduel.svg */; };
 		85E759418C58A76ACBA43FB7 /* TrafficDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3FD04E3B7CE85B81695EC /* TrafficDashboardView.swift */; };
 		86B63264F246C48566EDE4D7 /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DC9D63B18B99140D579F4C2 /* SettingsScreen.swift */; };
+		87A6591C2C1BE14557317115 /* MainTabsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0117F99A663FC040BE649CFE /* MainTabsScreen.swift */; };
 		88E96BE752A5DBCDD02D793B /* BubbleColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74330F9AFC4182AB67F02F83 /* BubbleColors.swift */; };
 		8CC77FCD2AFCCE05480781D9 /* icon_rect.png in Resources */ = {isa = PBXBuildFile; fileRef = 6A14727AF55B2D6A666F3D1B /* icon_rect.png */; };
 		8F0D57C9A6E3045BBE001928 /* AppOptionsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A500B91AAD8FCE188E83A9D /* AppOptionsService.swift */; };
@@ -67,14 +76,14 @@
 		9D596D9ECEAEC50BFE74F364 /* ReelsBlockFilterPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37D22F07BC5688731E8CC450 /* ReelsBlockFilterPolicyTests.swift */; };
 		9DEA878857BBF38484E29279 /* CodeVerificationScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ADB6187B6C76458B5AF5BB8 /* CodeVerificationScreen.swift */; };
 		9FB50AF4C11375E57288493D /* instagram.svg in Resources */ = {isa = PBXBuildFile; fileRef = C8F7AEAFA028F049E6650638 /* instagram.svg */; };
-		A9B2390894A91841D271FADF /* InterVariable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 7D147F7E07FBE0AC5FCF0807 /* InterVariable.ttf */; };
 		A382BF14BA5A5938A5D0B0E2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8240EBF328085BD8C6215C5B /* Assets.xcassets */; };
 		A41C0DBE99968F01E818A667 /* Tun2SocksKit in Frameworks */ = {isa = PBXBuildFile; productRef = 712B88E0966656BBE8DCBF46 /* Tun2SocksKit */; };
 		A44376BA28FB17D81521A900 /* TrafficStatsSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A6FB38F78AFED855C7BD8B /* TrafficStatsSnapshotTests.swift */; };
 		A4F54B5F314F2FF8E40B46D2 /* clouds.png in Resources */ = {isa = PBXBuildFile; fileRef = 5F112CC7035E04A18029EC82 /* clouds.png */; };
+		A8F851D49EDEE7032FD8A6B1 /* InterVariable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = ACCCE98D54EF27C3EB4363C7 /* InterVariable.ttf */; };
 		A9C259B3E6CF8FA06E8DFED8 /* kalshi.svg in Resources */ = {isa = PBXBuildFile; fileRef = 1A0A6E06F3393512D15706E4 /* kalshi.svg */; };
-		0D4986D000200A267B207864 /* home_instagram_blocking_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = A9194CAAB4B934FDD3FF327E /* home_instagram_blocking_icon.png */; };
 		ACA43E523546E460FF425CF2 /* HeaderBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEA7879AE04880FB01A49C3C /* HeaderBar.swift */; };
+		B16404A5FFB4AA79941E74D0 /* TimeWindowNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD765D996DF508EC38014A6F /* TimeWindowNotificationCoordinator.swift */; };
 		B2D940F3D19D696D7AFFBB1F /* clouds_continous.png in Resources */ = {isa = PBXBuildFile; fileRef = 54C6C8C64B29A95223064A2A /* clouds_continous.png */; };
 		B63F3A7EE3787197C19D9D8A /* Coolvetica Rg It.otf in Resources */ = {isa = PBXBuildFile; fileRef = B033FC1D06B6F626D38BA842 /* Coolvetica Rg It.otf */; };
 		B6B171FEBB0DB8C0233D540D /* DialSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DE9069ED02F96B6B3BF4062 /* DialSelector.swift */; };
@@ -83,16 +92,18 @@
 		C3E37E71922E29CA38A09A4B /* HexGridOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B73DFB24FA4518541EBD14 /* HexGridOverlay.swift */; };
 		C6AEC30F94B85A6EC0C4906F /* TunnelLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEA7BE93263D6CD81892233 /* TunnelLogger.swift */; };
 		CF3F063123F262178BC1D9A6 /* UDPControlStreamDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7831C0FFFBDC9598861EA2C /* UDPControlStreamDecoder.swift */; };
-		D6B79520FC289E680CD8B147 /* home_tiktok_blocking_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = D78E79DA812C1D07224CE1CB /* home_tiktok_blocking_icon.png */; };
 		D24EEA7B7533B79C957AE48B /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9148902051FD9DE18F6352FA /* NetworkExtension.framework */; };
 		D281D6E31FDBF4B31621FD4C /* TrafficStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25ECD808F4AB24AD78B25C73 /* TrafficStats.swift */; };
 		DA022CE2410220BBEB0EFC55 /* SkyBackgroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F1CE437AADFB2D399B4E4CD /* SkyBackgroundView.swift */; };
+		DA94176DFD2BDE349B42130F /* home_instagram_blocking_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = AD247A758C4B4373B8C19FED /* home_instagram_blocking_icon.png */; };
 		DE8DB6DBCFE73AA5E0853890 /* UDPControlStreamDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B792A319C991B554FDE08252 /* UDPControlStreamDecoderTests.swift */; };
 		E5C56E748D1AA5A259E65F73 /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9637941C267C2CF5ADCEF7E5 /* VPNManager.swift */; };
 		EC6AE465DA3C2F2F9649F7AE /* HomeDashboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702C361E8253930E2B1BEB16 /* HomeDashboardLayout.swift */; };
+		EDA02713C4468918CD71127A /* TimeWindowCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD8125FF359F09C371E5E696 /* TimeWindowCore.swift */; };
 		EE5AF52C3094005B17EF5118 /* HexGridLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3288B67D55E1FF065382E8E9 /* HexGridLayoutManager.swift */; };
 		EFEC044BD16A58AABFD1B820 /* app_options.json in Resources */ = {isa = PBXBuildFile; fileRef = ADF713ED6242175766746424 /* app_options.json */; };
 		F001B7732079A2AC6A9BC61E /* DiagnosticContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72735D3E66BFD7238558CBF2 /* DiagnosticContractTests.swift */; };
+		F492ED3F10E6C9DE18501F50 /* TimeWindowCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD8125FF359F09C371E5E696 /* TimeWindowCore.swift */; };
 		F4B56F9A3A941A0C2EBDADE7 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 931B0AF1A32A039B27B089E5 /* AuthStore.swift */; };
 		F7CE98EF49A4DE02A3635406 /* Coolvetica Rg.otf in Resources */ = {isa = PBXBuildFile; fileRef = E061A1FE54985A17E5E84E2E /* Coolvetica Rg.otf */; };
 		FD1C7A292D1B53700D5FC6C5 /* BlockingStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 680CEA5C56C60D7A57D89FFF /* BlockingStatusCard.swift */; };
@@ -137,18 +148,20 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0117F99A663FC040BE649CFE /* MainTabsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabsScreen.swift; sourceTree = "<group>"; };
 		04B4EC3C0F908E65D671403F /* AppOptionArcs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOptionArcs.swift; sourceTree = "<group>"; };
 		04C4502521522E3E2BE93F73 /* AppCluster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCluster.swift; sourceTree = "<group>"; };
+		0539B9C9F2715CF3DB4B8084 /* TimeWindowsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowsScreen.swift; sourceTree = "<group>"; };
 		0CC67A0124138EABA163B004 /* nima_logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = nima_logo.png; sourceTree = "<group>"; };
 		106E25D023D63E8571E5D893 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		10B73DFB24FA4518541EBD14 /* HexGridOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HexGridOverlay.swift; sourceTree = "<group>"; };
 		11372BC005F536F03A206A0C /* SVGView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGView.swift; sourceTree = "<group>"; };
 		12E39F390556A0370CDEDBCA /* BubbleConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleConstants.swift; sourceTree = "<group>"; };
 		1667E69648547EFD349BE102 /* BubbleConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleConstants.swift; sourceTree = "<group>"; };
-		1A0A6E06F3393512D15706E4 /* kalshi.svg */ = {isa = PBXFileReference; lastKnownFileType = text; path = kalshi.svg; sourceTree = "<group>"; };
+		1A0A6E06F3393512D15706E4 /* kalshi.svg */ = {isa = PBXFileReference; path = kalshi.svg; sourceTree = "<group>"; };
 		1DECDACBEC0EF265C1407E1A /* LandingPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandingPage.swift; sourceTree = "<group>"; };
-		1F5711BEF04A102BB3BFB382 /* BubbleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BubbleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		1FB8B9D12B287276CD1AA084 /* fanduel.svg */ = {isa = PBXFileReference; lastKnownFileType = text; path = fanduel.svg; sourceTree = "<group>"; };
+		1F5711BEF04A102BB3BFB382 /* BubbleTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = BubbleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1FB8B9D12B287276CD1AA084 /* fanduel.svg */ = {isa = PBXFileReference; path = fanduel.svg; sourceTree = "<group>"; };
 		20345791A014E523FE297C46 /* HarnessScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessScenarioTests.swift; sourceTree = "<group>"; };
 		221C01C91E8FC62806530668 /* SocialMediaIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocialMediaIcon.swift; sourceTree = "<group>"; };
 		25B73443C7A5984C885027AA /* SOCKSProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOCKSProxyServer.swift; sourceTree = "<group>"; };
@@ -160,8 +173,10 @@
 		3288B67D55E1FF065382E8E9 /* HexGridLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HexGridLayoutManager.swift; sourceTree = "<group>"; };
 		37D22F07BC5688731E8CC450 /* ReelsBlockFilterPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelsBlockFilterPolicyTests.swift; sourceTree = "<group>"; };
 		3A500B91AAD8FCE188E83A9D /* AppOptionsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOptionsService.swift; sourceTree = "<group>"; };
+		444A7DDCA8B8BA12DCC540D4 /* EmojiCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiCatalog.swift; sourceTree = "<group>"; };
 		445A2945A3CB5B3A7B942D72 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
-		4779D1C929FA22D5A6FC623C /* Secrets.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text; path = Secrets.xcconfig.example; sourceTree = "<group>"; };
+		4779D1C929FA22D5A6FC623C /* Secrets.xcconfig.example */ = {isa = PBXFileReference; path = Secrets.xcconfig.example; sourceTree = "<group>"; };
+		49F6E89613AD57D1454C5219 /* TimeWindowStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowStore.swift; sourceTree = "<group>"; };
 		4B82904CB1FDF6F2C986DA64 /* ReelsBlockFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelsBlockFilter.swift; sourceTree = "<group>"; };
 		4CEA7BE93263D6CD81892233 /* TunnelLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelLogger.swift; sourceTree = "<group>"; };
 		4EE3FD04E3B7CE85B81695EC /* TrafficDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficDashboardView.swift; sourceTree = "<group>"; };
@@ -175,20 +190,19 @@
 		5F179C32219BE04FB1C22AA3 /* TransportProtectionDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportProtectionDecisionTests.swift; sourceTree = "<group>"; };
 		64667353DFBDA0F06668EB12 /* chungusTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = chungusTunnel.entitlements; sourceTree = "<group>"; };
 		64DB7E7C0A427B4897386603 /* BlockedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockedApp.swift; sourceTree = "<group>"; };
-		6500079CA1A2F2C042D1EE6F /* BubbleTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BubbleTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		6500079CA1A2F2C042D1EE6F /* BubbleTunnel.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BubbleTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		680CEA5C56C60D7A57D89FFF /* BlockingStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockingStatusCard.swift; sourceTree = "<group>"; };
 		6A14727AF55B2D6A666F3D1B /* icon_rect.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon_rect.png; sourceTree = "<group>"; };
 		6E171A52D23611FA571259FA /* MagicSignInScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicSignInScreen.swift; sourceTree = "<group>"; };
-		6E8C6188107C406091488F8C /* TikTokVPNDropUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TikTokVPNDropUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		6E8C6188107C406091488F8C /* TikTokVPNDropUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TikTokVPNDropUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		702C361E8253930E2B1BEB16 /* HomeDashboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeDashboardLayout.swift; sourceTree = "<group>"; };
 		72735D3E66BFD7238558CBF2 /* DiagnosticContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticContractTests.swift; sourceTree = "<group>"; };
 		74330F9AFC4182AB67F02F83 /* BubbleColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleColors.swift; sourceTree = "<group>"; };
 		7479A45E352A05DF3CFE09A4 /* chungus.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = chungus.entitlements; sourceTree = "<group>"; };
-		7D147F7E07FBE0AC5FCF0807 /* InterVariable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = InterVariable.ttf; sourceTree = "<group>"; };
 		7DC9D63B18B99140D579F4C2 /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
 		7EB2E25C599188EFFAA656AA /* BlockingOptionsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockingOptionsScreen.swift; sourceTree = "<group>"; };
 		8240EBF328085BD8C6215C5B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		8643A73D520CEDB8B864F283 /* home_mountains.svg */ = {isa = PBXFileReference; lastKnownFileType = text; path = home_mountains.svg; sourceTree = "<group>"; };
+		8643A73D520CEDB8B864F283 /* home_mountains.svg */ = {isa = PBXFileReference; path = home_mountains.svg; sourceTree = "<group>"; };
 		884244700EF00F59FE7F49D1 /* BubbleButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleButton.swift; sourceTree = "<group>"; };
 		8A0F59D0DD98A16457325984 /* home_streak_flame.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_streak_flame.png; sourceTree = "<group>"; };
 		8A1AF9CB0269E85989CE0DC6 /* AppIconCircle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconCircle.swift; sourceTree = "<group>"; };
@@ -204,25 +218,31 @@
 		9F577D8659B34A0435D8AD94 /* TrafficStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficStats.swift; sourceTree = "<group>"; };
 		A30EEB2AB48FAE0B765F046C /* SVGCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGCache.swift; sourceTree = "<group>"; };
 		A3FA39A10AAC758E79448541 /* SK Pupok Solid 400.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SK Pupok Solid 400.ttf"; sourceTree = "<group>"; };
-		A3FF90402D638F2FAFCDD126 /* BubbleTunnelTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BubbleTunnelTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A9194CAAB4B934FDD3FF327E /* home_instagram_blocking_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_instagram_blocking_icon.png; sourceTree = "<group>"; };
+		A3FF90402D638F2FAFCDD126 /* BubbleTunnelTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = BubbleTunnelTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC1EA350281C57B39B4BCCB3 /* TikTokVPNDropUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokVPNDropUITests.swift; sourceTree = "<group>"; };
+		ACCCE98D54EF27C3EB4363C7 /* InterVariable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = InterVariable.ttf; sourceTree = "<group>"; };
+		AD247A758C4B4373B8C19FED /* home_instagram_blocking_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_instagram_blocking_icon.png; sourceTree = "<group>"; };
 		ADF713ED6242175766746424 /* app_options.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = app_options.json; sourceTree = "<group>"; };
 		AEA7879AE04880FB01A49C3C /* HeaderBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeaderBar.swift; sourceTree = "<group>"; };
 		B033FC1D06B6F626D38BA842 /* Coolvetica Rg It.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Coolvetica Rg It.otf"; sourceTree = "<group>"; };
 		B4A6FB38F78AFED855C7BD8B /* TrafficStatsSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficStatsSnapshotTests.swift; sourceTree = "<group>"; };
 		B792A319C991B554FDE08252 /* UDPControlStreamDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPControlStreamDecoderTests.swift; sourceTree = "<group>"; };
-		BB94751122DA9ADC81F89EE3 /* Bubble.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bubble.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		C8F7AEAFA028F049E6650638 /* instagram.svg */ = {isa = PBXFileReference; lastKnownFileType = text; path = instagram.svg; sourceTree = "<group>"; };
+		BB94751122DA9ADC81F89EE3 /* Bubble.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Bubble.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BD765D996DF508EC38014A6F /* TimeWindowNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowNotificationCoordinator.swift; sourceTree = "<group>"; };
+		C8F7AEAFA028F049E6650638 /* instagram.svg */ = {isa = PBXFileReference; path = instagram.svg; sourceTree = "<group>"; };
+		CCD0F0FEE8BB2598F0C7DE05 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
+		CF64A7F1BEAFEC1BD3A79328 /* TimeWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowTests.swift; sourceTree = "<group>"; };
 		D4E4E3628EE718134469E18B /* HARNESS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = HARNESS.md; sourceTree = "<group>"; };
 		D775F4EB96EDE4AB8391427A /* HomeDashboardLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeDashboardLayoutTests.swift; sourceTree = "<group>"; };
-		D78E79DA812C1D07224CE1CB /* home_tiktok_blocking_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_tiktok_blocking_icon.png; sourceTree = "<group>"; };
 		D7831C0FFFBDC9598861EA2C /* UDPControlStreamDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPControlStreamDecoder.swift; sourceTree = "<group>"; };
+		DD8125FF359F09C371E5E696 /* TimeWindowCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowCore.swift; sourceTree = "<group>"; };
 		E061A1FE54985A17E5E84E2E /* Coolvetica Rg.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Coolvetica Rg.otf"; sourceTree = "<group>"; };
 		E3EF496D1E6382443B39705A /* SupabaseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseClient.swift; sourceTree = "<group>"; };
 		E770A86607D8A5B0A48C673B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		EFBD2984D0510752BD1D03BD /* background.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = background.png; sourceTree = "<group>"; };
+		F0AFDCF4802F366B72A9A6CA /* home_tiktok_blocking_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_tiktok_blocking_icon.png; sourceTree = "<group>"; };
 		F0B814D56804DA2A853F0CC7 /* PageIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageIndicator.swift; sourceTree = "<group>"; };
+		F541CAC2E2A9AB648D401824 /* emoji_catalog.tsv */ = {isa = PBXFileReference; path = emoji_catalog.tsv; sourceTree = "<group>"; };
 		F96DCEEE446F160532470E8D /* GridPositionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridPositionStore.swift; sourceTree = "<group>"; };
 		FD7690CC40D5611A9C232A9E /* generate_app_icons.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = generate_app_icons.sh; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -261,6 +281,7 @@
 			isa = PBXGroup;
 			children = (
 				D775F4EB96EDE4AB8391427A /* HomeDashboardLayoutTests.swift */,
+				CF64A7F1BEAFEC1BD3A79328 /* TimeWindowTests.swift */,
 			);
 			path = BubbleTests;
 			sourceTree = "<group>";
@@ -279,6 +300,14 @@
 			path = BubbleTunnelTests;
 			sourceTree = "<group>";
 		};
+		4A01D53B2040E579DE18678A /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				DD8125FF359F09C371E5E696 /* TimeWindowCore.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 		4FC7371D935DB1BCFB2838A6 /* Screens */ = {
 			isa = PBXGroup;
 			children = (
@@ -287,7 +316,9 @@
 				97236875B7F5FA2B9FE201A3 /* HomeScreen.swift */,
 				1DECDACBEC0EF265C1407E1A /* LandingPage.swift */,
 				6E171A52D23611FA571259FA /* MagicSignInScreen.swift */,
+				0117F99A663FC040BE649CFE /* MainTabsScreen.swift */,
 				7DC9D63B18B99140D579F4C2 /* SettingsScreen.swift */,
+				0539B9C9F2715CF3DB4B8084 /* TimeWindowsScreen.swift */,
 				4EE3FD04E3B7CE85B81695EC /* TrafficDashboardView.swift */,
 			);
 			path = Screens;
@@ -298,7 +329,7 @@
 			children = (
 				B033FC1D06B6F626D38BA842 /* Coolvetica Rg It.otf */,
 				E061A1FE54985A17E5E84E2E /* Coolvetica Rg.otf */,
-				7D147F7E07FBE0AC5FCF0807 /* InterVariable.ttf */,
+				ACCCE98D54EF27C3EB4363C7 /* InterVariable.ttf */,
 				A3FA39A10AAC758E79448541 /* SK Pupok Solid 400.ttf */,
 			);
 			path = Fonts;
@@ -323,12 +354,15 @@
 				5E46F6CBC4504443A3E050DE /* AppStore.swift */,
 				931B0AF1A32A039B27B089E5 /* AuthStore.swift */,
 				64DB7E7C0A427B4897386603 /* BlockedApp.swift */,
+				444A7DDCA8B8BA12DCC540D4 /* EmojiCatalog.swift */,
 				F96DCEEE446F160532470E8D /* GridPositionStore.swift */,
 				9432F97BCE16A023A0A8E1EC /* HexCoordinate.swift */,
 				3288B67D55E1FF065382E8E9 /* HexGridLayoutManager.swift */,
 				9D9EE6D24AD0B696F8DCB904 /* MagicSignInService.swift */,
 				4F5A0931BEF4F3F4B1BF8741 /* Route.swift */,
 				E3EF496D1E6382443B39705A /* SupabaseClient.swift */,
+				BD765D996DF508EC38014A6F /* TimeWindowNotificationCoordinator.swift */,
+				49F6E89613AD57D1454C5219 /* TimeWindowStore.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -423,6 +457,7 @@
 				889ED256D4D2031BF347991A /* BubbleTunnel */,
 				46DE4661FF87BDA12508659D /* BubbleTunnelTests */,
 				81963D340B5EC930C5D33CC5 /* ios */,
+				4A01D53B2040E579DE18678A /* Shared */,
 				87D070C8F63E46626A4BF8D5 /* TikTokVPNDropUITests */,
 				88E02FBA48441AB523071647 /* Frameworks */,
 				62B9B96E3C62769CA4B70E8B /* Products */,
@@ -442,6 +477,7 @@
 		DCECA00CFCFED8326D1C3563 /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				CCD0F0FEE8BB2598F0C7DE05 /* AppChrome.swift */,
 				8A1AF9CB0269E85989CE0DC6 /* AppIconCircle.swift */,
 				04B4EC3C0F908E65D671403F /* AppOptionArcs.swift */,
 				28E7DF720D3EB9EAC56B49CB /* BackArrowView.swift */,
@@ -465,11 +501,12 @@
 				EFBD2984D0510752BD1D03BD /* background.png */,
 				54C6C8C64B29A95223064A2A /* clouds_continous.png */,
 				5F112CC7035E04A18029EC82 /* clouds.png */,
+				F541CAC2E2A9AB648D401824 /* emoji_catalog.tsv */,
 				1FB8B9D12B287276CD1AA084 /* fanduel.svg */,
+				AD247A758C4B4373B8C19FED /* home_instagram_blocking_icon.png */,
 				8643A73D520CEDB8B864F283 /* home_mountains.svg */,
-				A9194CAAB4B934FDD3FF327E /* home_instagram_blocking_icon.png */,
 				8A0F59D0DD98A16457325984 /* home_streak_flame.png */,
-				D78E79DA812C1D07224CE1CB /* home_tiktok_blocking_icon.png */,
+				F0AFDCF4802F366B72A9A6CA /* home_tiktok_blocking_icon.png */,
 				96B78DADE18D3F3FA9A29440 /* home_tiktok_icon.png */,
 				6A14727AF55B2D6A666F3D1B /* icon_rect.png */,
 				C8F7AEAFA028F049E6650638 /* instagram.svg */,
@@ -593,6 +630,7 @@
 						DevelopmentTeam = SSTZYP6ZWB;
 					};
 					5F328EFB19593AB5BC7429F3 = {
+						DevelopmentTeam = SSTZYP6ZWB;
 						ProvisioningStyle = Automatic;
 					};
 					6D372013F7D6583623CCAF15 = {
@@ -651,18 +689,19 @@
 				A382BF14BA5A5938A5D0B0E2 /* Assets.xcassets in Resources */,
 				B63F3A7EE3787197C19D9D8A /* Coolvetica Rg It.otf in Resources */,
 				F7CE98EF49A4DE02A3635406 /* Coolvetica Rg.otf in Resources */,
-				A9B2390894A91841D271FADF /* InterVariable.ttf in Resources */,
+				A8F851D49EDEE7032FD8A6B1 /* InterVariable.ttf in Resources */,
 				26827D46EC95D3B01646A294 /* SK Pupok Solid 400.ttf in Resources */,
 				EFEC044BD16A58AABFD1B820 /* app_options.json in Resources */,
 				8050EE548DB56DDCA4FB2A2A /* background.png in Resources */,
 				A4F54B5F314F2FF8E40B46D2 /* clouds.png in Resources */,
 				B2D940F3D19D696D7AFFBB1F /* clouds_continous.png in Resources */,
+				398FC437ADA81901008DB06E /* emoji_catalog.tsv in Resources */,
 				8199BCF44719F74292618D17 /* fanduel.svg in Resources */,
 				5C89AF10E0C29C7AD7F8F06B /* generate_app_icons.sh in Resources */,
+				DA94176DFD2BDE349B42130F /* home_instagram_blocking_icon.png in Resources */,
 				55D4EC2A401DF52521899789 /* home_mountains.svg in Resources */,
-				0D4986D000200A267B207864 /* home_instagram_blocking_icon.png in Resources */,
 				6539182C6CE8DD0600F35F20 /* home_streak_flame.png in Resources */,
-				D6B79520FC289E680CD8B147 /* home_tiktok_blocking_icon.png in Resources */,
+				38F2D4FAF5CC09E6302008DA /* home_tiktok_blocking_icon.png in Resources */,
 				4BB8D99907981317FD99DFE2 /* home_tiktok_icon.png in Resources */,
 				8CC77FCD2AFCCE05480781D9 /* icon_rect.png in Resources */,
 				9FB50AF4C11375E57288493D /* instagram.svg in Resources */,
@@ -682,6 +721,7 @@
 				1B08C1D1E4F938FD85DF35F0 /* PacketTunnelProvider.swift in Sources */,
 				09FDD52757C57FFC3409E616 /* ReelsBlockFilter.swift in Sources */,
 				4AFE57C6112AE344F6E7B1C9 /* SOCKSProxyServer.swift in Sources */,
+				F492ED3F10E6C9DE18501F50 /* TimeWindowCore.swift in Sources */,
 				D281D6E31FDBF4B31621FD4C /* TrafficStats.swift in Sources */,
 				C6AEC30F94B85A6EC0C4906F /* TunnelLogger.swift in Sources */,
 				1745DD2428B33688DEE75E4D /* UDPControlStreamDecoder.swift in Sources */,
@@ -698,6 +738,7 @@
 				77360022D99ABB4F598AB215 /* ReelsBlockFilter.swift in Sources */,
 				9D596D9ECEAEC50BFE74F364 /* ReelsBlockFilterPolicyTests.swift in Sources */,
 				9A6012AE388F10F28B4E0440 /* SOCKSProxyServer.swift in Sources */,
+				71822AB1F25DBC71BA51ED4E /* TimeWindowCore.swift in Sources */,
 				7ABE34A84D812EAF332BB4BF /* TrafficStats.swift in Sources */,
 				A44376BA28FB17D81521A900 /* TrafficStatsSnapshotTests.swift in Sources */,
 				5E51D90B00405BF5451CF760 /* TransportProtectionDecisionTests.swift in Sources */,
@@ -712,6 +753,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				746F1052E1F56D98DD9862E5 /* HomeDashboardLayoutTests.swift in Sources */,
+				2645E2B1DF020C3950113C23 /* TimeWindowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -727,6 +769,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				570E6CC63ED329CC3923960D /* AppChrome.swift in Sources */,
 				277E9995B4CE17920C7359B3 /* AppCluster.swift in Sources */,
 				B7F4E889C0C9CF5017891111 /* AppIconCircle.swift in Sources */,
 				55B0C1B5A6CF3AA8C6AEF432 /* AppOptionArcs.swift in Sources */,
@@ -746,6 +789,7 @@
 				9DEA878857BBF38484E29279 /* CodeVerificationScreen.swift in Sources */,
 				B6B171FEBB0DB8C0233D540D /* DialSelector.swift in Sources */,
 				7A387AD7BC78C4104BEAE0E9 /* DomainThresholdsStore.swift in Sources */,
+				36E4D2232065D5D4B8FA6990 /* EmojiCatalog.swift in Sources */,
 				96E5C7ABCADDD122544A7882 /* GridPositionStore.swift in Sources */,
 				ACA43E523546E460FF425CF2 /* HeaderBar.swift in Sources */,
 				3AC691E9CD1580465E66E643 /* HexCoordinate.swift in Sources */,
@@ -756,6 +800,7 @@
 				1FDC9A48B273F1E91F3216E3 /* LandingPage.swift in Sources */,
 				7ACC24B7F11F3FEB7E430EFF /* MagicSignInScreen.swift in Sources */,
 				98CE2E34082CA58764807157 /* MagicSignInService.swift in Sources */,
+				87A6591C2C1BE14557317115 /* MainTabsScreen.swift in Sources */,
 				3422D1868715CE563B813F46 /* PageIndicator.swift in Sources */,
 				0E6B244A6DE7DF4C8BEE6CB9 /* Route.swift in Sources */,
 				4CBD13A9A63EB6FFDE23B67B /* SVGCache.swift in Sources */,
@@ -764,6 +809,10 @@
 				DA022CE2410220BBEB0EFC55 /* SkyBackgroundView.swift in Sources */,
 				63985968494496186AAAAE97 /* SocialMediaIcon.swift in Sources */,
 				6AB0C375DDD14ACE8678338E /* SupabaseClient.swift in Sources */,
+				EDA02713C4468918CD71127A /* TimeWindowCore.swift in Sources */,
+				B16404A5FFB4AA79941E74D0 /* TimeWindowNotificationCoordinator.swift in Sources */,
+				1B0F445A404C069E94CF65C4 /* TimeWindowStore.swift in Sources */,
+				7800CB8C2C5D9DF832A44A35 /* TimeWindowsScreen.swift in Sources */,
 				85E759418C58A76ACBA43FB7 /* TrafficDashboardView.swift in Sources */,
 				BDCC491361083C1350D56D61 /* TrafficMonitor.swift in Sources */,
 				0FFA54A0133BDF627E1D295F /* TrafficStats.swift in Sources */,
