@@ -4,6 +4,7 @@ import UIKit
 
 struct HomeScreen: View {
     @Environment(AppStore.self) private var store
+    @Environment(StreakStore.self) private var streakStore
     @Environment(TimeWindowStore.self) private var timeWindowStore
     @Environment(AuthStore.self) private var authStore
     @Environment(\.sizeCategory) private var contentSizeCategory
@@ -129,7 +130,9 @@ struct HomeScreen: View {
             Color.clear.frame(height: layout.blockerToInsights)
 
             StreakCard(
-                currentStreakDays: estimatedCurrentStreakDays,
+                currentStreakDays: streakStore.currentStreak(),
+                todayEarned: streakStore.hasEarnedToday(),
+                weekDays: streakStore.weekStates(),
                 scale: layout.scale
             )
             .frame(width: layout.contentWidth, height: layout.insightsHeight)
@@ -186,10 +189,6 @@ struct HomeScreen: View {
         }
 
         return String(localPart).lowercased()
-    }
-
-    private var estimatedCurrentStreakDays: Int {
-        blockedAppIDs.isEmpty ? 0 : 8
     }
 
     private var blockingVPNState: BlockingVPNState {
@@ -356,6 +355,8 @@ private struct HomeMountainBackdrop: View {
 
 private struct StreakCard: View {
     let currentStreakDays: Int
+    let todayEarned: Bool
+    let weekDays: [StreakWeekDayState]
     let scale: CGFloat
 
     private var visualScale: CGFloat {
@@ -378,8 +379,14 @@ private struct StreakCard: View {
                         .minimumScaleFactor(0.78)
                 }
 
-                StreakWeekProgress(completedDays: completedWeekDays, scale: visualScale)
-                    .frame(height: 26 * visualScale)
+                VStack(alignment: .leading, spacing: 3 * visualScale) {
+                    Text("This week")
+                        .font(BubbleFonts.coolvetica(size: 10.8 * visualScale))
+                        .foregroundStyle(HomeDashboardPalette.muted.opacity(0.86))
+
+                    StreakWeekProgress(days: weekDays, scale: visualScale)
+                        .frame(height: 28 * visualScale)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -450,7 +457,7 @@ private struct StreakCard: View {
                 .minimumScaleFactor(0.64)
         } else {
             Text("Start a streak")
-                .font(.system(size: 24 * visualScale, weight: .medium, design: .rounded))
+                .font(.system(size: 24 * visualScale, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
@@ -458,18 +465,20 @@ private struct StreakCard: View {
     }
 
     private var supportingCopy: String {
-        currentStreakDays > 0 ? "keep it up!" : "Block one app today"
-    }
-
-    private var completedWeekDays: Int {
-        min(max(currentStreakDays, 0), 6)
+        if todayEarned {
+            return "Keep it up!"
+        }
+        if currentStreakDays == 0 {
+            return "Start your streak by turning on any blocker"
+        }
+        return "Turn on a blocker to keep your streak"
     }
 
     private var accessibilitySummary: String {
         if currentStreakDays > 0 {
-            return "\(currentStreakDays) day streak. Keep it up."
+            return "\(currentStreakDays) day streak. \(supportingCopy)."
         }
-        return "Start a streak. Block one app today."
+        return "Start a streak. \(supportingCopy)."
     }
 }
 
@@ -526,68 +535,119 @@ private struct StreakFlameBadge: View {
 }
 
 private struct StreakWeekProgress: View {
-    let completedDays: Int
+    let days: [StreakWeekDayState]
     let scale: CGFloat
-
-    private let days = ["M", "T", "W", "T", "F", "S", "S"]
 
     var body: some View {
         GeometryReader { proxy in
             let dotSize = 10 * scale
-            let centerY = dotSize / 2
-            let lineWidth = 3 * scale
+            let centerY = 7 * scale
+            let lineWidth = 2.6 * scale
+            let count = max(days.count, 1)
             let availableWidth = max(1, proxy.size.width - dotSize)
-            let step = availableWidth / CGFloat(max(days.count - 1, 1))
-            let activeEndX = dotSize / 2 + step * CGFloat(max(completedDays - 1, 0))
+            let step = availableWidth / CGFloat(max(count - 1, 1))
 
             ZStack(alignment: .topLeading) {
-                Capsule()
-                    .fill(HomeDashboardPalette.muted.opacity(0.42))
-                    .frame(width: availableWidth, height: lineWidth)
-                    .offset(x: dotSize / 2, y: centerY - lineWidth / 2)
+                ForEach(0..<max(days.count - 1, 0), id: \.self) { index in
+                    let startX = dotSize / 2 + step * CGFloat(index)
+                    let segmentWidth = max(0, step - dotSize - 4 * scale)
 
-                Capsule()
-                    .fill(HomeDashboardPalette.accent.opacity(completedDays > 0 ? 0.86 : 0))
-                    .frame(width: max(0, activeEndX - dotSize / 2), height: lineWidth)
-                    .offset(x: dotSize / 2, y: centerY - lineWidth / 2)
+                    Capsule()
+                        .fill(segmentFill(after: index))
+                        .frame(width: segmentWidth, height: lineWidth)
+                        .position(x: startX + step / 2, y: centerY)
+                }
 
                 ForEach(days.indices, id: \.self) { index in
                     let x = dotSize / 2 + step * CGFloat(index)
+                    let day = days[index]
 
                     Circle()
-                        .fill(dotFill(for: index))
+                        .fill(dotFill(for: day.status))
                         .frame(width: dotSize, height: dotSize)
                         .overlay(
                             Circle()
-                                .strokeBorder(dotBorder(for: index), lineWidth: 1.2 * scale)
+                                .strokeBorder(dotBorder(for: day.status), lineWidth: 1.2 * scale)
+                        )
+                        .overlay(
+                            Circle()
+                                .strokeBorder(todayRing(for: day), lineWidth: 1.3 * scale)
+                                .frame(width: dotSize + 6 * scale, height: dotSize + 6 * scale)
                         )
                         .shadow(
-                            color: isComplete(index) ? HomeDashboardPalette.accent.opacity(0.42) : .clear,
+                            color: day.status == .earned ? HomeDashboardPalette.accent.opacity(0.42) : .clear,
                             radius: 7 * scale
                         )
                         .position(x: x, y: centerY)
 
-                    Text(days[index])
+                    Text(day.label)
                         .font(BubbleFonts.coolvetica(size: 12 * scale))
-                        .foregroundStyle(HomeDashboardPalette.muted.opacity(0.82))
+                        .foregroundStyle(labelColor(for: day.status))
                         .lineLimit(1)
-                        .position(x: x, y: 20 * scale)
+                        .position(x: x, y: 22 * scale)
                 }
             }
         }
         .accessibilityHidden(true)
     }
 
-    private func isComplete(_ index: Int) -> Bool {
-        index < completedDays
+    private func segmentFill(after index: Int) -> Color {
+        let current = days[index].status
+        let next = days[index + 1].status
+        if current == .earned && next == .earned {
+            return HomeDashboardPalette.accent.opacity(0.82)
+        }
+        if current.isMuted || next.isMuted {
+            return HomeDashboardPalette.muted.opacity(0.14)
+        }
+        return HomeDashboardPalette.muted.opacity(0.32)
     }
 
-    private func dotFill(for index: Int) -> Color {
-        isComplete(index) ? HomeDashboardPalette.accent : .clear
+    private func dotFill(for status: StreakWeekDayStatus) -> Color {
+        switch status {
+        case .earned:
+            return HomeDashboardPalette.accent
+        case .missed, .todayPending:
+            return HomeDashboardPalette.muted.opacity(0.12)
+        case .future, .beforeTrackingStarted:
+            return HomeDashboardPalette.muted.opacity(0.055)
+        }
     }
 
-    private func dotBorder(for index: Int) -> Color {
-        isComplete(index) ? HomeDashboardPalette.accent.opacity(0.78) : HomeDashboardPalette.muted.opacity(0.58)
+    private func dotBorder(for status: StreakWeekDayStatus) -> Color {
+        switch status {
+        case .earned:
+            return HomeDashboardPalette.accent.opacity(0.78)
+        case .todayPending:
+            return HomeDashboardPalette.accent.opacity(0.72)
+        case .missed:
+            return HomeDashboardPalette.muted.opacity(0.5)
+        case .future, .beforeTrackingStarted:
+            return HomeDashboardPalette.muted.opacity(0.22)
+        }
+    }
+
+    private func todayRing(for day: StreakWeekDayState) -> Color {
+        day.isToday ? HomeDashboardPalette.accent.opacity(0.62) : .clear
+    }
+
+    private func labelColor(for status: StreakWeekDayStatus) -> Color {
+        switch status {
+        case .earned:
+            return .white.opacity(0.92)
+        case .todayPending:
+            return HomeDashboardPalette.accent.opacity(0.86)
+        case .missed:
+            return HomeDashboardPalette.muted.opacity(0.76)
+        case .future, .beforeTrackingStarted:
+            return HomeDashboardPalette.muted.opacity(0.38)
+        }
+    }
+}
+
+private extension StreakWeekDayStatus {
+    var isMuted: Bool {
+        self == .future || self == .beforeTrackingStarted
     }
 }
 
@@ -666,6 +726,7 @@ private struct HomeDashboardDebugOverlay: View {
 #Preview {
     HomeScreen(onSelectApp: { _ in }, onSignIn: {})
         .environment(AppStore())
+        .environment(StreakStore(defaults: nil))
         .environment(TimeWindowStore())
         .environment(GridPositionStore())
         .environment(AuthStore())

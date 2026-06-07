@@ -1,10 +1,12 @@
 import SwiftUI
+import NetworkExtension
 
 @main
 struct BubbleApp: App {
     @StateObject private var vpnManager = VPNManager()
     @State private var path = NavigationPath()
     @State private var store = AppStore()
+    @State private var streakStore = StreakStore()
     @State private var timeWindowStore = TimeWindowStore()
     @State private var gridPositionStore = GridPositionStore()
     @State private var authStore = AuthStore()
@@ -125,6 +127,7 @@ struct BubbleApp: App {
                 }
             }
             .environment(store)
+            .environment(streakStore)
             .environment(timeWindowStore)
             .environment(gridPositionStore)
             .environment(authStore)
@@ -142,7 +145,10 @@ struct BubbleApp: App {
                 store.configureVPNAutostart(
                     startVPN: { vpnManager.startVPN(source: "app_store.autostart") },
                     stopVPN: { vpnManager.stopVPN(source: "app_store.autostop") },
-                    vpnStatus: { vpnManager.vpnStatus }
+                    vpnStatus: { vpnManager.vpnStatus },
+                    markStreakIfEligible: { source in
+                        markStreakIfEligible(source: source)
+                    }
                 )
                 timeWindowStore.configure(
                     applyScheduledApps: { appIDs, source in
@@ -155,7 +161,26 @@ struct BubbleApp: App {
                         path = NavigationPath()
                     }
                 )
+                markStreakIfEligible(source: "app.launch")
+            }
+            .onChange(of: vpnManager.vpnStatus) { _, _ in
+                markStreakIfEligible(source: "vpn.status")
             }
         }
+    }
+
+    private func markStreakIfEligible(source: String) {
+        guard Self.isProtectionActive(vpnManager.vpnStatus),
+              store.hasAnyEnabledBlockingOption else {
+            return
+        }
+
+        streakStore.markTodayEarned(
+            source: store.firstEnabledBlockerSource ?? source
+        )
+    }
+
+    private static func isProtectionActive(_ status: NEVPNStatus) -> Bool {
+        status == .connected || status == .connecting || status == .reasserting
     }
 }

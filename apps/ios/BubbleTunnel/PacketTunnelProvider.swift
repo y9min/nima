@@ -7,6 +7,14 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     typealias StopAttributionSnapshot = TunnelLifecycleDiagnostics.StopAttributionSnapshot
     typealias StopAttributionDecision = TunnelLifecycleDiagnostics.StopAttributionDecision
 
+    private struct TunnelStreakDayRecord: Codable {
+        let date: String
+        let earned: Bool
+        let earnedAt: Date
+        let timezone: String
+        let source: String
+    }
+
     static func resolveStopAttribution(snapshot: StopAttributionSnapshot, nowTS: TimeInterval, windowSeconds: TimeInterval) -> StopAttributionDecision? {
         TunnelLifecycleDiagnostics.resolveStopAttribution(
             snapshot: snapshot,
@@ -30,6 +38,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var tun2SocksConsecutiveUnexpectedExits = 0
     private var tun2SocksRestartCount = 0
     private var pressureSamplerTimer: DispatchSourceTimer?
+    private var lastKnownEarnedStreakDate: String?
 
     deinit {
         stopPressureSampler()
@@ -904,6 +913,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let now = Date().timeIntervalSince1970
         let previous = sharedDefaults?.double(forKey: BubbleConstants.vpnLifecycleLastHeartbeatTSKey) ?? 0
         sharedDefaults?.set(now, forKey: BubbleConstants.vpnLifecycleLastHeartbeatTSKey)
+        markStreakDayIfPolicyEnabled(now: Date(timeIntervalSince1970: now))
         recordTun2SocksStats(lastExitCode: nil)
         recordProviderHeartbeatSnapshot(nowTS: now)
         let age = previous > 0 ? max(0, now - previous) : 0
@@ -917,6 +927,87 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private func stopHeartbeat() {
         heartbeatTimer?.cancel()
         heartbeatTimer = nil
+    }
+
+    private func markStreakDayIfPolicyEnabled(now: Date) {
+        guard let blockerSource = currentEnabledBlockerSource() else { return }
+
+        let calendar = Calendar.current
+        let today = Self.localDateString(for: now, calendar: calendar)
+        guard lastKnownEarnedStreakDate != today else { return }
+
+        var records = loadStreakDayRecords()
+        if records.contains(where: { $0.date == today && $0.earned }) {
+            lastKnownEarnedStreakDate = today
+            return
+        }
+
+        let record = TunnelStreakDayRecord(
+            date: today,
+            earned: true,
+            earnedAt: now,
+            timezone: calendar.timeZone.identifier,
+            source: blockerSource
+        )
+
+        if let existingIndex = records.firstIndex(where: { $0.date == today }) {
+            records[existingIndex] = record
+        } else {
+            records.append(record)
+        }
+        records.sort { $0.date < $1.date }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(records) else { return }
+        sharedDefaults?.set(data, forKey: BubbleConstants.streakDaysKey)
+        lastKnownEarnedStreakDate = today
+    }
+
+    private func loadStreakDayRecords() -> [TunnelStreakDayRecord] {
+        guard let data = sharedDefaults?.data(forKey: BubbleConstants.streakDaysKey) else {
+            return []
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([TunnelStreakDayRecord].self, from: data)) ?? []
+    }
+
+    private func currentEnabledBlockerSource() -> String? {
+        guard let data = sharedDefaults?.data(forKey: BubbleConstants.featurePolicyKey),
+              var policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
+            return nil
+        }
+
+        policy.mergeDefaults()
+        let preferredAppOrder = ["instagram", "tiktok", "x"]
+        let otherAppIDs = policy.appToggles.keys
+            .filter { !preferredAppOrder.contains($0) }
+            .sorted()
+
+        for appID in preferredAppOrder + otherAppIDs {
+            guard let enabledOptionID = policy.appToggles[appID]?
+                .filter({ $0.value })
+                .map(\.key)
+                .sorted()
+                .first else {
+                continue
+            }
+            return "\(appID)_\(enabledOptionID)"
+        }
+
+        return nil
+    }
+
+    private static func localDateString(for date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
+        )
     }
 
     private func startPathMonitor() {

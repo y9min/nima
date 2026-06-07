@@ -29,6 +29,7 @@ final class AppStore {
     @ObservationIgnored private var vpnStartHandler: (() -> Void)?
     @ObservationIgnored private var vpnStopHandler: (() -> Void)?
     @ObservationIgnored private var vpnStatusProvider: (() -> NEVPNStatus)?
+    @ObservationIgnored private var streakEligibilityHandler: ((String) -> Void)?
     @ObservationIgnored private var vpnStartInFlight = false
     @ObservationIgnored private var vpnStopInFlight = false
     @ObservationIgnored private var pendingVPNSyncTask: Task<Void, Never>?
@@ -59,10 +60,16 @@ final class AppStore {
         optionsService.isAppScheduled(appId)
     }
 
-    func configureVPNAutostart(startVPN: @escaping () -> Void, stopVPN: @escaping () -> Void, vpnStatus: @escaping () -> NEVPNStatus) {
+    func configureVPNAutostart(
+        startVPN: @escaping () -> Void,
+        stopVPN: @escaping () -> Void,
+        vpnStatus: @escaping () -> NEVPNStatus,
+        markStreakIfEligible: @escaping (String) -> Void = { _ in }
+    ) {
         vpnStartHandler = startVPN
         vpnStopHandler = stopVPN
         vpnStatusProvider = vpnStatus
+        streakEligibilityHandler = markStreakIfEligible
         scheduleVPNReconciliation(triggerSource: "app_store.configure")
     }
 
@@ -93,6 +100,9 @@ final class AppStore {
         let shouldVPNBeOn = hasAnyEnabledBlockingOption
 
         if shouldVPNBeOn {
+            if isConnectedLike {
+                streakEligibilityHandler?(triggerSource)
+            }
             AppDiagnosticsLogger.log(
                 "VPN_SYNC action=converge_on status=\(status.rawValue) should_vpn_be_on=true source=\(triggerSource)"
             )
@@ -125,9 +135,11 @@ final class AppStore {
         }
     }
 
-    private var hasAnyEnabledBlockingOption: Bool {
-        apps.contains { app in
-            app.options.contains { $0.isEnabled }
-        }
+    var hasAnyEnabledBlockingOption: Bool {
+        optionsService.hasAnyEnabledBlockingOption
+    }
+
+    var firstEnabledBlockerSource: String? {
+        optionsService.firstEnabledBlockerSource
     }
 }

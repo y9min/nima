@@ -91,6 +91,7 @@
 		BDCC491361083C1350D56D61 /* TrafficMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB19D08E8B5A85636A6A69E /* TrafficMonitor.swift */; };
 		C3E37E71922E29CA38A09A4B /* HexGridOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B73DFB24FA4518541EBD14 /* HexGridOverlay.swift */; };
 		C6AEC30F94B85A6EC0C4906F /* TunnelLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEA7BE93263D6CD81892233 /* TunnelLogger.swift */; };
+		C7A05A8F04774207A5409E31 /* StreakStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A05A9004774207A5409E31 /* StreakStore.swift */; };
 		CF3F063123F262178BC1D9A6 /* UDPControlStreamDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7831C0FFFBDC9598861EA2C /* UDPControlStreamDecoder.swift */; };
 		D24EEA7B7533B79C957AE48B /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9148902051FD9DE18F6352FA /* NetworkExtension.framework */; };
 		D281D6E31FDBF4B31621FD4C /* TrafficStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25ECD808F4AB24AD78B25C73 /* TrafficStats.swift */; };
@@ -229,6 +230,7 @@
 		B792A319C991B554FDE08252 /* UDPControlStreamDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPControlStreamDecoderTests.swift; sourceTree = "<group>"; };
 		BB94751122DA9ADC81F89EE3 /* Bubble.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Bubble.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BD765D996DF508EC38014A6F /* TimeWindowNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowNotificationCoordinator.swift; sourceTree = "<group>"; };
+		C7A05A9004774207A5409E31 /* StreakStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakStore.swift; sourceTree = "<group>"; };
 		C8F7AEAFA028F049E6650638 /* instagram.svg */ = {isa = PBXFileReference; path = instagram.svg; sourceTree = "<group>"; };
 		CCD0F0FEE8BB2598F0C7DE05 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
 		CF64A7F1BEAFEC1BD3A79328 /* TimeWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowTests.swift; sourceTree = "<group>"; };
@@ -360,6 +362,7 @@
 				3288B67D55E1FF065382E8E9 /* HexGridLayoutManager.swift */,
 				9D9EE6D24AD0B696F8DCB904 /* MagicSignInService.swift */,
 				4F5A0931BEF4F3F4B1BF8741 /* Route.swift */,
+				C7A05A9004774207A5409E31 /* StreakStore.swift */,
 				E3EF496D1E6382443B39705A /* SupabaseClient.swift */,
 				BD765D996DF508EC38014A6F /* TimeWindowNotificationCoordinator.swift */,
 				49F6E89613AD57D1454C5219 /* TimeWindowStore.swift */,
@@ -808,6 +811,7 @@
 				86B63264F246C48566EDE4D7 /* SettingsScreen.swift in Sources */,
 				DA022CE2410220BBEB0EFC55 /* SkyBackgroundView.swift in Sources */,
 				63985968494496186AAAAE97 /* SocialMediaIcon.swift in Sources */,
+				C7A05A8F04774207A5409E31 /* StreakStore.swift in Sources */,
 				6AB0C375DDD14ACE8678338E /* SupabaseClient.swift in Sources */,
 				EDA02713C4468918CD71127A /* TimeWindowCore.swift in Sources */,
 				B16404A5FFB4AA79941E74D0 /* TimeWindowNotificationCoordinator.swift in Sources */,

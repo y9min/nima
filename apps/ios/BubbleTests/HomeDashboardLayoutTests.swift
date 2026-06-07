@@ -124,3 +124,142 @@ final class BlockingConnectionIndicatorStateTests: XCTestCase {
         XCTAssertEqual(BlockingVPNState.permissionRequired.connectionIndicatorState, .permissionRequired)
     }
 }
+
+final class StreakStoreTests: XCTestCase {
+    private var suiteName: String!
+    private var defaults: UserDefaults!
+    private var store: StreakStore!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "StreakStoreTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+        defaults.removePersistentDomain(forName: suiteName)
+        store = StreakStore(defaults: defaults, storageKey: "streakDaysTest")
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        store = nil
+        defaults = nil
+        suiteName = nil
+        super.tearDown()
+    }
+
+    func testMarkTodayEarnedStoresOneRecordOnly() {
+        let calendar = londonCalendar()
+        let now = date(year: 2026, month: 6, day: 3, hour: 23, minute: 59, calendar: calendar)
+
+        XCTAssertTrue(store.markTodayEarned(source: "instagram_strict_reels", now: now, calendar: calendar))
+        XCTAssertFalse(store.markTodayEarned(source: "tiktok_video_block", now: now, calendar: calendar))
+
+        XCTAssertEqual(store.records.count, 1)
+        XCTAssertEqual(store.records.first?.date, "2026-06-03")
+        XCTAssertEqual(store.records.first?.source, "instagram_strict_reels")
+        XCTAssertEqual(store.records.first?.timezone, "Europe/London")
+    }
+
+    func testMidweekStartLeavesEarlierDaysMutedAndTodayPending() {
+        let calendar = londonCalendar()
+        let wednesday = date(year: 2026, month: 6, day: 3, calendar: calendar)
+        let thursday = date(year: 2026, month: 6, day: 4, calendar: calendar)
+
+        store.markTodayEarned(source: "instagram_strict_reels", now: wednesday, calendar: calendar)
+        let states = store.weekStates(now: thursday, calendar: calendar)
+
+        XCTAssertEqual(states.map(\.label), ["M", "T", "W", "T", "F", "S", "S"])
+        XCTAssertEqual(states.map(\.status), [
+            .beforeTrackingStarted,
+            .beforeTrackingStarted,
+            .earned,
+            .todayPending,
+            .future,
+            .future,
+            .future
+        ])
+    }
+
+    func testCurrentStreakCountsThroughYesterdayWhenTodayIsPending() {
+        let calendar = londonCalendar()
+        store.markTodayEarned(source: "instagram_strict_reels", now: date(year: 2026, month: 6, day: 1, calendar: calendar), calendar: calendar)
+        store.markTodayEarned(source: "tiktok_video_block", now: date(year: 2026, month: 6, day: 2, calendar: calendar), calendar: calendar)
+
+        let wednesday = date(year: 2026, month: 6, day: 3, calendar: calendar)
+
+        XCTAssertEqual(store.currentStreak(now: wednesday, calendar: calendar), 2)
+        XCTAssertEqual(store.weekStates(now: wednesday, calendar: calendar)[2].status, .todayPending)
+    }
+
+    func testMissingYesterdayBreaksStreakUnlessTodayIsEarned() {
+        let calendar = londonCalendar()
+        store.markTodayEarned(source: "instagram_strict_reels", now: date(year: 2026, month: 6, day: 1, calendar: calendar), calendar: calendar)
+
+        let wednesday = date(year: 2026, month: 6, day: 3, calendar: calendar)
+        XCTAssertEqual(store.currentStreak(now: wednesday, calendar: calendar), 0)
+
+        store.markTodayEarned(source: "tiktok_video_block", now: wednesday, calendar: calendar)
+        XCTAssertEqual(store.currentStreak(now: wednesday, calendar: calendar), 1)
+    }
+
+    func testWeeklyDotsResetOnMondayWhileHistoricalStreakCounts() {
+        let calendar = londonCalendar()
+        store.markTodayEarned(source: "instagram_strict_reels", now: date(year: 2026, month: 6, day: 5, calendar: calendar), calendar: calendar)
+        store.markTodayEarned(source: "instagram_strict_reels", now: date(year: 2026, month: 6, day: 6, calendar: calendar), calendar: calendar)
+        store.markTodayEarned(source: "instagram_strict_reels", now: date(year: 2026, month: 6, day: 7, calendar: calendar), calendar: calendar)
+        let monday = date(year: 2026, month: 6, day: 8, calendar: calendar)
+        store.markTodayEarned(source: "instagram_strict_reels", now: monday, calendar: calendar)
+
+        XCTAssertEqual(store.currentStreak(now: monday, calendar: calendar), 4)
+        XCTAssertEqual(store.weekStates(now: monday, calendar: calendar).map(\.status), [
+            .earned,
+            .future,
+            .future,
+            .future,
+            .future,
+            .future,
+            .future
+        ])
+    }
+
+    func testZeroRecordStateShowsStartableWeek() {
+        let calendar = londonCalendar()
+        let wednesday = date(year: 2026, month: 6, day: 3, calendar: calendar)
+
+        XCTAssertEqual(store.currentStreak(now: wednesday, calendar: calendar), 0)
+        XCTAssertEqual(store.weekStates(now: wednesday, calendar: calendar).map(\.status), [
+            .beforeTrackingStarted,
+            .beforeTrackingStarted,
+            .todayPending,
+            .future,
+            .future,
+            .future,
+            .future
+        ])
+    }
+
+    private func londonCalendar() -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+        calendar.firstWeekday = 2
+        return calendar
+    }
+
+    private func date(
+        year: Int,
+        month: Int,
+        day: Int,
+        hour: Int = 12,
+        minute: Int = 0,
+        calendar: Calendar
+    ) -> Date {
+        DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            year: year,
+            month: month,
+            day: day,
+            hour: hour,
+            minute: minute
+        ).date!
+    }
+}

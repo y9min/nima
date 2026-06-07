@@ -308,6 +308,30 @@ final class AppOptionsService {
         return optionStates[appId]?[optionId] ?? false
     }
 
+    var hasAnyEnabledBlockingOption: Bool {
+        firstEnabledBlockerSource != nil
+    }
+
+    var firstEnabledBlockerSource: String? {
+        let preferredAppOrder = ["instagram", "tiktok", "x"]
+        let otherAppIDs = optionStates.keys
+            .filter { !preferredAppOrder.contains($0) }
+            .sorted()
+
+        for appId in preferredAppOrder + otherAppIDs {
+            guard let enabledOptionID = optionStates[appId]?
+                .filter({ $0.value })
+                .map(\.key)
+                .sorted()
+                .first else {
+                continue
+            }
+            return "\(appId)_\(enabledOptionID)"
+        }
+
+        return nil
+    }
+
     private func refreshOptionStates(from policy: FeaturePolicyV1) {
         for (appId, states) in policy.appToggles {
             if optionStates[appId] == nil {
