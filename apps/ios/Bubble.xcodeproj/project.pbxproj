@@ -68,6 +68,8 @@
 		88E96BE752A5DBCDD02D793B /* BubbleColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74330F9AFC4182AB67F02F83 /* BubbleColors.swift */; };
 		8CC77FCD2AFCCE05480781D9 /* icon_rect.png in Resources */ = {isa = PBXBuildFile; fileRef = 6A14727AF55B2D6A666F3D1B /* icon_rect.png */; };
 		8F0D57C9A6E3045BBE001928 /* AppOptionsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A500B91AAD8FCE188E83A9D /* AppOptionsService.swift */; };
+		A11111111111111111111111 /* AppSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A22222222222222222222222 /* AppSettingsStore.swift */; };
+		A33333333333333333333333 /* AppSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44444444444444444444444 /* AppSettingsStoreTests.swift */; };
 		9549542D2E57B4C55511D581 /* BackArrowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28E7DF720D3EB9EAC56B49CB /* BackArrowView.swift */; };
 		96E5C7ABCADDD122544A7882 /* GridPositionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96DCEEE446F160532470E8D /* GridPositionStore.swift */; };
 		98CE2E34082CA58764807157 /* MagicSignInService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D9EE6D24AD0B696F8DCB904 /* MagicSignInService.swift */; };
@@ -174,6 +176,8 @@
 		3288B67D55E1FF065382E8E9 /* HexGridLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HexGridLayoutManager.swift; sourceTree = "<group>"; };
 		37D22F07BC5688731E8CC450 /* ReelsBlockFilterPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelsBlockFilterPolicyTests.swift; sourceTree = "<group>"; };
 		3A500B91AAD8FCE188E83A9D /* AppOptionsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOptionsService.swift; sourceTree = "<group>"; };
+		A22222222222222222222222 /* AppSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsStore.swift; sourceTree = "<group>"; };
+		A44444444444444444444444 /* AppSettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsStoreTests.swift; sourceTree = "<group>"; };
 		444A7DDCA8B8BA12DCC540D4 /* EmojiCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiCatalog.swift; sourceTree = "<group>"; };
 		445A2945A3CB5B3A7B942D72 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
 		4779D1C929FA22D5A6FC623C /* Secrets.xcconfig.example */ = {isa = PBXFileReference; path = Secrets.xcconfig.example; sourceTree = "<group>"; };
@@ -282,6 +286,7 @@
 		312C41EC601DDB997D966AB7 /* BubbleTests */ = {
 			isa = PBXGroup;
 			children = (
+				A44444444444444444444444 /* AppSettingsStoreTests.swift */,
 				D775F4EB96EDE4AB8391427A /* HomeDashboardLayoutTests.swift */,
 				CF64A7F1BEAFEC1BD3A79328 /* TimeWindowTests.swift */,
 			);
@@ -353,6 +358,7 @@
 			isa = PBXGroup;
 			children = (
 				3A500B91AAD8FCE188E83A9D /* AppOptionsService.swift */,
+				A22222222222222222222222 /* AppSettingsStore.swift */,
 				5E46F6CBC4504443A3E050DE /* AppStore.swift */,
 				931B0AF1A32A039B27B089E5 /* AuthStore.swift */,
 				64DB7E7C0A427B4897386603 /* BlockedApp.swift */,
@@ -755,6 +761,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A33333333333333333333333 /* AppSettingsStoreTests.swift in Sources */,
 				746F1052E1F56D98DD9862E5 /* HomeDashboardLayoutTests.swift in Sources */,
 				2645E2B1DF020C3950113C23 /* TimeWindowTests.swift in Sources */,
 			);
@@ -777,6 +784,7 @@
 				B7F4E889C0C9CF5017891111 /* AppIconCircle.swift in Sources */,
 				55B0C1B5A6CF3AA8C6AEF432 /* AppOptionArcs.swift in Sources */,
 				8F0D57C9A6E3045BBE001928 /* AppOptionsService.swift in Sources */,
+				A11111111111111111111111 /* AppSettingsStore.swift in Sources */,
 				55B9C498EF03C4B9380E9BA0 /* AppStore.swift in Sources */,
 				F4B56F9A3A941A0C2EBDADE7 /* AuthStore.swift in Sources */,
 				9549542D2E57B4C55511D581 /* BackArrowView.swift in Sources */,

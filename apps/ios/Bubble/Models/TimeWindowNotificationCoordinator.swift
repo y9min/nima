@@ -81,21 +81,23 @@ protocol TimeWindowNotificationScheduling {
         pauseAll: Bool,
         requestAuthorizationIfNeeded: Bool
     )
+    func cancelStartNotifications()
     func schedulePauseReminderNotifications(
         firstReminderAt: Date,
         windowEndDate: Date?,
+        reminderInterval: TimeInterval,
         requestAuthorizationIfNeeded: Bool
     )
     func cancelPauseReminderNotifications()
 }
 
 struct TimeWindowNotificationScheduler {
+    static let startNotificationIdentifierPrefix = "time-window-start"
     static let categoryIdentifier = "TIME_WINDOW_START"
     static let pauseReminderCategoryIdentifier = "TIME_WINDOW_PAUSE_REMINDER"
     static let notificationKindUserInfoKey = "timeWindowNotificationKind"
     static let windowIDUserInfoKey = "timeWindowID"
     static let pauseReminderIdentifierPrefix = "time-window-pause-reminder"
-    static let pauseReminderInterval: TimeInterval = 10 * 60
 
     private let center: UNUserNotificationCenter
 
@@ -108,15 +110,14 @@ struct TimeWindowNotificationScheduler {
         pauseAll: Bool,
         requestAuthorizationIfNeeded: Bool
     ) {
-        let allIdentifiers = windows.flatMap(Self.startNotificationIDs(for:))
-        center.removePendingNotificationRequests(withIdentifiers: allIdentifiers)
+        cancelExistingStartNotifications {
+            guard !pauseAll else { return }
+            let enabledWindows = windows.filter { $0.enabled }
+            guard !enabledWindows.isEmpty else { return }
 
-        guard !pauseAll else { return }
-        let enabledWindows = windows.filter { $0.enabled }
-        guard !enabledWindows.isEmpty else { return }
-
-        scheduleWhenAuthorized(requestIfNeeded: requestAuthorizationIfNeeded) {
-            enabledWindows.forEach { scheduleStartNotifications(for: $0) }
+            scheduleWhenAuthorized(requestIfNeeded: requestAuthorizationIfNeeded) {
+                enabledWindows.forEach { scheduleStartNotifications(for: $0) }
+            }
         }
     }
 
@@ -173,17 +174,26 @@ struct TimeWindowNotificationScheduler {
     }
 
     static func startNotificationID(windowID: String, weekday: TimeWindowWeekday) -> String {
-        "time-window-start-\(windowID)-\(weekday.rawValue)"
+        "\(startNotificationIdentifierPrefix)-\(windowID)-\(weekday.rawValue)"
     }
 }
 
 extension TimeWindowNotificationScheduler: TimeWindowNotificationScheduling {
+    func cancelStartNotifications() {
+        cancelExistingStartNotifications()
+    }
+
     func schedulePauseReminderNotifications(
         firstReminderAt: Date,
         windowEndDate: Date?,
+        reminderInterval: TimeInterval,
         requestAuthorizationIfNeeded: Bool
     ) {
-        let dates = Self.pauseReminderDates(firstReminderAt: firstReminderAt, windowEndDate: windowEndDate)
+        let dates = Self.pauseReminderDates(
+            firstReminderAt: firstReminderAt,
+            windowEndDate: windowEndDate,
+            reminderInterval: reminderInterval
+        )
         guard !dates.isEmpty else {
             cancelPauseReminderNotifications()
             return
@@ -205,7 +215,7 @@ extension TimeWindowNotificationScheduler: TimeWindowNotificationScheduling {
     static func pauseReminderDates(
         firstReminderAt: Date,
         windowEndDate: Date?,
-        reminderInterval: TimeInterval = pauseReminderInterval
+        reminderInterval: TimeInterval
     ) -> [Date] {
         if let windowEndDate, firstReminderAt >= windowEndDate {
             return []
@@ -255,6 +265,18 @@ extension TimeWindowNotificationScheduler: TimeWindowNotificationScheduling {
             let identifiers = requests
                 .map(\.identifier)
                 .filter { $0.hasPrefix(Self.pauseReminderIdentifierPrefix) }
+            if !identifiers.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: identifiers)
+            }
+            completion?()
+        }
+    }
+
+    private func cancelExistingStartNotifications(completion: (() -> Void)? = nil) {
+        center.getPendingNotificationRequests { requests in
+            let identifiers = requests
+                .map(\.identifier)
+                .filter { $0.hasPrefix(Self.startNotificationIdentifierPrefix) }
             if !identifiers.isEmpty {
                 center.removePendingNotificationRequests(withIdentifiers: identifiers)
             }

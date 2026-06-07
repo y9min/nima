@@ -224,7 +224,11 @@ final class TimeWindowNotificationRoutingTests: XCTestCase {
         let end = first.addingTimeInterval(25 * 60)
 
         XCTAssertEqual(
-            TimeWindowNotificationScheduler.pauseReminderDates(firstReminderAt: first, windowEndDate: end),
+            TimeWindowNotificationScheduler.pauseReminderDates(
+                firstReminderAt: first,
+                windowEndDate: end,
+                reminderInterval: 10 * 60
+            ),
             [
                 first,
                 first.addingTimeInterval(10 * 60),
@@ -280,6 +284,101 @@ final class TimeWindowStorePauseTests: XCTestCase {
         XCTAssertEqual(applied.last, Set(["instagram"]))
         XCTAssertEqual(startSources.last, "time_windows.pause_all.manual_resume")
         XCTAssertEqual(scheduler.cancelPauseReminderCount, 1)
+    }
+
+    func testDefaultPauseIntervalSchedulesReminderAfterFiveMinutes() {
+        let scheduler = FakeTimeWindowNotificationScheduler()
+        let defaults = testDefaults()
+        let store = makeStore(defaults: defaults, scheduler: scheduler)
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+        store.addWindow(activeWindow(apps: ["instagram"]))
+        store.setPauseAll(true, now: now)
+
+        XCTAssertEqual(scheduler.pauseReminderRequests.last?.firstReminderAt, now.addingTimeInterval(5 * 60))
+        XCTAssertEqual(scheduler.pauseReminderRequests.last?.reminderInterval, 5 * 60)
+    }
+
+    func testSelectedPauseIntervalChangesFirstReminderAndCadence() {
+        let scheduler = FakeTimeWindowNotificationScheduler()
+        let defaults = testDefaults()
+        let store = makeStore(defaults: defaults, scheduler: scheduler)
+        let now = Date(timeIntervalSince1970: 2_000)
+
+        store.setPauseIntervalMinutes(15, now: now)
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+        store.addWindow(activeWindow(apps: ["tiktok"]))
+        store.setPauseAll(true, now: now)
+
+        XCTAssertEqual(scheduler.pauseReminderRequests.last?.firstReminderAt, now.addingTimeInterval(15 * 60))
+        XCTAssertEqual(scheduler.pauseReminderRequests.last?.reminderInterval, 15 * 60)
+    }
+
+    func testChangingIntervalWhilePausedReschedulesFromNow() {
+        let scheduler = FakeTimeWindowNotificationScheduler()
+        let defaults = testDefaults()
+        let store = makeStore(defaults: defaults, scheduler: scheduler)
+        let now = Date(timeIntervalSince1970: 3_000)
+        let changedAt = now.addingTimeInterval(60)
+
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+        store.addWindow(activeWindow(apps: ["instagram"]))
+        store.setPauseAll(true, now: now)
+        store.setPauseIntervalMinutes(30, now: changedAt)
+
+        XCTAssertEqual(scheduler.pauseReminderRequests.last?.firstReminderAt, changedAt.addingTimeInterval(30 * 60))
+        XCTAssertEqual(scheduler.pauseReminderRequests.last?.reminderInterval, 30 * 60)
+    }
+
+    func testDisabledWindowsNotificationsCancelAndAvoidScheduling() {
+        let scheduler = FakeTimeWindowNotificationScheduler()
+        let defaults = testDefaults()
+        defaults.set(false, forKey: BubbleConstants.windowsNotificationsEnabledKey)
+        let store = makeStore(defaults: defaults, scheduler: scheduler)
+
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+        store.addWindow(activeWindow(apps: ["instagram"]))
+        store.setPauseAll(true, now: Date(timeIntervalSince1970: 4_000))
+
+        XCTAssertTrue(scheduler.startNotificationRequests.isEmpty)
+        XCTAssertTrue(scheduler.pauseReminderRequests.isEmpty)
+        XCTAssertGreaterThanOrEqual(scheduler.cancelStartNotificationCount, 1)
+        XCTAssertGreaterThanOrEqual(scheduler.cancelPauseReminderCount, 1)
+    }
+
+    func testReEnablingWindowsNotificationsReschedulesEnabledWindows() {
+        let scheduler = FakeTimeWindowNotificationScheduler()
+        let defaults = testDefaults()
+        defaults.set(false, forKey: BubbleConstants.windowsNotificationsEnabledKey)
+        let store = makeStore(defaults: defaults, scheduler: scheduler)
+
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+        store.addWindow(activeWindow(apps: ["instagram"]))
+        store.setWindowsNotificationsEnabled(true)
+
+        XCTAssertEqual(scheduler.startNotificationRequests.last?.requestAuthorizationIfNeeded, true)
+        XCTAssertEqual(scheduler.startNotificationRequests.last?.pauseAll, false)
     }
 
     func testPauseReminderTapRestoresScheduledBlockersStartsProtectionAndRequestsHome() {
@@ -423,7 +522,8 @@ final class TimeWindowStorePauseTests: XCTestCase {
 
 private final class FakeTimeWindowNotificationScheduler: TimeWindowNotificationScheduling {
     var startNotificationRequests: [(pauseAll: Bool, requestAuthorizationIfNeeded: Bool)] = []
-    var pauseReminderRequests: [(firstReminderAt: Date, windowEndDate: Date?, requestAuthorizationIfNeeded: Bool)] = []
+    var pauseReminderRequests: [(firstReminderAt: Date, windowEndDate: Date?, reminderInterval: TimeInterval, requestAuthorizationIfNeeded: Bool)] = []
+    var cancelStartNotificationCount = 0
     var cancelPauseReminderCount = 0
 
     func rescheduleStartNotifications(
@@ -434,12 +534,17 @@ private final class FakeTimeWindowNotificationScheduler: TimeWindowNotificationS
         startNotificationRequests.append((pauseAll, requestAuthorizationIfNeeded))
     }
 
+    func cancelStartNotifications() {
+        cancelStartNotificationCount += 1
+    }
+
     func schedulePauseReminderNotifications(
         firstReminderAt: Date,
         windowEndDate: Date?,
+        reminderInterval: TimeInterval,
         requestAuthorizationIfNeeded: Bool
     ) {
-        pauseReminderRequests.append((firstReminderAt, windowEndDate, requestAuthorizationIfNeeded))
+        pauseReminderRequests.append((firstReminderAt, windowEndDate, reminderInterval, requestAuthorizationIfNeeded))
     }
 
     func cancelPauseReminderNotifications() {

@@ -10,6 +10,7 @@ struct BubbleApp: App {
     @State private var timeWindowStore = TimeWindowStore()
     @State private var gridPositionStore = GridPositionStore()
     @State private var authStore = AuthStore()
+    @State private var appSettingsStore = AppSettingsStore()
 
     init() {
         TimeWindowNotificationCoordinator.shared.install()
@@ -21,6 +22,11 @@ struct BubbleApp: App {
             BubbleConstants.udpSelectiveSafeModeEnabledKey: true,
             BubbleConstants.tun2socksStartupModeKey: BubbleConstants.tun2socksStartupModeStagedAfterConnect,
             BubbleConstants.transportProtectionV2StabilityFirstKey: true,
+            BubbleConstants.windowsNotificationsEnabledKey: true,
+            BubbleConstants.streakRemindersEnabledKey: AppSettingsStore.defaultStreakRemindersEnabled,
+            BubbleConstants.streakReminderHourKey: AppSettingsStore.defaultStreakReminderHour,
+            BubbleConstants.streakReminderMinuteKey: AppSettingsStore.defaultStreakReminderMinute,
+            BubbleConstants.pauseIntervalMinutesKey: AppSettingsStore.defaultPauseIntervalMinutes,
         ])
         if sharedDefaults?.bool(forKey: BubbleConstants.transportProtectionV2StabilityFirstDefaultMigratedKey) != true {
             if sharedDefaults?.object(forKey: BubbleConstants.transportProtectionV2StabilityFirstKey) == nil {
@@ -69,9 +75,6 @@ struct BubbleApp: App {
                     onSignIn: {
                         path.append(Route.magicSignIn)
                     },
-                    onSettings: {
-                        path.append(Route.settings)
-                    },
                     onTrafficDashboard: {
                         path.append(Route.trafficDashboard)
                     }
@@ -85,9 +88,6 @@ struct BubbleApp: App {
                             },
                             onSignIn: {
                                 path.append(Route.magicSignIn)
-                            },
-                            onSettings: {
-                                path.append(Route.settings)
                             },
                             onTrafficDashboard: {
                                 path.append(Route.trafficDashboard)
@@ -118,7 +118,15 @@ struct BubbleApp: App {
                             path = NavigationPath()
                         })
                     case .settings:
-                        SettingsScreen()
+                        SettingsScreen(
+                            onHome: {
+                                path = NavigationPath()
+                            },
+                            onWindows: {
+                                path = NavigationPath()
+                                path.append(Route.timeWindows)
+                            }
+                        )
                     case .trafficDashboard:
                         TrafficDashboardView()
                     case .extensionLog:
@@ -131,6 +139,7 @@ struct BubbleApp: App {
             .environment(timeWindowStore)
             .environment(gridPositionStore)
             .environment(authStore)
+            .environment(appSettingsStore)
             .environmentObject(vpnManager)
             .preferredColorScheme(.dark)
             .task {
@@ -172,11 +181,19 @@ struct BubbleApp: App {
     private func markStreakIfEligible(source: String) {
         guard Self.isProtectionActive(vpnManager.vpnStatus),
               store.hasAnyEnabledBlockingOption else {
+            syncStreakReminder()
             return
         }
 
         streakStore.markTodayEarned(
             source: store.firstEnabledBlockerSource ?? source
+        )
+        syncStreakReminder()
+    }
+
+    private func syncStreakReminder() {
+        appSettingsStore.syncStreakReminder(
+            hasEarnedToday: streakStore.hasEarnedToday()
         )
     }
 

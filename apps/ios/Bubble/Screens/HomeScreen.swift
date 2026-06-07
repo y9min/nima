@@ -7,6 +7,7 @@ struct HomeScreen: View {
     @Environment(StreakStore.self) private var streakStore
     @Environment(TimeWindowStore.self) private var timeWindowStore
     @Environment(AuthStore.self) private var authStore
+    @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(\.sizeCategory) private var contentSizeCategory
     @EnvironmentObject private var vpnManager: VPNManager
     @State private var blockSessionEndsAt: Date?
@@ -178,17 +179,10 @@ struct HomeScreen: View {
     }
 
     private var displayName: String {
-        let localPart = authStore.userEmail
-            .split(separator: "@")
-            .first?
-            .split(whereSeparator: { $0 == "." || $0 == "_" || $0 == "-" })
-            .first
-
-        guard let localPart, !localPart.isEmpty else {
-            return "emily"
-        }
-
-        return String(localPart).lowercased()
+        AppSettingsStore.resolvedDisplayName(
+            localOverride: appSettingsStore.normalizedDisplayName,
+            userEmail: authStore.userEmail
+        )
     }
 
     private var blockingVPNState: BlockingVPNState {
@@ -286,6 +280,11 @@ private struct HomeGreeting: View {
         .system(size: titleSize, weight: .bold, design: .rounded)
     }
 
+    private var nameUnderlineWidth: CGFloat {
+        let visibleCharacterCount = max(3, min(name.count, 16))
+        return min(178 * scale, max(52 * scale, CGFloat(visibleCharacterCount) * titleSize * 0.58))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: max(1, 2 * scale)) {
             VStack(alignment: .leading, spacing: 0) {
@@ -304,7 +303,7 @@ private struct HomeGreeting: View {
                     .minimumScaleFactor(0.74)
                     .overlay(alignment: .bottomLeading) {
                         LimeScribble()
-                            .frame(width: 82.8 * scale, height: 8.1 * scale)
+                            .frame(width: nameUnderlineWidth, height: 8.1 * scale)
                             .padding(.leading, 2)
                             .offset(y: 6 * scale)
                     }

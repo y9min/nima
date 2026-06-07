@@ -93,11 +93,34 @@ final class TimeWindowStore {
         persistAndRefresh(source: "time_windows.toggle", requestNotificationAuthorization: enabled)
     }
 
-    func setPauseAll(_ value: Bool) {
+    func setPauseAll(_ value: Bool, now: Date = Date()) {
         if value {
-            pauseWindows(now: Date())
+            pauseWindows(now: now)
         } else {
             resumePausedWindows(source: "time_windows.pause_all.manual_resume", focusHome: false)
+        }
+    }
+
+    func setPauseIntervalMinutes(_ minutes: Int, now: Date = Date()) {
+        let normalized = AppSettingsStore.normalizedPauseInterval(minutes)
+        defaults?.set(normalized, forKey: BubbleConstants.pauseIntervalMinutesKey)
+
+        guard pauseAll else { return }
+        pauseExpiresAt = now.addingTimeInterval(TimeInterval(normalized * 60))
+        savePauseState()
+        schedulePauseReminders(requestAuthorizationIfNeeded: false)
+    }
+
+    func setWindowsNotificationsEnabled(_ enabled: Bool) {
+        defaults?.set(enabled, forKey: BubbleConstants.windowsNotificationsEnabledKey)
+        if enabled {
+            rescheduleNotifications(requestAuthorizationIfNeeded: true)
+            if pauseAll {
+                schedulePauseReminders(requestAuthorizationIfNeeded: true)
+            }
+        } else {
+            notificationScheduler.cancelStartNotifications()
+            notificationScheduler.cancelPauseReminderNotifications()
         }
     }
 
@@ -223,6 +246,10 @@ final class TimeWindowStore {
     }
 
     private func rescheduleNotifications(requestAuthorizationIfNeeded: Bool) {
+        guard windowsNotificationsEnabled else {
+            notificationScheduler.cancelStartNotifications()
+            return
+        }
         notificationScheduler.rescheduleStartNotifications(
             for: windows,
             pauseAll: pauseAll,
@@ -233,7 +260,7 @@ final class TimeWindowStore {
     private func pauseWindows(now: Date) {
         guard pauseAll == false else { return }
         pauseAll = true
-        pauseExpiresAt = now.addingTimeInterval(5 * 60)
+        pauseExpiresAt = now.addingTimeInterval(TimeInterval(pauseIntervalMinutes * 60))
         savePauseState()
         evaluateSchedules(source: "time_windows.pause_all.pause")
         rescheduleNotifications(requestAuthorizationIfNeeded: false)
@@ -257,6 +284,10 @@ final class TimeWindowStore {
     }
 
     private func schedulePauseReminders(requestAuthorizationIfNeeded: Bool) {
+        guard windowsNotificationsEnabled else {
+            notificationScheduler.cancelPauseReminderNotifications()
+            return
+        }
         guard pauseAll, let pauseExpiresAt else {
             notificationScheduler.cancelPauseReminderNotifications()
             return
@@ -264,6 +295,7 @@ final class TimeWindowStore {
         notificationScheduler.schedulePauseReminderNotifications(
             firstReminderAt: pauseExpiresAt,
             windowEndDate: soonestActiveWindowEndDateIgnoringPause(),
+            reminderInterval: TimeInterval(pauseIntervalMinutes * 60),
             requestAuthorizationIfNeeded: requestAuthorizationIfNeeded
         )
     }
@@ -341,5 +373,13 @@ final class TimeWindowStore {
             self?.evaluateSchedules(source: "time_windows.timer")
         }
         scheduleTimer?.tolerance = 5
+    }
+
+    private var windowsNotificationsEnabled: Bool {
+        AppSettingsStore.windowsNotificationsEnabled(defaults: defaults)
+    }
+
+    private var pauseIntervalMinutes: Int {
+        AppSettingsStore.pauseIntervalMinutes(defaults: defaults)
     }
 }

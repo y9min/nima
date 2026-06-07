@@ -8,7 +8,6 @@ struct MainTabsScreen: View {
 
     let onSelectApp: (BlockedApp) -> Void
     let onSignIn: () -> Void
-    let onSettings: () -> Void
     let onTrafficDashboard: () -> Void
 
     var body: some View {
@@ -28,7 +27,7 @@ struct MainTabsScreen: View {
                             onTimeWindows: { selectedTab = .windows },
                             onAddTimeWindow: openAddTimeWindow,
                             onSignIn: onSignIn,
-                            onSettings: onSettings,
+                            onSettings: { selectedTab = .settings },
                             onTrafficDashboard: onTrafficDashboard,
                             showsDock: false
                         )
@@ -36,7 +35,7 @@ struct MainTabsScreen: View {
                     case .windows:
                         TimeWindowsScreen(
                             onHome: { selectedTab = .home },
-                            onSettings: onSettings,
+                            onSettings: { selectedTab = .settings },
                             addWindowRequestID: pendingAddWindowRequestID,
                             onAddWindowRequestHandled: {
                                 pendingAddWindowRequestID = nil
@@ -45,7 +44,12 @@ struct MainTabsScreen: View {
                         )
                         .transition(.opacity)
                     case .settings:
-                        EmptyView()
+                        SettingsScreen(
+                            onHome: { selectedTab = .home },
+                            onWindows: { selectedTab = .windows },
+                            showsDock: false
+                        )
+                        .transition(.opacity)
                     }
                 }
                 .animation(.easeInOut(duration: 0.16), value: selectedTab)
@@ -55,7 +59,7 @@ struct MainTabsScreen: View {
                     scale: layout.scale,
                     onHome: { selectedTab = .home },
                     onWindows: { selectedTab = .windows },
-                    onSettings: onSettings
+                    onSettings: { selectedTab = .settings }
                 )
                 .frame(width: layout.contentWidth, height: layout.dockHeight)
                 .padding(.bottom, layout.dockBottomPadding)
