@@ -60,7 +60,10 @@ final class VPNManager: ObservableObject {
         recordCurrentAppLifecycleSnapshot(source: "setup")
         applyDiagnosticProfileConfiguration()
         appendLog("App launched")
-        loadVPNPreferences()
+        loadVPNPreferences(
+            createProfileIfMissing: false,
+            reconcilePolicyAfterLoad: false
+        )
     }
 
     private func applyDiagnosticProfileConfiguration() {
@@ -192,7 +195,10 @@ final class VPNManager: ObservableObject {
 
     // MARK: - VPN Lifecycle
 
-    private func loadVPNPreferences() {
+    private func loadVPNPreferences(
+        createProfileIfMissing: Bool = true,
+        reconcilePolicyAfterLoad: Bool = true
+    ) {
         guard !preferencesLoadInFlight else {
             appendLog("VPN preferences load already in flight")
             return
@@ -221,6 +227,10 @@ final class VPNManager: ObservableObject {
                     guard let mgr = matchingManager else {
                         self.preferencesLoadInFlight = false
                         self.appendLog("Found \(existingManagers.count) VPN profile(s), but none match \(BubbleConstants.tunnelBundleID)")
+                        guard createProfileIfMissing || self.pendingTunnelIntent != nil else {
+                            self.appendLog("Profile creation deferred until explicit VPN start")
+                            return
+                        }
                         self.appendLog("Creating a fresh profile for current extension ID")
                         self.createVPNProfile()
                         return
@@ -234,12 +244,18 @@ final class VPNManager: ObservableObject {
                     self.appendLog("Found existing profile. Status: \(self.statusString)")
                     self.appendLog("Bundle ID: \((mgr.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier ?? "nil")")
                     self.observeStatusChanges(for: mgr)
-                    if self.autoConnect && mgr.connection.status != .connected && mgr.connection.status != .connecting {
+                    if reconcilePolicyAfterLoad && self.autoConnect && mgr.connection.status != .connected && mgr.connection.status != .connecting {
                         self.startVPN()
                     }
-                    self.applyPendingTunnelIntentOrPolicy(source: "preferences_loaded")
+                    if self.pendingTunnelIntent != nil || reconcilePolicyAfterLoad {
+                        self.applyPendingTunnelIntentOrPolicy(source: "preferences_loaded")
+                    }
                 } else {
                     self.preferencesLoadInFlight = false
+                    guard createProfileIfMissing || self.pendingTunnelIntent != nil else {
+                        self.appendLog("No VPN profile found; profile creation deferred until explicit VPN start")
+                        return
+                    }
                     self.createVPNProfile()
                 }
             }
@@ -300,9 +316,15 @@ final class VPNManager: ObservableObject {
         }
     }
 
-    private func ensureVPNPreferencesLoaded() {
+    private func ensureVPNPreferencesLoaded(
+        createProfileIfMissing: Bool = true,
+        reconcilePolicyAfterLoad: Bool = true
+    ) {
         guard manager == nil else { return }
-        loadVPNPreferences()
+        loadVPNPreferences(
+            createProfileIfMissing: createProfileIfMissing,
+            reconcilePolicyAfterLoad: reconcilePolicyAfterLoad
+        )
     }
 
     private func applyPendingTunnelIntentOrPolicy(source: String) {

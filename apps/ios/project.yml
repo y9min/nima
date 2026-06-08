@@ -40,7 +40,7 @@ targets:
           - Coolvetica Rg It.otf
         UIViewControllerBasedStatusBarAppearance: false
         UIStatusBarStyle: UIStatusBarStyleLightContent
-        UILaunchScreen: {}
+        UILaunchStoryboardName: LaunchScreen
         SUPABASE_URL: $(SUPABASE_URL)
         SUPABASE_KEY: $(SUPABASE_KEY)
     entitlements:

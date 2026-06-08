@@ -11,6 +11,8 @@ struct BubbleApp: App {
     @State private var gridPositionStore = GridPositionStore()
     @State private var authStore = AuthStore()
     @State private var appSettingsStore = AppSettingsStore()
+    @State private var onboardingStore = OnboardingStore()
+    @State private var didConfigureProtection = false
 
     init() {
         TimeWindowNotificationCoordinator.shared.install()
@@ -68,31 +70,11 @@ struct BubbleApp: App {
     var body: some Scene {
         WindowGroup {
             NavigationStack(path: $path) {
-                MainTabsScreen(
-                    onSelectApp: { app in
-                        path.append(Route.blockingOptions(appId: app.id))
-                    },
-                    onSignIn: {
-                        path.append(Route.magicSignIn)
-                    },
-                    onTrafficDashboard: {
-                        path.append(Route.trafficDashboard)
-                    }
-                )
+                rootScreen
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case .home:
-                        MainTabsScreen(
-                            onSelectApp: { app in
-                                path.append(Route.blockingOptions(appId: app.id))
-                            },
-                            onSignIn: {
-                                path.append(Route.magicSignIn)
-                            },
-                            onTrafficDashboard: {
-                                path.append(Route.trafficDashboard)
-                            }
-                        )
+                        mainTabsScreen
                     case .timeWindows:
                         TimeWindowsScreen(
                             onHome: {
@@ -140,7 +122,9 @@ struct BubbleApp: App {
             .environment(gridPositionStore)
             .environment(authStore)
             .environment(appSettingsStore)
+            .environment(onboardingStore)
             .environmentObject(vpnManager)
+            .statusBarHidden(!onboardingStore.isCompleted)
             .preferredColorScheme(.dark)
             .task {
                 SVGCache.shared.preload(svgNames: ["instagram", "kalshi", "fanduel"])
@@ -151,31 +135,70 @@ struct BubbleApp: App {
             }
             .onAppear {
                 vpnManager.setup()
-                store.configureVPNAutostart(
-                    startVPN: { vpnManager.startVPN(source: "app_store.autostart") },
-                    stopVPN: { vpnManager.stopVPN(source: "app_store.autostop") },
-                    vpnStatus: { vpnManager.vpnStatus },
-                    markStreakIfEligible: { source in
-                        markStreakIfEligible(source: source)
-                    }
-                )
-                timeWindowStore.configure(
-                    applyScheduledApps: { appIDs, source in
-                        store.setScheduledBlockedAppIDs(appIDs, source: source)
-                    },
-                    startProtection: { source in
-                        vpnManager.startVPN(source: source)
-                    },
-                    requestHomeFocus: {
-                        path = NavigationPath()
-                    }
-                )
-                markStreakIfEligible(source: "app.launch")
+                configureProtectionIfNeeded()
+            }
+            .onChange(of: onboardingStore.isCompleted) { _, isCompleted in
+                guard isCompleted else { return }
+                configureProtectionIfNeeded()
+                store.syncVPNState(source: "onboarding.completed")
+                markStreakIfEligible(source: "onboarding.completed")
             }
             .onChange(of: vpnManager.vpnStatus) { _, _ in
-                markStreakIfEligible(source: "vpn.status")
+                if onboardingStore.isCompleted {
+                    store.syncVPNState(source: "vpn.status")
+                    markStreakIfEligible(source: "vpn.status")
+                }
             }
         }
+    }
+
+    private func configureProtectionIfNeeded() {
+        guard onboardingStore.isCompleted, !didConfigureProtection else { return }
+        didConfigureProtection = true
+
+        store.configureVPNAutostart(
+            startVPN: { vpnManager.startVPN(source: "app_store.autostart") },
+            stopVPN: { vpnManager.stopVPN(source: "app_store.autostop") },
+            vpnStatus: { vpnManager.vpnStatus },
+            markStreakIfEligible: { source in
+                markStreakIfEligible(source: source)
+            }
+        )
+        timeWindowStore.configure(
+            applyScheduledApps: { appIDs, source in
+                store.setScheduledBlockedAppIDs(appIDs, source: source)
+            },
+            startProtection: { source in
+                vpnManager.startVPN(source: source)
+            },
+            requestHomeFocus: {
+                path = NavigationPath()
+            }
+        )
+        markStreakIfEligible(source: "app.launch")
+    }
+
+    @ViewBuilder
+    private var rootScreen: some View {
+        if onboardingStore.isCompleted {
+            mainTabsScreen
+        } else {
+            OnboardingFlowScreen()
+        }
+    }
+
+    private var mainTabsScreen: some View {
+        MainTabsScreen(
+            onSelectApp: { app in
+                path.append(Route.blockingOptions(appId: app.id))
+            },
+            onSignIn: {
+                path.append(Route.magicSignIn)
+            },
+            onTrafficDashboard: {
+                path.append(Route.trafficDashboard)
+            }
+        )
     }
 
     private func markStreakIfEligible(source: String) {

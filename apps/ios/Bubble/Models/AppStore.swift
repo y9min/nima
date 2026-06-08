@@ -73,6 +73,11 @@ final class AppStore {
         scheduleVPNReconciliation(triggerSource: "app_store.configure")
     }
 
+    func syncVPNState(source: String = "app_store.sync") {
+        refreshFromOptionsService()
+        scheduleVPNReconciliation(triggerSource: source)
+    }
+
     private func refreshFromOptionsService() {
         for appIndex in apps.indices {
             let appId = apps[appIndex].id

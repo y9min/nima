@@ -10,8 +10,6 @@ struct HomeScreen: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(\.sizeCategory) private var contentSizeCategory
     @EnvironmentObject private var vpnManager: VPNManager
-    @State private var blockSessionEndsAt: Date?
-    @State private var blockSessionStartedAt: Date?
     @State private var appIDPendingWindowEnd: String?
 
     var onSelectApp: (BlockedApp) -> Void
@@ -74,12 +72,6 @@ struct HomeScreen: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .onAppear {
-            syncSessionEndDate()
-        }
-        .onChange(of: blockedAppIDs) { _, _ in
-            syncSessionEndDate()
-        }
         .alert("End current window?", isPresented: isShowingEndWindowConfirmation) {
             Button("End Window", role: .destructive) {
                 if let appIDPendingWindowEnd {
@@ -175,7 +167,7 @@ struct HomeScreen: View {
     }
 
     private var blockerSessionEndsAt: Date? {
-        timeWindowStore.soonestActiveWindowEndDate() ?? blockSessionEndsAt
+        timeWindowStore.soonestActiveWindowEndDate()
     }
 
     private var displayName: String {
@@ -218,31 +210,10 @@ struct HomeScreen: View {
         }
 
         store.toggleOption(appId: appId, optionId: optionId, source: "blocking_status_card")
-
-        if !isCurrentlyBlocked {
-            blockSessionStartedAt = Date()
-            blockSessionEndsAt = nextDefaultSessionEndDate()
-        }
     }
 
     private func requestVPNPermission() {
         vpnManager.startVPN(source: "blocking_status_card.permission_request")
-    }
-
-    private func syncSessionEndDate() {
-        if blockedAppIDs.isEmpty {
-            blockSessionEndsAt = nil
-            blockSessionStartedAt = nil
-        } else if blockSessionEndsAt == nil || (blockSessionEndsAt ?? .distantPast) <= Date() {
-            blockSessionStartedAt = blockSessionStartedAt ?? Date()
-            blockSessionEndsAt = nextDefaultSessionEndDate()
-        } else if blockSessionStartedAt == nil {
-            blockSessionStartedAt = Date()
-        }
-    }
-
-    private func nextDefaultSessionEndDate() -> Date {
-        Date().addingTimeInterval(12 * 60 * 60)
     }
 
     private func openLimits() {

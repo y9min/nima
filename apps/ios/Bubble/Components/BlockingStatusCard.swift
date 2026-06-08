@@ -235,14 +235,14 @@ struct BlockingStatusCard: View {
                 .frame(width: layout.instructionWidth, height: layout.instructionHeight)
                 .position(layout.instructionCenter)
 
-                if showsTimePill {
+                if let sessionEndsAt {
                     TimeRemainingPill(
-                        endDate: sessionEndsAt ?? defaultSessionEndDate,
+                        endDate: sessionEndsAt,
                         scale: layout.visualScale
                     )
                         .position(layout.timePillCenter)
                         .transition(.opacity.combined(with: .scale(scale: 0.97)))
-                } else if mode == .idle {
+                } else {
                     Button(action: onAddTimeWindow) {
                         AddTimeWindowPill(scale: layout.visualScale)
                     }
@@ -266,14 +266,6 @@ struct BlockingStatusCard: View {
             .animation(.spring(response: 0.34, dampingFraction: 0.78), value: draggingAppID)
             .animation(.easeInOut(duration: 0.22), value: mode)
         }
-    }
-
-    private var showsTimePill: Bool {
-        mode == .active || mode == .starting
-    }
-
-    private var defaultSessionEndDate: Date {
-        Date().addingTimeInterval(12 * 60 * 60)
     }
 
     private func centerTitle(forDraggingAppID appID: String?, ringState: BlockingRingState) -> String {

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		002B6DC28DE0213E40737124 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9148902051FD9DE18F6352FA /* NetworkExtension.framework */; };
+		04EE645F0D14C698514A7F8E /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 86C170C22214F0F04D5ACFB9 /* LaunchScreen.storyboard */; };
 		09FDD52757C57FFC3409E616 /* ReelsBlockFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B82904CB1FDF6F2C986DA64 /* ReelsBlockFilter.swift */; };
 		0D3A38153A8862FF7B158FA4 /* Tun2SocksKit in Frameworks */ = {isa = PBXBuildFile; productRef = D7419572612CFE355AC88F5B /* Tun2SocksKit */; };
 		0E6B244A6DE7DF4C8BEE6CB9 /* Route.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F5A0931BEF4F3F4B1BF8741 /* Route.swift */; };
@@ -23,6 +24,7 @@
 		277E9995B4CE17920C7359B3 /* AppCluster.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C4502521522E3E2BE93F73 /* AppCluster.swift */; };
 		280BFBB48D2EC57A67614BEF /* BubbleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51B12D2A976C53EEB139FC50 /* BubbleApp.swift */; };
 		287F80E9B726B8336D5110D2 /* BubbleFonts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0388BBA774E17DCA5497C6 /* BubbleFonts.swift */; };
+		2900843F304B5C3E315A7499 /* launch_button_pill.png in Resources */ = {isa = PBXBuildFile; fileRef = 2818EB351C2A5680D8A5D69F /* launch_button_pill.png */; };
 		29C03421B2FA898846150362 /* BubbleConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E39F390556A0370CDEDBCA /* BubbleConstants.swift */; };
 		2B09EAA1E3FBC07F48AD7BCB /* TunnelLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEA7BE93263D6CD81892233 /* TunnelLogger.swift */; };
 		3422D1868715CE563B813F46 /* PageIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B814D56804DA2A853F0CC7 /* PageIndicator.swift */; };
@@ -37,12 +39,16 @@
 		4BB8D99907981317FD99DFE2 /* home_tiktok_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 96B78DADE18D3F3FA9A29440 /* home_tiktok_icon.png */; };
 		4CBD13A9A63EB6FFDE23B67B /* SVGCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30EEB2AB48FAE0B765F046C /* SVGCache.swift */; };
 		500F83671A2ED73A3C38D9CA /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 065627B19E991EA9FDC0DEE2 /* Supabase */; };
+		538CE797678A85200D986313 /* AppSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96C94840057C09D183E0822F /* AppSettingsStoreTests.swift */; };
 		55B0C1B5A6CF3AA8C6AEF432 /* AppOptionArcs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B4EC3C0F908E65D671403F /* AppOptionArcs.swift */; };
 		55B9C498EF03C4B9380E9BA0 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E46F6CBC4504443A3E050DE /* AppStore.swift */; };
 		55D4EC2A401DF52521899789 /* home_mountains.svg in Resources */ = {isa = PBXBuildFile; fileRef = 8643A73D520CEDB8B864F283 /* home_mountains.svg */; };
 		570E6CC63ED329CC3923960D /* AppChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD0F0FEE8BB2598F0C7DE05 /* AppChrome.swift */; };
+		59511478CCAC11338F00DFDE /* OnboardingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0C1E5601B9B32DAC6278F3 /* OnboardingStore.swift */; };
 		5C89AF10E0C29C7AD7F8F06B /* generate_app_icons.sh in Resources */ = {isa = PBXBuildFile; fileRef = FD7690CC40D5611A9C232A9E /* generate_app_icons.sh */; };
 		5E51D90B00405BF5451CF760 /* TransportProtectionDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F179C32219BE04FB1C22AA3 /* TransportProtectionDecisionTests.swift */; };
+		615D141C5C36F1A3454B1B6A /* nima_logo_green.png in Resources */ = {isa = PBXBuildFile; fileRef = 49E541224B9374AF70A4E353 /* nima_logo_green.png */; };
+		63267F3761E6C636455A130C /* OnboardingStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1282D9B0746B9C1F241185 /* OnboardingStoreTests.swift */; };
 		63985968494496186AAAAE97 /* SocialMediaIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 221C01C91E8FC62806530668 /* SocialMediaIcon.swift */; };
 		63FA599ABB0F0D47230364C1 /* BubbleButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 884244700EF00F59FE7F49D1 /* BubbleButton.swift */; };
 		6539182C6CE8DD0600F35F20 /* home_streak_flame.png in Resources */ = {isa = PBXBuildFile; fileRef = 8A0F59D0DD98A16457325984 /* home_streak_flame.png */; };
@@ -60,6 +66,7 @@
 		7A387AD7BC78C4104BEAE0E9 /* DomainThresholdsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 954C43ECE20E610B3B6A4552 /* DomainThresholdsStore.swift */; };
 		7ABE34A84D812EAF332BB4BF /* TrafficStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25ECD808F4AB24AD78B25C73 /* TrafficStats.swift */; };
 		7ACC24B7F11F3FEB7E430EFF /* MagicSignInScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E171A52D23611FA571259FA /* MagicSignInScreen.swift */; };
+		7EFFE97514BB9F951238F90A /* OnboardingFlowScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 453418A2FCA8E67D87561ADD /* OnboardingFlowScreen.swift */; };
 		8050EE548DB56DDCA4FB2A2A /* background.png in Resources */ = {isa = PBXBuildFile; fileRef = EFBD2984D0510752BD1D03BD /* background.png */; };
 		8199BCF44719F74292618D17 /* fanduel.svg in Resources */ = {isa = PBXBuildFile; fileRef = 1FB8B9D12B287276CD1AA084 /* fanduel.svg */; };
 		85E759418C58A76ACBA43FB7 /* TrafficDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3FD04E3B7CE85B81695EC /* TrafficDashboardView.swift */; };
@@ -68,8 +75,6 @@
 		88E96BE752A5DBCDD02D793B /* BubbleColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74330F9AFC4182AB67F02F83 /* BubbleColors.swift */; };
 		8CC77FCD2AFCCE05480781D9 /* icon_rect.png in Resources */ = {isa = PBXBuildFile; fileRef = 6A14727AF55B2D6A666F3D1B /* icon_rect.png */; };
 		8F0D57C9A6E3045BBE001928 /* AppOptionsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A500B91AAD8FCE188E83A9D /* AppOptionsService.swift */; };
-		A11111111111111111111111 /* AppSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A22222222222222222222222 /* AppSettingsStore.swift */; };
-		A33333333333333333333333 /* AppSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44444444444444444444444 /* AppSettingsStoreTests.swift */; };
 		9549542D2E57B4C55511D581 /* BackArrowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28E7DF720D3EB9EAC56B49CB /* BackArrowView.swift */; };
 		96E5C7ABCADDD122544A7882 /* GridPositionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96DCEEE446F160532470E8D /* GridPositionStore.swift */; };
 		98CE2E34082CA58764807157 /* MagicSignInService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D9EE6D24AD0B696F8DCB904 /* MagicSignInService.swift */; };
@@ -93,14 +98,15 @@
 		BDCC491361083C1350D56D61 /* TrafficMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB19D08E8B5A85636A6A69E /* TrafficMonitor.swift */; };
 		C3E37E71922E29CA38A09A4B /* HexGridOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B73DFB24FA4518541EBD14 /* HexGridOverlay.swift */; };
 		C6AEC30F94B85A6EC0C4906F /* TunnelLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEA7BE93263D6CD81892233 /* TunnelLogger.swift */; };
-		C7A05A8F04774207A5409E31 /* StreakStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A05A9004774207A5409E31 /* StreakStore.swift */; };
 		CF3F063123F262178BC1D9A6 /* UDPControlStreamDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7831C0FFFBDC9598861EA2C /* UDPControlStreamDecoder.swift */; };
 		D24EEA7B7533B79C957AE48B /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9148902051FD9DE18F6352FA /* NetworkExtension.framework */; };
 		D281D6E31FDBF4B31621FD4C /* TrafficStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25ECD808F4AB24AD78B25C73 /* TrafficStats.swift */; };
+		D2DECB7D90A111D601001970 /* AppSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C23798D2DBBE158B2669C8A /* AppSettingsStore.swift */; };
 		DA022CE2410220BBEB0EFC55 /* SkyBackgroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F1CE437AADFB2D399B4E4CD /* SkyBackgroundView.swift */; };
 		DA94176DFD2BDE349B42130F /* home_instagram_blocking_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = AD247A758C4B4373B8C19FED /* home_instagram_blocking_icon.png */; };
 		DE8DB6DBCFE73AA5E0853890 /* UDPControlStreamDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B792A319C991B554FDE08252 /* UDPControlStreamDecoderTests.swift */; };
 		E5C56E748D1AA5A259E65F73 /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9637941C267C2CF5ADCEF7E5 /* VPNManager.swift */; };
+		E9FB9E914F4EB7BD439383E6 /* StreakStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40244D93DD162923C3E74946 /* StreakStore.swift */; };
 		EC6AE465DA3C2F2F9649F7AE /* HomeDashboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702C361E8253930E2B1BEB16 /* HomeDashboardLayout.swift */; };
 		EDA02713C4468918CD71127A /* TimeWindowCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD8125FF359F09C371E5E696 /* TimeWindowCore.swift */; };
 		EE5AF52C3094005B17EF5118 /* HexGridLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3288B67D55E1FF065382E8E9 /* HexGridLayoutManager.swift */; };
@@ -170,17 +176,20 @@
 		25B73443C7A5984C885027AA /* SOCKSProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOCKSProxyServer.swift; sourceTree = "<group>"; };
 		25ECD808F4AB24AD78B25C73 /* TrafficStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficStats.swift; sourceTree = "<group>"; };
 		2657A23991F8E73241EC8D2A /* BubbleSpacing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleSpacing.swift; sourceTree = "<group>"; };
+		2818EB351C2A5680D8A5D69F /* launch_button_pill.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = launch_button_pill.png; sourceTree = "<group>"; };
 		28E7DF720D3EB9EAC56B49CB /* BackArrowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackArrowView.swift; sourceTree = "<group>"; };
 		2ADB6187B6C76458B5AF5BB8 /* CodeVerificationScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeVerificationScreen.swift; sourceTree = "<group>"; };
 		2F1CE437AADFB2D399B4E4CD /* SkyBackgroundView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkyBackgroundView.swift; sourceTree = "<group>"; };
 		3288B67D55E1FF065382E8E9 /* HexGridLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HexGridLayoutManager.swift; sourceTree = "<group>"; };
 		37D22F07BC5688731E8CC450 /* ReelsBlockFilterPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelsBlockFilterPolicyTests.swift; sourceTree = "<group>"; };
 		3A500B91AAD8FCE188E83A9D /* AppOptionsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOptionsService.swift; sourceTree = "<group>"; };
-		A22222222222222222222222 /* AppSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsStore.swift; sourceTree = "<group>"; };
-		A44444444444444444444444 /* AppSettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsStoreTests.swift; sourceTree = "<group>"; };
+		3C23798D2DBBE158B2669C8A /* AppSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsStore.swift; sourceTree = "<group>"; };
+		40244D93DD162923C3E74946 /* StreakStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakStore.swift; sourceTree = "<group>"; };
 		444A7DDCA8B8BA12DCC540D4 /* EmojiCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiCatalog.swift; sourceTree = "<group>"; };
 		445A2945A3CB5B3A7B942D72 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
+		453418A2FCA8E67D87561ADD /* OnboardingFlowScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlowScreen.swift; sourceTree = "<group>"; };
 		4779D1C929FA22D5A6FC623C /* Secrets.xcconfig.example */ = {isa = PBXFileReference; path = Secrets.xcconfig.example; sourceTree = "<group>"; };
+		49E541224B9374AF70A4E353 /* nima_logo_green.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = nima_logo_green.png; sourceTree = "<group>"; };
 		49F6E89613AD57D1454C5219 /* TimeWindowStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowStore.swift; sourceTree = "<group>"; };
 		4B82904CB1FDF6F2C986DA64 /* ReelsBlockFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelsBlockFilter.swift; sourceTree = "<group>"; };
 		4CEA7BE93263D6CD81892233 /* TunnelLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelLogger.swift; sourceTree = "<group>"; };
@@ -188,6 +197,7 @@
 		4F5A0931BEF4F3F4B1BF8741 /* Route.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Route.swift; sourceTree = "<group>"; };
 		51B12D2A976C53EEB139FC50 /* BubbleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleApp.swift; sourceTree = "<group>"; };
 		54C6C8C64B29A95223064A2A /* clouds_continous.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = clouds_continous.png; sourceTree = "<group>"; };
+		5A1282D9B0746B9C1F241185 /* OnboardingStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStoreTests.swift; sourceTree = "<group>"; };
 		5CB19D08E8B5A85636A6A69E /* TrafficMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficMonitor.swift; sourceTree = "<group>"; };
 		5E46F6CBC4504443A3E050DE /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		5F0388BBA774E17DCA5497C6 /* BubbleFonts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleFonts.swift; sourceTree = "<group>"; };
@@ -204,10 +214,12 @@
 		72735D3E66BFD7238558CBF2 /* DiagnosticContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticContractTests.swift; sourceTree = "<group>"; };
 		74330F9AFC4182AB67F02F83 /* BubbleColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleColors.swift; sourceTree = "<group>"; };
 		7479A45E352A05DF3CFE09A4 /* chungus.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = chungus.entitlements; sourceTree = "<group>"; };
+		7B0C1E5601B9B32DAC6278F3 /* OnboardingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStore.swift; sourceTree = "<group>"; };
 		7DC9D63B18B99140D579F4C2 /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
 		7EB2E25C599188EFFAA656AA /* BlockingOptionsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockingOptionsScreen.swift; sourceTree = "<group>"; };
 		8240EBF328085BD8C6215C5B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8643A73D520CEDB8B864F283 /* home_mountains.svg */ = {isa = PBXFileReference; path = home_mountains.svg; sourceTree = "<group>"; };
+		86C170C22214F0F04D5ACFB9 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		884244700EF00F59FE7F49D1 /* BubbleButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleButton.swift; sourceTree = "<group>"; };
 		8A0F59D0DD98A16457325984 /* home_streak_flame.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_streak_flame.png; sourceTree = "<group>"; };
 		8A1AF9CB0269E85989CE0DC6 /* AppIconCircle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconCircle.swift; sourceTree = "<group>"; };
@@ -217,6 +229,7 @@
 		954C43ECE20E610B3B6A4552 /* DomainThresholdsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainThresholdsStore.swift; sourceTree = "<group>"; };
 		9637941C267C2CF5ADCEF7E5 /* VPNManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPNManager.swift; sourceTree = "<group>"; };
 		96B78DADE18D3F3FA9A29440 /* home_tiktok_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_tiktok_icon.png; sourceTree = "<group>"; };
+		96C94840057C09D183E0822F /* AppSettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsStoreTests.swift; sourceTree = "<group>"; };
 		97236875B7F5FA2B9FE201A3 /* HomeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScreen.swift; sourceTree = "<group>"; };
 		9D9EE6D24AD0B696F8DCB904 /* MagicSignInService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicSignInService.swift; sourceTree = "<group>"; };
 		9DE9069ED02F96B6B3BF4062 /* DialSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DialSelector.swift; sourceTree = "<group>"; };
@@ -234,7 +247,6 @@
 		B792A319C991B554FDE08252 /* UDPControlStreamDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPControlStreamDecoderTests.swift; sourceTree = "<group>"; };
 		BB94751122DA9ADC81F89EE3 /* Bubble.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Bubble.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BD765D996DF508EC38014A6F /* TimeWindowNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowNotificationCoordinator.swift; sourceTree = "<group>"; };
-		C7A05A9004774207A5409E31 /* StreakStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakStore.swift; sourceTree = "<group>"; };
 		C8F7AEAFA028F049E6650638 /* instagram.svg */ = {isa = PBXFileReference; path = instagram.svg; sourceTree = "<group>"; };
 		CCD0F0FEE8BB2598F0C7DE05 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
 		CF64A7F1BEAFEC1BD3A79328 /* TimeWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowTests.swift; sourceTree = "<group>"; };
@@ -286,8 +298,9 @@
 		312C41EC601DDB997D966AB7 /* BubbleTests */ = {
 			isa = PBXGroup;
 			children = (
-				A44444444444444444444444 /* AppSettingsStoreTests.swift */,
+				96C94840057C09D183E0822F /* AppSettingsStoreTests.swift */,
 				D775F4EB96EDE4AB8391427A /* HomeDashboardLayoutTests.swift */,
+				5A1282D9B0746B9C1F241185 /* OnboardingStoreTests.swift */,
 				CF64A7F1BEAFEC1BD3A79328 /* TimeWindowTests.swift */,
 			);
 			path = BubbleTests;
@@ -324,6 +337,7 @@
 				1DECDACBEC0EF265C1407E1A /* LandingPage.swift */,
 				6E171A52D23611FA571259FA /* MagicSignInScreen.swift */,
 				0117F99A663FC040BE649CFE /* MainTabsScreen.swift */,
+				453418A2FCA8E67D87561ADD /* OnboardingFlowScreen.swift */,
 				7DC9D63B18B99140D579F4C2 /* SettingsScreen.swift */,
 				0539B9C9F2715CF3DB4B8084 /* TimeWindowsScreen.swift */,
 				4EE3FD04E3B7CE85B81695EC /* TrafficDashboardView.swift */,
@@ -358,7 +372,7 @@
 			isa = PBXGroup;
 			children = (
 				3A500B91AAD8FCE188E83A9D /* AppOptionsService.swift */,
-				A22222222222222222222222 /* AppSettingsStore.swift */,
+				3C23798D2DBBE158B2669C8A /* AppSettingsStore.swift */,
 				5E46F6CBC4504443A3E050DE /* AppStore.swift */,
 				931B0AF1A32A039B27B089E5 /* AuthStore.swift */,
 				64DB7E7C0A427B4897386603 /* BlockedApp.swift */,
@@ -367,8 +381,9 @@
 				9432F97BCE16A023A0A8E1EC /* HexCoordinate.swift */,
 				3288B67D55E1FF065382E8E9 /* HexGridLayoutManager.swift */,
 				9D9EE6D24AD0B696F8DCB904 /* MagicSignInService.swift */,
+				7B0C1E5601B9B32DAC6278F3 /* OnboardingStore.swift */,
 				4F5A0931BEF4F3F4B1BF8741 /* Route.swift */,
-				C7A05A9004774207A5409E31 /* StreakStore.swift */,
+				40244D93DD162923C3E74946 /* StreakStore.swift */,
 				E3EF496D1E6382443B39705A /* SupabaseClient.swift */,
 				BD765D996DF508EC38014A6F /* TimeWindowNotificationCoordinator.swift */,
 				49F6E89613AD57D1454C5219 /* TimeWindowStore.swift */,
@@ -403,6 +418,7 @@
 				954C43ECE20E610B3B6A4552 /* DomainThresholdsStore.swift */,
 				FD7690CC40D5611A9C232A9E /* generate_app_icons.sh */,
 				106E25D023D63E8571E5D893 /* Info.plist */,
+				86C170C22214F0F04D5ACFB9 /* LaunchScreen.storyboard */,
 				5CB19D08E8B5A85636A6A69E /* TrafficMonitor.swift */,
 				9F577D8659B34A0435D8AD94 /* TrafficStats.swift */,
 				9637941C267C2CF5ADCEF7E5 /* VPNManager.swift */,
@@ -520,6 +536,8 @@
 				6A14727AF55B2D6A666F3D1B /* icon_rect.png */,
 				C8F7AEAFA028F049E6650638 /* instagram.svg */,
 				1A0A6E06F3393512D15706E4 /* kalshi.svg */,
+				2818EB351C2A5680D8A5D69F /* launch_button_pill.png */,
+				49E541224B9374AF70A4E353 /* nima_logo_green.png */,
 				0CC67A0124138EABA163B004 /* nima_logo.png */,
 				51406CAC99AB2D457E23AE3A /* Fonts */,
 			);
@@ -699,6 +717,7 @@
 				B63F3A7EE3787197C19D9D8A /* Coolvetica Rg It.otf in Resources */,
 				F7CE98EF49A4DE02A3635406 /* Coolvetica Rg.otf in Resources */,
 				A8F851D49EDEE7032FD8A6B1 /* InterVariable.ttf in Resources */,
+				04EE645F0D14C698514A7F8E /* LaunchScreen.storyboard in Resources */,
 				26827D46EC95D3B01646A294 /* SK Pupok Solid 400.ttf in Resources */,
 				EFEC044BD16A58AABFD1B820 /* app_options.json in Resources */,
 				8050EE548DB56DDCA4FB2A2A /* background.png in Resources */,
@@ -715,7 +734,9 @@
 				8CC77FCD2AFCCE05480781D9 /* icon_rect.png in Resources */,
 				9FB50AF4C11375E57288493D /* instagram.svg in Resources */,
 				A9C259B3E6CF8FA06E8DFED8 /* kalshi.svg in Resources */,
+				2900843F304B5C3E315A7499 /* launch_button_pill.png in Resources */,
 				72EE538982BA6E9FE10180A0 /* nima_logo.png in Resources */,
+				615D141C5C36F1A3454B1B6A /* nima_logo_green.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -761,8 +782,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A33333333333333333333333 /* AppSettingsStoreTests.swift in Sources */,
+				538CE797678A85200D986313 /* AppSettingsStoreTests.swift in Sources */,
 				746F1052E1F56D98DD9862E5 /* HomeDashboardLayoutTests.swift in Sources */,
+				63267F3761E6C636455A130C /* OnboardingStoreTests.swift in Sources */,
 				2645E2B1DF020C3950113C23 /* TimeWindowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -784,7 +806,7 @@
 				B7F4E889C0C9CF5017891111 /* AppIconCircle.swift in Sources */,
 				55B0C1B5A6CF3AA8C6AEF432 /* AppOptionArcs.swift in Sources */,
 				8F0D57C9A6E3045BBE001928 /* AppOptionsService.swift in Sources */,
-				A11111111111111111111111 /* AppSettingsStore.swift in Sources */,
+				D2DECB7D90A111D601001970 /* AppSettingsStore.swift in Sources */,
 				55B9C498EF03C4B9380E9BA0 /* AppStore.swift in Sources */,
 				F4B56F9A3A941A0C2EBDADE7 /* AuthStore.swift in Sources */,
 				9549542D2E57B4C55511D581 /* BackArrowView.swift in Sources */,
@@ -812,6 +834,8 @@
 				7ACC24B7F11F3FEB7E430EFF /* MagicSignInScreen.swift in Sources */,
 				98CE2E34082CA58764807157 /* MagicSignInService.swift in Sources */,
 				87A6591C2C1BE14557317115 /* MainTabsScreen.swift in Sources */,
+				7EFFE97514BB9F951238F90A /* OnboardingFlowScreen.swift in Sources */,
+				59511478CCAC11338F00DFDE /* OnboardingStore.swift in Sources */,
 				3422D1868715CE563B813F46 /* PageIndicator.swift in Sources */,
 				0E6B244A6DE7DF4C8BEE6CB9 /* Route.swift in Sources */,
 				4CBD13A9A63EB6FFDE23B67B /* SVGCache.swift in Sources */,
@@ -819,7 +843,7 @@
 				86B63264F246C48566EDE4D7 /* SettingsScreen.swift in Sources */,
 				DA022CE2410220BBEB0EFC55 /* SkyBackgroundView.swift in Sources */,
 				63985968494496186AAAAE97 /* SocialMediaIcon.swift in Sources */,
-				C7A05A8F04774207A5409E31 /* StreakStore.swift in Sources */,
+				E9FB9E914F4EB7BD439383E6 /* StreakStore.swift in Sources */,
 				6AB0C375DDD14ACE8678338E /* SupabaseClient.swift in Sources */,
 				EDA02713C4468918CD71127A /* TimeWindowCore.swift in Sources */,
 				B16404A5FFB4AA79941E74D0 /* TimeWindowNotificationCoordinator.swift in Sources */,

@@ -17,6 +17,28 @@ final class AppSettingsStoreTests: XCTestCase {
         )
     }
 
+    func testBlankDisplayNameClearsLocalOverrideAndPreservesDefaultFallback() {
+        let defaults = testDefaults()
+        let scheduler = FakeStreakReminderScheduler()
+        defaults.set("Nima", forKey: BubbleConstants.displayNameKey)
+
+        let store = AppSettingsStore(defaults: defaults, streakReminderScheduler: scheduler)
+
+        XCTAssertEqual(store.displayName, "Nima")
+
+        store.setDisplayName(" ")
+
+        XCTAssertEqual(store.displayName, "")
+        XCTAssertNil(defaults.string(forKey: BubbleConstants.displayNameKey))
+        XCTAssertEqual(
+            AppSettingsStore.resolvedDisplayName(
+                localOverride: store.normalizedDisplayName,
+                userEmail: ""
+            ),
+            "emily"
+        )
+    }
+
     func testStreakReminderSchedulerSkipsTodayAfterStreakEarned() {
         let defaults = testDefaults()
         let scheduler = FakeStreakReminderScheduler()

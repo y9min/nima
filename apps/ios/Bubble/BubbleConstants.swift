@@ -62,6 +62,8 @@ enum BubbleConstants {
     static let streakReminderHourKey = "settings.streak_reminder_hour"
     static let streakReminderMinuteKey = "settings.streak_reminder_minute"
     static let pauseIntervalMinutesKey = "settings.pause_interval_minutes"
+    static let onboardingStateKey = "onboardingStateV1"
+    static let onboardingCompletedKey = "onboardingCompletedV1"
     static let timeWindowsKey = "timeWindowsV1"
     static let timeWindowsPauseAllKey = "timeWindows.pause_all"
     static let timeWindowsPauseExpiresAtKey = "timeWindows.pause_expires_at"
