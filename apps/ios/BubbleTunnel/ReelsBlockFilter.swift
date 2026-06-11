@@ -139,9 +139,41 @@ struct FeaturePolicyV1: Codable {
     }
 }
 
+struct MediaGuardRulesetV1: Codable, Equatable {
+    let revision: Int
+    let largeMediaThresholdBytes: Int
+    let burstConnectionThreshold: Int
+    let burstWindowSeconds: TimeInterval
+    let suspectCacheTTLSeconds: TimeInterval
+    let instagramSuspiciousCDNPatterns: [String]
+    let tiktokSuspiciousCDNPatterns: [String]
+
+    static func defaultRules() -> MediaGuardRulesetV1 {
+        MediaGuardRulesetV1(
+            revision: 1,
+            largeMediaThresholdBytes: 750_000,
+            burstConnectionThreshold: 4,
+            burstWindowSeconds: 15.0,
+            suspectCacheTTLSeconds: 45 * 60,
+            instagramSuspiciousCDNPatterns: [
+                "instagram.*.fbcdn.net",
+                "*.cdninstagram.com",
+                "*-netseer-ipaddr-assoc.xz.fbcdn.net",
+            ],
+            tiktokSuspiciousCDNPatterns: [
+                "*tiktokcdn*",
+                "*bytecdn*",
+                "*ibytedtos*",
+                "*muscdn*",
+            ]
+        )
+    }
+}
+
 final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, InstagramMediaHintReporting {
 
     private let sharedDefaults: UserDefaults?
+    private let mediaGuardRuleset: MediaGuardRulesetV1
     private var cachedPolicy: FeaturePolicyV1 = .defaultPolicy()
     private var highestSeenPolicyRevisions: [String: Int] = [:]
     private var lastPolicyReload = Date.distantPast
@@ -153,6 +185,8 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
     private var instagramMediaHintsAdded = 0
     private var instagramMediaHintsExpired = 0
     private var instagramMediaHintBlocks = 0
+    private var mediaGuardSuspectHosts: [String: MediaGuardSuspectHost] = [:]
+    private var mediaGuardObservations: [String: [Date]] = [:]
 
     private struct InstagramMediaHint {
         let expiresAt: Date
@@ -160,8 +194,19 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
         let confidence: Double
     }
 
-    init(sharedDefaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID)) {
+    private struct MediaGuardSuspectHost {
+        let expiresAt: Date
+        let addedAt: Date
+        let confidence: Double
+        let reason: String
+    }
+
+    init(
+        sharedDefaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID),
+        mediaGuardRuleset: MediaGuardRulesetV1 = .defaultRules()
+    ) {
         self.sharedDefaults = sharedDefaults
+        self.mediaGuardRuleset = mediaGuardRuleset
         reloadPolicyIfNeeded(force: true)
     }
 
@@ -169,12 +214,28 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
 
     func evaluateConnection(host: String, port: UInt16) -> PolicyDecision {
         reloadPolicyIfNeeded(force: false)
-        return evaluateHostPolicy(host: host, port: port, isStreamEvaluation: false, bytesDown: 0, now: Date())
+        return evaluateHostPolicy(
+            host: host,
+            port: port,
+            isStreamEvaluation: false,
+            isUDPEvaluation: false,
+            bytesDown: 0,
+            parallelConnections: 0,
+            now: Date()
+        )
     }
 
     func evaluateUDP(host: String, port: UInt16, payloadBytes: Int) -> PolicyDecision {
         reloadPolicyIfNeeded(force: false)
-        return evaluateHostPolicy(host: host, port: port, isStreamEvaluation: false, bytesDown: payloadBytes, now: Date())
+        return evaluateHostPolicy(
+            host: host,
+            port: port,
+            isStreamEvaluation: false,
+            isUDPEvaluation: true,
+            bytesDown: payloadBytes,
+            parallelConnections: 0,
+            now: Date()
+        )
     }
 
     func evaluateStream(host: String, sni: String?, port: UInt16, bytesDown: Int, connectionAge: TimeInterval, parallelConnections: Int) -> PolicyDecision {
@@ -184,12 +245,28 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
     func evaluateStream(host: String, sni: String?, port: UInt16, bytesDown: Int, connectionAge: TimeInterval, parallelConnections: Int, now: Date) -> PolicyDecision {
         reloadPolicyIfNeeded(force: false)
         let domain = (sni ?? host).lowercased()
-        return evaluateHostPolicy(host: domain, port: port, isStreamEvaluation: true, bytesDown: bytesDown, now: now)
+        return evaluateHostPolicy(
+            host: domain,
+            port: port,
+            isStreamEvaluation: true,
+            isUDPEvaluation: false,
+            bytesDown: bytesDown,
+            parallelConnections: parallelConnections,
+            now: now
+        )
     }
 
     // MARK: - Deterministic Policy
 
-    private func evaluateHostPolicy(host: String, port: UInt16, isStreamEvaluation: Bool, bytesDown: Int, now: Date) -> PolicyDecision {
+    private func evaluateHostPolicy(
+        host: String,
+        port: UInt16,
+        isStreamEvaluation: Bool,
+        isUDPEvaluation: Bool,
+        bytesDown: Int,
+        parallelConnections: Int,
+        now: Date
+    ) -> PolicyDecision {
         let lowerHost = host.lowercased()
         let instagramToggles = instagramToggleSnapshot()
         let tiktokToggles = tiktokToggleSnapshot()
@@ -212,6 +289,12 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
         if isTikTokHost(lowerHost) {
             return evaluateTikTokPolicy(
                 host: lowerHost,
+                port: port,
+                isStreamEvaluation: isStreamEvaluation,
+                isUDPEvaluation: isUDPEvaluation,
+                bytesDown: bytesDown,
+                parallelConnections: parallelConnections,
+                now: now,
                 classification: classification,
                 toggles: tiktokToggles,
                 strategy: tiktokStrategy
@@ -229,6 +312,7 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
 
         if !isInstagramReelsEnabled(instagramToggles) {
             clearInstagramMediaHints()
+            clearMediaGuardState(appId: "instagram")
             return allowDecision(
                 classification: classification,
                 toggles: instagramToggles,
@@ -317,6 +401,26 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
             )
         }
 
+        if let strictMediaClassification = evaluateInstagramStrictMediaGuard(
+            host: lowerHost,
+            port: port,
+            isStreamEvaluation: isStreamEvaluation,
+            isUDPEvaluation: isUDPEvaluation,
+            bytesDown: bytesDown,
+            parallelConnections: parallelConnections,
+            now: now,
+            toggles: instagramToggles
+        ) {
+            return buildDecision(
+                action: .blockNow,
+                classification: strictMediaClassification,
+                reason: "reels_media_block_now",
+                toggles: instagramToggles,
+                host: lowerHost,
+                strategy: instagramStrategy
+            )
+        }
+
         if isUnknownMetaCDNDomain(lowerHost) {
             return allowDecision(
                 classification: classification,
@@ -333,6 +437,12 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
 
     private func evaluateTikTokPolicy(
         host: String,
+        port: UInt16,
+        isStreamEvaluation: Bool,
+        isUDPEvaluation: Bool,
+        bytesDown: Int,
+        parallelConnections: Int,
+        now: Date,
         classification: FlowClassification,
         toggles: [String: Bool],
         strategy: AppTransportStrategy
@@ -342,6 +452,7 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
         }
 
         if toggles["video_block"] != true {
+            clearMediaGuardState(appId: "tiktok")
             return allowDecision(classification: classification, toggles: toggles, reason: "tiktok_video_toggle_off", strategy: strategy, host: host)
         }
 
@@ -349,6 +460,25 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
             return buildDecision(
                 action: .blockNow,
                 classification: classification,
+                reason: "tiktok_video_block_now",
+                toggles: toggles,
+                host: host,
+                strategy: strategy
+            )
+        }
+
+        if let strictMediaClassification = evaluateTikTokStrictMediaGuard(
+            host: host,
+            port: port,
+            isStreamEvaluation: isStreamEvaluation,
+            isUDPEvaluation: isUDPEvaluation,
+            bytesDown: bytesDown,
+            parallelConnections: parallelConnections,
+            now: now
+        ) {
+            return buildDecision(
+                action: .blockNow,
+                classification: strictMediaClassification,
                 reason: "tiktok_video_block_now",
                 toggles: toggles,
                 host: host,
@@ -403,6 +533,190 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
         }
 
         return allowDecision(classification: classification, toggles: toggles, reason: "unknown_x_default_allow", strategy: strategy, host: host)
+    }
+
+    // MARK: - Strict Media Guard
+
+    private func evaluateInstagramStrictMediaGuard(
+        host: String,
+        port: UInt16,
+        isStreamEvaluation: Bool,
+        isUDPEvaluation: Bool,
+        bytesDown: Int,
+        parallelConnections: Int,
+        now: Date,
+        toggles: [String: Bool]
+    ) -> FlowClassification? {
+        guard toggles["strict_reels"] == true else { return nil }
+        guard isSuspiciousInstagramMediaGuardDomain(host) else { return nil }
+
+        if let cached = mediaGuardSuspectHost(appId: "instagram", host: host, port: port, now: now) {
+            return FlowClassification(
+                bucket: .reels,
+                confidence: cached.confidence,
+                reasons: ["strict_suspect_host_cache", cached.reason]
+            )
+        }
+
+        let largeMedia = isStreamEvaluation && bytesDown >= mediaGuardRuleset.largeMediaThresholdBytes
+        let quicMedia = isUDPEvaluation && port == 443
+        let burstMedia = recordMediaGuardObservationAndCheckBurst(
+            appId: "instagram",
+            host: host,
+            port: port,
+            parallelConnections: parallelConnections,
+            now: now
+        )
+
+        guard largeMedia || quicMedia || burstMedia else { return nil }
+
+        let reason: String
+        if largeMedia {
+            reason = "strict_unknown_meta_large_media"
+        } else if quicMedia {
+            reason = "strict_unknown_meta_quic_media"
+        } else {
+            reason = "strict_unknown_meta_burst_media"
+        }
+        cacheMediaGuardSuspectHost(
+            appId: "instagram",
+            host: host,
+            port: port,
+            now: now,
+            reason: reason,
+            confidence: largeMedia ? 0.82 : (quicMedia ? 0.76 : 0.74)
+        )
+        return FlowClassification(
+            bucket: .reels,
+            confidence: largeMedia ? 0.82 : (quicMedia ? 0.76 : 0.74),
+            reasons: [reason, "ruleset_revision_\(mediaGuardRuleset.revision)"]
+        )
+    }
+
+    private func evaluateTikTokStrictMediaGuard(
+        host: String,
+        port: UInt16,
+        isStreamEvaluation: Bool,
+        isUDPEvaluation: Bool,
+        bytesDown: Int,
+        parallelConnections: Int,
+        now: Date
+    ) -> FlowClassification? {
+        guard isSuspiciousTikTokMediaGuardDomain(host) else { return nil }
+
+        if let cached = mediaGuardSuspectHost(appId: "tiktok", host: host, port: port, now: now) {
+            return FlowClassification(
+                bucket: .tiktokVideo,
+                confidence: cached.confidence,
+                reasons: ["strict_suspect_host_cache", cached.reason]
+            )
+        }
+
+        let largeMedia = isStreamEvaluation && bytesDown >= mediaGuardRuleset.largeMediaThresholdBytes
+        let quicMedia = isUDPEvaluation && port == 443
+        let burstMedia = recordMediaGuardObservationAndCheckBurst(
+            appId: "tiktok",
+            host: host,
+            port: port,
+            parallelConnections: parallelConnections,
+            now: now
+        )
+
+        guard largeMedia || quicMedia || burstMedia else { return nil }
+
+        let reason: String
+        if largeMedia {
+            reason = "strict_unknown_tiktok_large_media"
+        } else if quicMedia {
+            reason = "strict_unknown_tiktok_quic_media"
+        } else {
+            reason = "strict_unknown_tiktok_burst_media"
+        }
+        cacheMediaGuardSuspectHost(
+            appId: "tiktok",
+            host: host,
+            port: port,
+            now: now,
+            reason: reason,
+            confidence: largeMedia ? 0.82 : (quicMedia ? 0.76 : 0.74)
+        )
+        return FlowClassification(
+            bucket: .tiktokVideo,
+            confidence: largeMedia ? 0.82 : (quicMedia ? 0.76 : 0.74),
+            reasons: [reason, "ruleset_revision_\(mediaGuardRuleset.revision)"]
+        )
+    }
+
+    private func recordMediaGuardObservationAndCheckBurst(
+        appId: String,
+        host: String,
+        port: UInt16,
+        parallelConnections: Int,
+        now: Date
+    ) -> Bool {
+        let key = mediaGuardCacheKey(appId: appId, host: host, port: port)
+        let window = mediaGuardRuleset.burstWindowSeconds
+        var observations = mediaGuardObservations[key] ?? []
+        observations = observations.filter { now.timeIntervalSince($0) <= window }
+        observations.append(now)
+        mediaGuardObservations[key] = observations
+        pruneMediaGuardObservations(now: now)
+
+        return observations.count >= mediaGuardRuleset.burstConnectionThreshold ||
+            parallelConnections >= mediaGuardRuleset.burstConnectionThreshold
+    }
+
+    private func mediaGuardSuspectHost(appId: String, host: String, port: UInt16, now: Date) -> MediaGuardSuspectHost? {
+        pruneMediaGuardSuspectHosts(now: now)
+        return mediaGuardSuspectHosts[mediaGuardCacheKey(appId: appId, host: host, port: port)]
+    }
+
+    private func cacheMediaGuardSuspectHost(
+        appId: String,
+        host: String,
+        port: UInt16,
+        now: Date,
+        reason: String,
+        confidence: Double
+    ) {
+        let key = mediaGuardCacheKey(appId: appId, host: host, port: port)
+        mediaGuardSuspectHosts[key] = MediaGuardSuspectHost(
+            expiresAt: now.addingTimeInterval(mediaGuardRuleset.suspectCacheTTLSeconds),
+            addedAt: now,
+            confidence: confidence,
+            reason: reason
+        )
+        if mediaGuardSuspectHosts.count > BubbleConstants.maxInstagramMediaHints {
+            let overflow = mediaGuardSuspectHosts.count - BubbleConstants.maxInstagramMediaHints
+            for oldKey in mediaGuardSuspectHosts.sorted(by: { $0.value.addedAt < $1.value.addedAt }).prefix(overflow).map(\.key) {
+                mediaGuardSuspectHosts.removeValue(forKey: oldKey)
+            }
+        }
+        TunnelLogger.shared.log(
+            "MEDIA_GUARD suspect app=\(appId) host=\(host.lowercased()) port=\(port) reason=\(reason) ttl_s=\(Int(mediaGuardRuleset.suspectCacheTTLSeconds))"
+        )
+    }
+
+    private func clearMediaGuardState(appId: String) {
+        let prefix = "\(appId)|"
+        mediaGuardSuspectHosts = mediaGuardSuspectHosts.filter { !$0.key.hasPrefix(prefix) }
+        mediaGuardObservations = mediaGuardObservations.filter { !$0.key.hasPrefix(prefix) }
+    }
+
+    private func pruneMediaGuardSuspectHosts(now: Date) {
+        mediaGuardSuspectHosts = mediaGuardSuspectHosts.filter { now < $0.value.expiresAt }
+    }
+
+    private func pruneMediaGuardObservations(now: Date) {
+        let window = mediaGuardRuleset.burstWindowSeconds
+        mediaGuardObservations = mediaGuardObservations.compactMapValues { timestamps in
+            let retained = timestamps.filter { now.timeIntervalSince($0) <= window }
+            return retained.isEmpty ? nil : retained
+        }
+    }
+
+    private func mediaGuardCacheKey(appId: String, host: String, port: UInt16) -> String {
+        "\(appId)|\(host.lowercased()):\(port)"
     }
 
     // MARK: - Instagram Media Hints
@@ -705,6 +1019,50 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
             || host.contains("static.xx.fbcdn.net")
     }
 
+    private func isSuspiciousInstagramMediaGuardDomain(_ host: String) -> Bool {
+        mediaGuardRuleset.instagramSuspiciousCDNPatterns.contains { pattern in
+            wildcardDomainMatches(pattern: pattern, host: host)
+        }
+    }
+
+    private func isSuspiciousTikTokMediaGuardDomain(_ host: String) -> Bool {
+        mediaGuardRuleset.tiktokSuspiciousCDNPatterns.contains { pattern in
+            wildcardDomainMatches(pattern: pattern, host: host)
+        }
+    }
+
+    private func wildcardDomainMatches(pattern: String, host: String) -> Bool {
+        let normalizedPattern = pattern.lowercased()
+        let normalizedHost = host.lowercased()
+
+        guard normalizedPattern.contains("*") else {
+            return normalizedHost == normalizedPattern
+        }
+
+        let pieces = normalizedPattern
+            .split(separator: "*", omittingEmptySubsequences: false)
+            .map(String.init)
+        var searchStart = normalizedHost.startIndex
+
+        for (index, piece) in pieces.enumerated() where !piece.isEmpty {
+            if index == 0 && !normalizedPattern.hasPrefix("*") {
+                guard normalizedHost.hasPrefix(piece) else { return false }
+                searchStart = normalizedHost.index(normalizedHost.startIndex, offsetBy: piece.count)
+                continue
+            }
+
+            guard let range = normalizedHost.range(of: piece, range: searchStart..<normalizedHost.endIndex) else {
+                return false
+            }
+            searchStart = range.upperBound
+        }
+
+        if let suffix = pieces.last, !suffix.isEmpty, !normalizedPattern.hasSuffix("*") {
+            return normalizedHost.hasSuffix(suffix)
+        }
+        return true
+    }
+
     private func isLargeAmbiguousInstagramMediaStream(_ host: String, isStreamEvaluation: Bool, bytesDown: Int) -> Bool {
         guard isStreamEvaluation else { return false }
         guard isAmbiguousInstagramMediaCDNDomain(host) else { return false }
@@ -733,6 +1091,7 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
             || host.contains("graph.instagram.com")
             || host.contains("graph.facebook.com")
             || host.contains("b-graph.facebook.com")
+            || host.contains("api.facebook.com")
             || host.contains("edge-mqtt.facebook.com")
             || host.contains("mqtt")
     }
@@ -751,6 +1110,7 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
             || host.contains("bytecdn")
             || host.contains("ibytedtos")
             || host.contains("ibyteimg")
+            || host.contains("muscdn")
     }
 
     private func isTikTokVideoDomain(_ host: String) -> Bool {

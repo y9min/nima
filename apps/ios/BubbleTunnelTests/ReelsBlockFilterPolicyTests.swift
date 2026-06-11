@@ -273,6 +273,124 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertEqual(fbcdn.reason, "unknown_meta_default_allow")
     }
 
+    func testStrictReelsBlocksLargeInstagramFNAFBCDNMediaGuard() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+        let host = "instagram.flhr13-1.fna.fbcdn.net"
+        let now = Date(timeIntervalSince1970: 40_000)
+
+        let initial = filter.evaluateStream(
+            host: host,
+            sni: host,
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 1,
+            now: now
+        )
+        let largeMedia = filter.evaluateStream(
+            host: host,
+            sni: host,
+            port: 443,
+            bytesDown: 1_000_000,
+            connectionAge: 1.0,
+            parallelConnections: 1,
+            now: now.addingTimeInterval(1)
+        )
+        let cached = filter.evaluateStream(
+            host: host,
+            sni: host,
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 1,
+            now: now.addingTimeInterval(2)
+        )
+
+        XCTAssertEqual(initial.action, .allow)
+        XCTAssertEqual(initial.reason, "unknown_meta_default_allow")
+        XCTAssertEqual(largeMedia.action, .blockNow)
+        XCTAssertEqual(largeMedia.reason, "reels_media_block_now")
+        XCTAssertEqual(largeMedia.classification.bucket, .reels)
+        XCTAssertTrue(largeMedia.classification.reasons.contains("strict_unknown_meta_large_media"))
+        XCTAssertEqual(cached.action, .blockNow)
+        XCTAssertEqual(cached.reason, "reels_media_block_now")
+        XCTAssertTrue(cached.classification.reasons.contains("strict_suspect_host_cache"))
+    }
+
+    func testStrictReelsMediaGuardBlocksInstagramFNABurst() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+        let host = "instagram.flhr13-1.fna.fbcdn.net"
+        let now = Date(timeIntervalSince1970: 50_000)
+
+        for index in 0..<3 {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 0,
+                connectionAge: 0,
+                parallelConnections: 1,
+                now: now.addingTimeInterval(TimeInterval(index))
+            )
+            XCTAssertEqual(decision.action, .allow, "observation \(index)")
+            XCTAssertEqual(decision.reason, "unknown_meta_default_allow", "observation \(index)")
+        }
+
+        let burst = filter.evaluateStream(
+            host: host,
+            sni: host,
+            port: 443,
+            bytesDown: 0,
+            connectionAge: 0,
+            parallelConnections: 1,
+            now: now.addingTimeInterval(3)
+        )
+
+        XCTAssertEqual(burst.action, .blockNow)
+        XCTAssertEqual(burst.reason, "reels_media_block_now")
+        XCTAssertTrue(burst.classification.reasons.contains("strict_unknown_meta_burst_media"))
+    }
+
+    func testStrictReelsMediaGuardBlocksInstagramFNAQUIC() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        let decision = filter.evaluateUDP(
+            host: "instagram.flhr13-1.fna.fbcdn.net",
+            port: 443,
+            payloadBytes: 1_200
+        )
+
+        XCTAssertEqual(decision.action, .blockNow)
+        XCTAssertEqual(decision.reason, "reels_media_block_now")
+        XCTAssertTrue(decision.classification.reasons.contains("strict_unknown_meta_quic_media"))
+    }
+
+    func testStrictReelsAllowsControlHostsEvenWithLargeTransfers() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        for host in ["i.instagram.com", "gateway.instagram.com", "edge-mqtt.facebook.com", "api.facebook.com"] {
+            let decision = filter.evaluateStream(
+                host: host,
+                sni: host,
+                port: 443,
+                bytesDown: 2_000_000,
+                connectionAge: 1.0,
+                parallelConnections: 4
+            )
+
+            XCTAssertEqual(decision.action, .allow, host)
+            XCTAssertTrue(["instagram_control_allow", "messages_allow"].contains(decision.reason), host)
+        }
+    }
+
     func testReelsOffDisablesAmbiguousMediaBlocksAndHints() {
         var policy = FeaturePolicyV1.defaultPolicy()
         policy.set(appId: "instagram", optionId: "reels", isEnabled: false)
@@ -420,6 +538,43 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         )
         XCTAssertEqual(control.action, .allow)
         XCTAssertEqual(control.reason, "tiktok_messages_allow")
+    }
+
+    func testTikTokMediaGuardBlocksLargeUnknownMusCDNMedia() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+        let host = "lf16-muscdn.example.net"
+
+        let decision = filter.evaluateStream(
+            host: host,
+            sni: host,
+            port: 443,
+            bytesDown: 1_000_000,
+            connectionAge: 1.0,
+            parallelConnections: 1
+        )
+
+        XCTAssertEqual(decision.action, .blockNow)
+        XCTAssertEqual(decision.reason, "tiktok_video_block_now")
+        XCTAssertEqual(decision.classification.bucket, .tiktokVideo)
+        XCTAssertTrue(decision.classification.reasons.contains("strict_unknown_tiktok_large_media"))
+    }
+
+    func testTikTokMediaGuardBlocksUnknownMusCDNQUIC() {
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let filter = makeFilter(policy: policy)
+
+        let decision = filter.evaluateUDP(
+            host: "lf16-muscdn.example.net",
+            port: 443,
+            payloadBytes: 1_200
+        )
+
+        XCTAssertEqual(decision.action, .blockNow)
+        XCTAssertEqual(decision.reason, "tiktok_video_block_now")
+        XCTAssertTrue(decision.classification.reasons.contains("strict_unknown_tiktok_quic_media"))
     }
 
     func testTikTokVideoBlockOnControlHostAllows() {
