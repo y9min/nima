@@ -139,6 +139,67 @@ struct FeaturePolicyV1: Codable {
     }
 }
 
+struct TunnelProtectionState {
+    let defaults: UserDefaults?
+
+    func shouldKeepVPNRunning(now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        hasManualEnabledBlocker() || hasActiveScheduledBlocker(now: now, calendar: calendar)
+    }
+
+    private func hasManualEnabledBlocker() -> Bool {
+        if let manualPolicy = loadPolicy(forKey: BubbleConstants.manualFeaturePolicyKey) {
+            return Self.hasEnabledBlocker(in: manualPolicy)
+        }
+        guard let effectivePolicy = loadPolicy(forKey: BubbleConstants.featurePolicyKey) else {
+            return false
+        }
+        return Self.hasEnabledBlocker(in: effectivePolicy)
+    }
+
+    private func hasActiveScheduledBlocker(now: Date, calendar: Calendar) -> Bool {
+        let pauseAll = defaults?.bool(forKey: BubbleConstants.timeWindowsPauseAllKey) ?? false
+        let scheduledAppIDs = TimeWindowScheduleEvaluator.scheduledAppIDs(
+            from: loadTimeWindows(),
+            now: now,
+            calendar: calendar,
+            pauseAll: pauseAll,
+            endedWindowIDs: loadEndedWindowIDs(now: now)
+        )
+        return !scheduledAppIDs.isEmpty
+    }
+
+    private func loadPolicy(forKey key: String) -> FeaturePolicyV1? {
+        guard let data = defaults?.data(forKey: key),
+              var policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
+            return nil
+        }
+        policy.mergeDefaults()
+        return policy
+    }
+
+    private func loadTimeWindows() -> [TimeWindow] {
+        guard let data = defaults?.data(forKey: BubbleConstants.timeWindowsKey) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([TimeWindow].self, from: data)) ?? []
+    }
+
+    private func loadEndedWindowIDs(now: Date) -> Set<String> {
+        guard let stored = defaults?.dictionary(forKey: BubbleConstants.timeWindowsEndedUntilKey) as? [String: TimeInterval] else {
+            return []
+        }
+        return Set(stored.compactMap { windowID, endTimestamp in
+            endTimestamp > now.timeIntervalSince1970 ? windowID : nil
+        })
+    }
+
+    private static func hasEnabledBlocker(in policy: FeaturePolicyV1) -> Bool {
+        policy.appToggles.values.contains { options in
+            options.values.contains(true)
+        }
+    }
+}
+
 struct MediaGuardRulesetV1: Codable, Equatable {
     let revision: Int
     let largeMediaThresholdBytes: Int

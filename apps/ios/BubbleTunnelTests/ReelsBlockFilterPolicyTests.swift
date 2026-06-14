@@ -1047,4 +1047,143 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertEqual(control.action, .allow)
         XCTAssertEqual(control.reason, "instagram_control_allow")
     }
+
+    func testTunnelProtectionStateManualBlockerKeepsVPNRunningWithoutActiveSchedule() {
+        let now = testDate(hour: 12)
+        var manualPolicy = FeaturePolicyV1.defaultPolicy()
+        manualPolicy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let defaults = makeProtectionDefaults(manualPolicy: manualPolicy)
+
+        XCTAssertTrue(TunnelProtectionState(defaults: defaults).shouldKeepVPNRunning(now: now, calendar: testCalendar))
+    }
+
+    func testTunnelProtectionStateFallsBackToEffectivePolicyWhenManualPolicyIsMissing() {
+        let now = testDate(hour: 12)
+        var effectivePolicy = FeaturePolicyV1.defaultPolicy()
+        effectivePolicy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+        let defaults = makeProtectionDefaults(manualPolicy: nil)
+        defaults?.set(try? JSONEncoder().encode(effectivePolicy), forKey: BubbleConstants.featurePolicyKey)
+
+        XCTAssertTrue(TunnelProtectionState(defaults: defaults).shouldKeepVPNRunning(now: now, calendar: testCalendar))
+    }
+
+    func testTunnelProtectionStateActiveScheduledBlockerKeepsVPNRunning() {
+        let now = testDate(hour: 12)
+        let defaults = makeProtectionDefaults(windows: [
+            testWindow(id: "tw_focus", startTime: "09:00", endTime: "17:00", apps: ["instagram", "tiktok"])
+        ])
+
+        XCTAssertTrue(TunnelProtectionState(defaults: defaults).shouldKeepVPNRunning(now: now, calendar: testCalendar))
+    }
+
+    func testTunnelProtectionStateEndedScheduledBlockerAllowsVPNStop() {
+        let now = testDate(hour: 12)
+        let defaults = makeProtectionDefaults(windows: [
+            testWindow(id: "tw_focus", startTime: "09:00", endTime: "10:00", apps: ["instagram"])
+        ])
+
+        XCTAssertFalse(TunnelProtectionState(defaults: defaults).shouldKeepVPNRunning(now: now, calendar: testCalendar))
+    }
+
+    func testTunnelProtectionStateEndedWindowOverrideAllowsVPNStop() {
+        let now = testDate(hour: 12)
+        let endDate = testDate(hour: 17)
+        let defaults = makeProtectionDefaults(
+            windows: [
+                testWindow(id: "tw_focus", startTime: "09:00", endTime: "17:00", apps: ["instagram"])
+            ],
+            endedWindowUntilByID: ["tw_focus": endDate]
+        )
+
+        XCTAssertFalse(TunnelProtectionState(defaults: defaults).shouldKeepVPNRunning(now: now, calendar: testCalendar))
+    }
+
+    func testTunnelProtectionStateOverlappingActiveWindowKeepsVPNRunning() {
+        let now = testDate(hour: 12)
+        let endDate = testDate(hour: 17)
+        let defaults = makeProtectionDefaults(
+            windows: [
+                testWindow(id: "tw_ended", startTime: "09:00", endTime: "17:00", apps: ["instagram"]),
+                testWindow(id: "tw_active", startTime: "11:00", endTime: "13:00", apps: ["tiktok"])
+            ],
+            endedWindowUntilByID: ["tw_ended": endDate]
+        )
+
+        XCTAssertTrue(TunnelProtectionState(defaults: defaults).shouldKeepVPNRunning(now: now, calendar: testCalendar))
+    }
+
+    func testTunnelProtectionStatePauseAllPreventsScheduleFromKeepingVPNRunning() {
+        let now = testDate(hour: 12)
+        let defaults = makeProtectionDefaults(
+            windows: [
+                testWindow(id: "tw_focus", startTime: "09:00", endTime: "17:00", apps: ["instagram"])
+            ],
+            pauseAll: true
+        )
+
+        XCTAssertFalse(TunnelProtectionState(defaults: defaults).shouldKeepVPNRunning(now: now, calendar: testCalendar))
+    }
+
+    private var testCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+
+    private func testDate(hour: Int, minute: Int = 0) -> Date {
+        DateComponents(
+            calendar: testCalendar,
+            timeZone: TimeZone(secondsFromGMT: 0),
+            year: 2026,
+            month: 6,
+            day: 1,
+            hour: hour,
+            minute: minute
+        ).date!
+    }
+
+    private func testWindow(
+        id: String,
+        startTime: String,
+        endTime: String,
+        apps: [String]
+    ) -> TimeWindow {
+        TimeWindow(
+            id: id,
+            name: "Focus",
+            emoji: "",
+            startTime: startTime,
+            endTime: endTime,
+            repeatDays: [.monday],
+            apps: apps,
+            enabled: true,
+            createdAt: testDate(hour: 8),
+            updatedAt: testDate(hour: 8)
+        )
+    }
+
+    private func makeProtectionDefaults(
+        manualPolicy: FeaturePolicyV1? = FeaturePolicyV1.defaultPolicy(),
+        windows: [TimeWindow] = [],
+        pauseAll: Bool = false,
+        endedWindowUntilByID: [String: Date] = [:]
+    ) -> UserDefaults? {
+        let suite = makeSuiteName()
+        let defaults = UserDefaults(suiteName: suite)
+        defaults?.removePersistentDomain(forName: suite)
+        if let manualPolicy {
+            defaults?.set(try? JSONEncoder().encode(manualPolicy), forKey: BubbleConstants.manualFeaturePolicyKey)
+        }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        defaults?.set(try? encoder.encode(windows), forKey: BubbleConstants.timeWindowsKey)
+        defaults?.set(pauseAll, forKey: BubbleConstants.timeWindowsPauseAllKey)
+
+        let endedTimestamps = endedWindowUntilByID.mapValues(\.timeIntervalSince1970)
+        if !endedTimestamps.isEmpty {
+            defaults?.set(endedTimestamps, forKey: BubbleConstants.timeWindowsEndedUntilKey)
+        }
+        return defaults
+    }
 }

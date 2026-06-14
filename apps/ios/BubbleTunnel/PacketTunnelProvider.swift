@@ -37,6 +37,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var tun2SocksRestartAttemptedForSession = false
     private var tun2SocksConsecutiveUnexpectedExits = 0
     private var tun2SocksRestartCount = 0
+    private var autoStopNoActiveProtectionRequested = false
     private var pressureSamplerTimer: DispatchSourceTimer?
     private var lastKnownEarnedStreakDate: String?
 
@@ -679,6 +680,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             sharedDefaults?.set(ts, forKey: BubbleConstants.vpnLifecycleStopTerminalSeenStopTunnelTSKey)
             if let osRaw { sharedDefaults?.set(osRaw, forKey: BubbleConstants.vpnLifecycleStopSignalOSStopReasonRawKey) }
             if let osName { sharedDefaults?.set(osName, forKey: BubbleConstants.vpnLifecycleStopSignalOSStopReasonNameKey) }
+        case "app_requested_stop":
+            sharedDefaults?.set(ts, forKey: BubbleConstants.vpnLifecycleStopSignalAppRequestedTSKey)
         case "tun2socks_exit":
             sharedDefaults?.set(ts, forKey: BubbleConstants.vpnLifecycleStopSignalTun2SocksExitTSKey)
             sharedDefaults?.set(ts, forKey: BubbleConstants.vpnLifecycleStopTerminalSeenTun2SocksExitTSKey)
@@ -913,7 +916,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let now = Date().timeIntervalSince1970
         let previous = sharedDefaults?.double(forKey: BubbleConstants.vpnLifecycleLastHeartbeatTSKey) ?? 0
         sharedDefaults?.set(now, forKey: BubbleConstants.vpnLifecycleLastHeartbeatTSKey)
-        markStreakDayIfPolicyEnabled(now: Date(timeIntervalSince1970: now))
+        let heartbeatDate = Date(timeIntervalSince1970: now)
+        if requestAutoStopIfProtectionInactive(now: heartbeatDate) {
+            return
+        }
+        markStreakDayIfPolicyEnabled(now: heartbeatDate)
         recordTun2SocksStats(lastExitCode: nil)
         recordProviderHeartbeatSnapshot(nowTS: now)
         let age = previous > 0 ? max(0, now - previous) : 0
@@ -922,6 +929,38 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             details: "source=\(source) heartbeat_age_s=\(String(format: "%.1f", age))",
             minInterval: source == "immediate" ? 0 : 30.0
         )
+    }
+
+    private func requestAutoStopIfProtectionInactive(now: Date) -> Bool {
+        let protectionState = TunnelProtectionState(defaults: sharedDefaults)
+        guard !protectionState.shouldKeepVPNRunning(now: now) else {
+            return false
+        }
+
+        tunnelStateLock.lock()
+        let shouldSkipStopRequest = tunnelStopping || didRequestCancel || autoStopNoActiveProtectionRequested
+        if !shouldSkipStopRequest {
+            autoStopNoActiveProtectionRequested = true
+            didRequestCancel = true
+        }
+        tunnelStateLock.unlock()
+
+        guard !shouldSkipStopRequest else {
+            return true
+        }
+
+        let source = "tunnel.auto_stop.no_active_blockers"
+        let nowTS = now.timeIntervalSince1970
+        let stopID = UUID().uuidString
+        sharedDefaults?.set(stopID, forKey: BubbleConstants.vpnLifecyclePendingStopIDKey)
+        sharedDefaults?.set(source, forKey: BubbleConstants.vpnLifecyclePendingStopSourceKey)
+        sharedDefaults?.set(nowTS, forKey: BubbleConstants.vpnLifecyclePendingStopTSKey)
+        ensureStopEventExists(nowTS: nowTS)
+        upsertStopSignal(candidate: "app_requested_stop", ts: nowTS, osRaw: nil, osName: nil, tun2socksExitCode: nil)
+        log.logAndFlush("AUTO_STOP no active blockers; cancelling tunnel source=\(source) stop_id=\(stopID)")
+        stopHeartbeat()
+        cancelTunnelWithError(nil)
+        return true
     }
 
     private func stopHeartbeat() {
