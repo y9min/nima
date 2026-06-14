@@ -78,6 +78,12 @@ final class AppStore {
         scheduleVPNReconciliation(triggerSource: source)
     }
 
+    func resetAllBlockingOptions(source: String = "app_store.reset") {
+        optionsService.resetAllOptions(source: source)
+        refreshFromOptionsService()
+        scheduleVPNReconciliation(triggerSource: source)
+    }
+
     private func refreshFromOptionsService() {
         for appIndex in apps.indices {
             let appId = apps[appIndex].id

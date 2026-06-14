@@ -114,6 +114,8 @@ struct BlockingStatusCard: View {
     var onRequestVPNPermission: () -> Void
     var onAddTimeWindow: () -> Void = {}
     var onEndScheduledWindow: (String) -> Void = { _ in }
+    var onShowGuidedOnboarding: () -> Void = {}
+    var guidedPracticeStep: GuidedPracticeCardStep? = nil
 
     @State private var draggingAppID: String?
     @State private var dragOffsets: [String: CGSize] = [:]
@@ -143,7 +145,11 @@ struct BlockingStatusCard: View {
             let centerTitle = centerTitle(forDraggingAppID: draggingAppID, ringState: ringState)
 
             ZStack {
-                BlockingMiniStatusControls(mode: mode, vpnState: vpnState)
+                BlockingMiniStatusControls(
+                    mode: mode,
+                    vpnState: vpnState,
+                    onShowGuidedOnboarding: onShowGuidedOnboarding
+                )
                     .scaleEffect(layout.visualScale)
                     .position(layout.miniControlsCenter)
 
@@ -249,6 +255,13 @@ struct BlockingStatusCard: View {
                     .buttonStyle(.plain)
                     .position(layout.timePillCenter)
                     .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                }
+
+                if let guidedPracticeStep {
+                    BlockingGuidedPracticeOverlay(step: guidedPracticeStep, layout: layout)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .allowsHitTesting(false)
+                        .zIndex(30)
                 }
 
                 #if DEBUG
@@ -522,6 +535,94 @@ private struct BlockingCardLayout {
     }
 }
 
+private struct BlockingGuidedPracticeOverlay: View {
+    let step: GuidedPracticeCardStep
+    let layout: BlockingCardLayout
+
+    var body: some View {
+        ZStack {
+            if step == .dragTikTok {
+                Circle()
+                    .strokeBorder(.white.opacity(0.24), lineWidth: 2)
+                    .background(
+                        Circle()
+                            .fill(.white.opacity(0.08))
+                    )
+                    .frame(width: layout.dialSize * 0.44, height: layout.dialSize * 0.44)
+                    .position(layout.dialCenter)
+
+                ForEach(["instagram", "tiktok"], id: \.self) { appID in
+                    RoundedRectangle(cornerRadius: layout.tileSize * 0.24, style: .continuous)
+                        .strokeBorder(BlockingCardStyle.accent.opacity(0.74), lineWidth: 3)
+                        .shadow(color: BlockingCardStyle.accent.opacity(0.45), radius: 10)
+                        .frame(width: layout.tileSize * 1.15, height: layout.tileSize * 1.15)
+                        .position(layout.tileCenter(for: appID))
+                }
+            }
+
+            BlockingGuidedCoachBubble(text: text)
+                .frame(width: bubbleWidth)
+                .position(x: layout.actualSize.width / 2, y: bubbleCenterY)
+        }
+        .frame(width: layout.actualSize.width, height: layout.actualSize.height)
+    }
+
+    private var text: String {
+        switch step {
+        case .ready:
+            return "Ready to test? we'll guide you through a quick 30 second test"
+        case .dragTikTok:
+            return "Drag an app into the centre to block short form feeds"
+        }
+    }
+
+    private var bubbleWidth: CGFloat {
+        min(layout.actualSize.width - 64, 314 * layout.visualScale)
+    }
+
+    private var bubbleCenterY: CGFloat {
+        max(42 * layout.visualScale, layout.dialCenter.y - layout.dialSize * 0.48)
+    }
+}
+
+private struct BlockingGuidedCoachBubble: View {
+    let text: String
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(text)
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(red: 0.01, green: 0.12, blue: 0.08))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white)
+                )
+
+            BlockingGuidedCoachTriangle()
+                .fill(.white)
+                .frame(width: 24, height: 15)
+        }
+        .shadow(color: .black.opacity(0.32), radius: 10, y: 5)
+    }
+}
+
+private struct BlockingGuidedCoachTriangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.closeSubpath()
+        return path
+    }
+}
+
 #if DEBUG
 private struct BlockingCardDebugOverlay: View {
     let layout: BlockingCardLayout
@@ -643,25 +744,32 @@ struct LockStatusBadge: View {
 private struct BlockingMiniStatusControls: View {
     let mode: BlockingCardMode
     let vpnState: BlockingVPNState
+    var onShowGuidedOnboarding: () -> Void
 
     private var indicatorState: BlockingConnectionIndicatorState {
         vpnState.connectionIndicatorState
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 11) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-                .shadow(color: statusColor.opacity(0.55), radius: 6)
+        Button(action: onShowGuidedOnboarding) {
+            HStack(alignment: .center, spacing: 11) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
+                    .shadow(color: statusColor.opacity(0.55), radius: 6)
 
-            Image(systemName: mode == .permissionRequired ? "exclamationmark.circle" : "info.circle")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white.opacity(mode == .permissionRequired ? 0.78 : 0.58))
+                Image(systemName: mode == .permissionRequired ? "exclamationmark.circle" : "info.circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white.opacity(mode == .permissionRequired ? 0.78 : 0.58))
+            }
+            .frame(width: 56, height: 36, alignment: .trailing)
+            .contentShape(Rectangle())
         }
-        .frame(width: 56, alignment: .trailing)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
+        .buttonStyle(.plain)
+        .accessibilityLabel("How Nima works")
+        .accessibilityValue(accessibilityText)
+        .accessibilityHint("Opens a short guide")
+        .accessibilityIdentifier("blocking_card.how_it_works")
         .animation(.easeInOut(duration: 0.24), value: indicatorState)
     }
 

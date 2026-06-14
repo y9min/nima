@@ -280,6 +280,18 @@ final class AppOptionsService {
         return manualPolicy.appToggles[appId]?[effectiveOptionId] ?? false
     }
 
+    func resetAllOptions(source: String = "app.options.reset") {
+        scheduledAppIDs = []
+        var policy = FeaturePolicyV1.defaultPolicy()
+        policy.bumpRevision(updatedBy: source)
+        manualPolicy = policy
+        persistManualPolicy()
+        let effectivePolicy = persistEffectivePolicy(updatedBy: source)
+        AppDiagnosticsLogger.log(
+            "OPTION_RESET effective_revision=\(effectivePolicy.revision) source=\(source)"
+        )
+    }
+
     @discardableResult
     private func persistEffectivePolicy(updatedBy: String) -> FeaturePolicyV1 {
         var effectivePolicy = manualPolicy

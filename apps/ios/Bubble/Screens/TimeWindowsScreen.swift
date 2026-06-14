@@ -443,7 +443,7 @@ private struct TimeWindowEditorSheet: View {
         }
         .sheet(isPresented: $isShowingRepeat) {
             RepeatSelectionSheet(selectedDays: $selectedDays)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.fraction(0.68), .large])
         }
         .alert("Delete time window?", isPresented: $isShowingDeleteConfirmation) {
             Button("Delete", role: .destructive) {
@@ -692,24 +692,23 @@ private struct RepeatSelectionSheet: View {
                 TimeWindowsPalette.background
                     .ignoresSafeArea()
 
-                List {
+                VStack(spacing: 0) {
                     ForEach(TimeWindowWeekday.allCases) { day in
-                        Button {
-                            toggle(day)
-                        } label: {
-                            HStack {
-                                Text(day.fullRepeatLabel)
-                                    .font(.system(size: 19, weight: .regular, design: .rounded))
-                                    .foregroundStyle(.white)
-                                Spacer()
-                                Image(systemName: selectedDays.contains(day) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(selectedDays.contains(day) ? TimeWindowsPalette.accent : TimeWindowsPalette.muted)
-                            }
+                        repeatDayRow(day)
+
+                        if day != TimeWindowWeekday.allCases.last {
+                            Divider()
+                                .overlay(TimeWindowsPalette.border)
+                                .padding(.leading, 16)
+                                .padding(.trailing, 12)
                         }
-                        .listRowBackground(TimeWindowsPalette.card)
                     }
                 }
-                .scrollContentBackground(.hidden)
+                .background(TimeWindowsPalette.card)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .padding(.horizontal, 24)
+                .padding(.top, 14)
+                .frame(maxHeight: .infinity, alignment: .top)
             }
             .navigationTitle("Repeat")
             .toolbar {
@@ -721,6 +720,26 @@ private struct RepeatSelectionSheet: View {
                 }
             }
         }
+    }
+
+    private func repeatDayRow(_ day: TimeWindowWeekday) -> some View {
+        Button {
+            toggle(day)
+        } label: {
+            HStack {
+                Text(day.fullRepeatLabel)
+                    .font(.system(size: 19, weight: .regular, design: .rounded))
+                    .foregroundStyle(.white)
+                Spacer()
+                Image(systemName: selectedDays.contains(day) ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(selectedDays.contains(day) ? TimeWindowsPalette.accent : TimeWindowsPalette.muted)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func toggle(_ day: TimeWindowWeekday) {

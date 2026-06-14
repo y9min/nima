@@ -3,7 +3,9 @@ import UIKit
 
 struct SettingsScreen: View {
     @Environment(\.sizeCategory) private var contentSizeCategory
+    @Environment(AppStore.self) private var appStore
     @Environment(AuthStore.self) private var authStore
+    @Environment(OnboardingStore.self) private var onboardingStore
     @EnvironmentObject private var vpnManager: VPNManager
 
     @State private var destination: SettingsDestination?
@@ -205,6 +207,8 @@ struct SettingsScreen: View {
         Task {
             await authStore.logout()
             await MainActor.run {
+                onboardingStore.resetForOnboardingRestart()
+                appStore.resetAllBlockingOptions(source: "settings.logout_test_reset")
                 onHome()
             }
         }

@@ -26,6 +26,9 @@ struct OnboardingStateV1: Codable, Equatable {
 @Observable
 final class OnboardingStore {
     var isCompleted: Bool = false
+    var hasSeenGuidedOnboarding: Bool = false
+    var hasCompletedGuidedPractice: Bool = false
+    var hasGuidedPracticeReturnPending: Bool = false
     var phoneHours: Int?
     var age: Int?
     var selectedHabits: Set<String> = []
@@ -69,8 +72,44 @@ final class OnboardingStore {
         persist()
     }
 
+    func markGuidedOnboardingSeen() {
+        hasSeenGuidedOnboarding = true
+        defaults?.set(true, forKey: BubbleConstants.guidedOnboardingSeenKey)
+    }
+
+    func markGuidedPracticeCompleted() {
+        hasCompletedGuidedPractice = true
+        defaults?.set(true, forKey: BubbleConstants.guidedPracticeCompletedKey)
+    }
+
+    func setGuidedPracticeReturnPending(_ isPending: Bool) {
+        hasGuidedPracticeReturnPending = isPending
+        defaults?.set(isPending, forKey: BubbleConstants.guidedPracticeReturnPendingKey)
+    }
+
+    func resetForOnboardingRestart() {
+        isCompleted = false
+        hasSeenGuidedOnboarding = false
+        hasCompletedGuidedPractice = false
+        hasGuidedPracticeReturnPending = false
+        phoneHours = nil
+        age = nil
+        selectedHabits = []
+        selectedApps = []
+        vpnPermissionRequested = false
+
+        defaults?.set(false, forKey: BubbleConstants.onboardingCompletedKey)
+        defaults?.set(false, forKey: BubbleConstants.guidedOnboardingSeenKey)
+        defaults?.set(false, forKey: BubbleConstants.guidedPracticeCompletedKey)
+        defaults?.set(false, forKey: BubbleConstants.guidedPracticeReturnPendingKey)
+        defaults?.removeObject(forKey: BubbleConstants.onboardingStateKey)
+    }
+
     private func load() {
         isCompleted = defaults?.bool(forKey: BubbleConstants.onboardingCompletedKey) ?? false
+        hasSeenGuidedOnboarding = defaults?.bool(forKey: BubbleConstants.guidedOnboardingSeenKey) ?? false
+        hasCompletedGuidedPractice = defaults?.bool(forKey: BubbleConstants.guidedPracticeCompletedKey) ?? false
+        hasGuidedPracticeReturnPending = defaults?.bool(forKey: BubbleConstants.guidedPracticeReturnPendingKey) ?? false
         guard let data = defaults?.data(forKey: BubbleConstants.onboardingStateKey),
               let state = try? JSONDecoder().decode(OnboardingStateV1.self, from: data) else {
             return

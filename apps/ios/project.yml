@@ -41,6 +41,8 @@ targets:
         UIViewControllerBasedStatusBarAppearance: false
         UIStatusBarStyle: UIStatusBarStyleLightContent
         UILaunchStoryboardName: LaunchScreen
+        UIBackgroundModes:
+          - audio
         SUPABASE_URL: $(SUPABASE_URL)
         SUPABASE_KEY: $(SUPABASE_KEY)
     entitlements:

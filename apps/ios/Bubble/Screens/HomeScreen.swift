@@ -18,6 +18,8 @@ struct HomeScreen: View {
     var onSignIn: (() -> Void)? = nil
     var onSettings: (() -> Void)? = nil
     var onTrafficDashboard: (() -> Void)? = nil
+    var onShowGuidedOnboarding: (() -> Void)? = nil
+    var guidedPracticeCardStep: GuidedPracticeCardStep? = nil
     var showsDock = true
 
     var body: some View {
@@ -116,7 +118,11 @@ struct HomeScreen: View {
                 },
                 onEndScheduledWindow: { appID in
                     appIDPendingWindowEnd = appID
-                }
+                },
+                onShowGuidedOnboarding: {
+                    onShowGuidedOnboarding?()
+                },
+                guidedPracticeStep: guidedPracticeCardStep
             )
             .frame(width: layout.contentWidth, height: layout.blockerHeight)
 

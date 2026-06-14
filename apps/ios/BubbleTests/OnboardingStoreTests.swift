@@ -11,6 +11,9 @@ final class OnboardingStoreTests: XCTestCase {
         XCTAssertTrue(store.selectedHabits.isEmpty)
         XCTAssertTrue(store.selectedApps.isEmpty)
         XCTAssertFalse(store.vpnPermissionRequested)
+        XCTAssertFalse(store.hasSeenGuidedOnboarding)
+        XCTAssertFalse(store.hasCompletedGuidedPractice)
+        XCTAssertFalse(store.hasGuidedPracticeReturnPending)
     }
 
     func testSavingAnswersPersistsAndReloads() {
@@ -62,6 +65,67 @@ final class OnboardingStoreTests: XCTestCase {
 
         XCTAssertTrue(reloaded.isCompleted)
         XCTAssertEqual(reloaded.phoneHours, 8)
+    }
+
+    func testGuidedOnboardingSeenPersists() {
+        let defaults = testDefaults()
+        let store = OnboardingStore(defaults: defaults)
+
+        store.markGuidedOnboardingSeen()
+
+        let reloaded = OnboardingStore(defaults: defaults)
+
+        XCTAssertTrue(reloaded.hasSeenGuidedOnboarding)
+    }
+
+    func testGuidedPracticeCompletionPersists() {
+        let defaults = testDefaults()
+        let store = OnboardingStore(defaults: defaults)
+
+        store.markGuidedPracticeCompleted()
+
+        let reloaded = OnboardingStore(defaults: defaults)
+
+        XCTAssertTrue(reloaded.hasCompletedGuidedPractice)
+    }
+
+    func testGuidedPracticeReturnPendingPersistsAndClears() {
+        let defaults = testDefaults()
+        let store = OnboardingStore(defaults: defaults)
+
+        store.setGuidedPracticeReturnPending(true)
+        XCTAssertTrue(OnboardingStore(defaults: defaults).hasGuidedPracticeReturnPending)
+
+        store.setGuidedPracticeReturnPending(false)
+        XCTAssertFalse(OnboardingStore(defaults: defaults).hasGuidedPracticeReturnPending)
+    }
+
+    func testResetForOnboardingRestartClearsOnboardingAndGuidedPracticeState() {
+        let defaults = testDefaults()
+        let store = OnboardingStore(defaults: defaults)
+
+        store.setPhoneHours(7)
+        store.setAge(23)
+        store.setSelectedHabits(["Checking apps automatically"])
+        store.setSelectedApps(["TikTok"])
+        store.markVPNPermissionRequested()
+        store.markCompleted()
+        store.markGuidedOnboardingSeen()
+        store.markGuidedPracticeCompleted()
+        store.setGuidedPracticeReturnPending(true)
+
+        store.resetForOnboardingRestart()
+        let reloaded = OnboardingStore(defaults: defaults)
+
+        XCTAssertFalse(reloaded.isCompleted)
+        XCTAssertFalse(reloaded.hasSeenGuidedOnboarding)
+        XCTAssertFalse(reloaded.hasCompletedGuidedPractice)
+        XCTAssertFalse(reloaded.hasGuidedPracticeReturnPending)
+        XCTAssertNil(reloaded.phoneHours)
+        XCTAssertNil(reloaded.age)
+        XCTAssertTrue(reloaded.selectedHabits.isEmpty)
+        XCTAssertTrue(reloaded.selectedApps.isEmpty)
+        XCTAssertFalse(reloaded.vpnPermissionRequested)
     }
 
     func testNumericAnswersAreClampedToSupportedRanges() {

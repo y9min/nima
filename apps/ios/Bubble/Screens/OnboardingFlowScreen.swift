@@ -15,6 +15,10 @@ struct OnboardingFlowScreen: View {
     @State private var selectedApps: Set<String> = []
     @State private var showsPrivacySheet = false
 
+    private var hasValidDisplayName: Bool {
+        AppSettingsStore.normalizedDisplayName(displayName) != nil
+    }
+
     var body: some View {
         ZStack {
             currentScreen
@@ -87,10 +91,9 @@ struct OnboardingFlowScreen: View {
             }
             .padding(.top, 22)
         } bottom: {
-            OnboardingPrimaryButton(title: "Continue") {
-                if AppSettingsStore.normalizedDisplayName(displayName) != nil {
-                    appSettingsStore.setDisplayName(displayName)
-                }
+            OnboardingPrimaryButton(title: "Continue", isDisabled: !hasValidDisplayName) {
+                guard hasValidDisplayName else { return }
+                appSettingsStore.setDisplayName(displayName)
                 step = .phoneTime
             }
             .accessibilityIdentifier("onboarding.name.continue")
@@ -103,7 +106,7 @@ struct OnboardingFlowScreen: View {
                 OnboardingTitle("How much time do you\nspend on your phone?")
                     .padding(.top, 22)
 
-                Text("on your phone daily")
+                Text("your best guess is fine")
                     .font(.system(size: OnboardingMetrics.subtitleFont, weight: .regular))
                     .foregroundStyle(OnboardingPalette.secondaryText)
 
@@ -118,29 +121,16 @@ struct OnboardingFlowScreen: View {
                     .accessibilityIdentifier("onboarding.phone.slider")
             }
         } bottom: {
-            VStack(spacing: 16) {
-                Button("I don’t know") {
-                    onboardingStore.setPhoneHours(nil)
-                    step = .age
-                }
-                .font(.system(size: OnboardingMetrics.secondaryActionFont, weight: .regular))
-                .foregroundStyle(OnboardingPalette.secondaryText)
-                .accessibilityIdentifier("onboarding.phone.unknown")
-
-                OnboardingPrimaryButton(title: "Continue") {
-                    onboardingStore.setPhoneHours(Int(phoneHours.rounded()))
-                    step = .age
-                }
-                .accessibilityIdentifier("onboarding.phone.continue")
+            OnboardingPrimaryButton(title: "Continue") {
+                onboardingStore.setPhoneHours(Int(phoneHours.rounded()))
+                step = .age
             }
+            .accessibilityIdentifier("onboarding.phone.continue")
         }
     }
 
     private var agePage: some View {
-        OnboardingWhitePage(showsSkip: true, onSkip: {
-            onboardingStore.setAge(nil)
-            step = .habits
-        }, onBack: goBack) {
+        OnboardingWhitePage(onBack: goBack) {
             VStack(spacing: 8) {
                 OnboardingTitle("How old are you?")
                     .padding(.top, 22)
@@ -183,11 +173,7 @@ struct OnboardingFlowScreen: View {
     }
 
     private var habitsPage: some View {
-        OnboardingWhitePage(showsSkip: true, onSkip: {
-            selectedHabits = []
-            onboardingStore.setSelectedHabits([])
-            step = .apps
-        }, onBack: goBack) {
+        OnboardingWhitePage(onBack: goBack) {
             VStack(spacing: 12) {
                 OnboardingTitle(
                     "What habit would you like\nto change?",
@@ -224,11 +210,7 @@ struct OnboardingFlowScreen: View {
     }
 
     private var appsPage: some View {
-        OnboardingWhitePage(showsSkip: true, onSkip: {
-            selectedApps = []
-            onboardingStore.setSelectedApps([])
-            step = .vpn
-        }, onBack: goBack) {
+        OnboardingWhitePage(onBack: goBack) {
             VStack(spacing: 12) {
                 OnboardingTitle("Which apps do you use\nthe most?")
                     .padding(.top, 20)
@@ -693,6 +675,7 @@ private struct OnboardingTitle: View {
 
 private struct OnboardingPrimaryButton: View {
     let title: String
+    var isDisabled = false
     let action: () -> Void
 
     var body: some View {
@@ -707,8 +690,10 @@ private struct OnboardingPrimaryButton: View {
                 .background(OnboardingPalette.darkGreen)
                 .clipShape(Capsule())
                 .contentShape(Capsule())
+                .opacity(isDisabled ? 0.45 : 1)
         }
         .buttonStyle(.plain)
+        .disabled(isDisabled)
     }
 }
 
@@ -852,7 +837,7 @@ private struct PhoneUsageGauge: View {
         }
         .animation(.easeOut(duration: 0.18), value: hours)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(accessibilityHours) on your phone daily")
+        .accessibilityLabel("\(accessibilityHours). Your best guess is fine.")
     }
 }
 

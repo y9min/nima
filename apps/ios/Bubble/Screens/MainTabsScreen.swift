@@ -9,6 +9,8 @@ struct MainTabsScreen: View {
     let onSelectApp: (BlockedApp) -> Void
     let onSignIn: () -> Void
     let onTrafficDashboard: () -> Void
+    let onShowGuidedOnboarding: () -> Void
+    let guidedPracticeCardStep: GuidedPracticeCardStep?
 
     var body: some View {
         GeometryReader { proxy in
@@ -29,6 +31,8 @@ struct MainTabsScreen: View {
                             onSignIn: onSignIn,
                             onSettings: { selectedTab = .settings },
                             onTrafficDashboard: onTrafficDashboard,
+                            onShowGuidedOnboarding: onShowGuidedOnboarding,
+                            guidedPracticeCardStep: guidedPracticeCardStep,
                             showsDock: false
                         )
                         .transition(.opacity)
