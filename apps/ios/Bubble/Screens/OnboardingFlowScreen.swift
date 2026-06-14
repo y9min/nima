@@ -11,12 +11,30 @@ struct OnboardingFlowScreen: View {
     @State private var displayName = ""
     @State private var phoneHours: Double = 0
     @State private var age = 18
+    @State private var didProvidePhoneHours = false
+    @State private var didProvideAge = false
     @State private var selectedHabits: Set<String> = []
     @State private var selectedApps: Set<String> = []
     @State private var showsPrivacySheet = false
 
     private var hasValidDisplayName: Bool {
         AppSettingsStore.normalizedDisplayName(displayName) != nil
+    }
+
+    private var canContinuePhoneTime: Bool {
+        didProvidePhoneHours
+    }
+
+    private var canContinueAge: Bool {
+        didProvideAge
+    }
+
+    private var canContinueHabits: Bool {
+        !selectedHabits.isEmpty
+    }
+
+    private var canContinueApps: Bool {
+        !selectedApps.isEmpty
     }
 
     var body: some View {
@@ -94,7 +112,7 @@ struct OnboardingFlowScreen: View {
             OnboardingPrimaryButton(title: "Continue", isDisabled: !hasValidDisplayName) {
                 guard hasValidDisplayName else { return }
                 appSettingsStore.setDisplayName(displayName)
-                step = .phoneTime
+                step = .habits
             }
             .accessibilityIdentifier("onboarding.name.continue")
         }
@@ -116,14 +134,17 @@ struct OnboardingFlowScreen: View {
                 PhoneUsageGauge(hours: Int(phoneHours.rounded()))
                     .frame(width: 230, height: 230)
 
-                OnboardingPhoneSlider(value: $phoneHours, range: 0...16, step: 1)
+                OnboardingPhoneSlider(value: $phoneHours, range: 0...16, step: 1) {
+                    didProvidePhoneHours = true
+                }
                     .padding(.horizontal, 34)
                     .accessibilityIdentifier("onboarding.phone.slider")
             }
         } bottom: {
-            OnboardingPrimaryButton(title: "Continue") {
+            OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinuePhoneTime) {
+                guard canContinuePhoneTime else { return }
                 onboardingStore.setPhoneHours(Int(phoneHours.rounded()))
-                step = .age
+                step = .vpn
             }
             .accessibilityIdentifier("onboarding.phone.continue")
         }
@@ -160,13 +181,23 @@ struct OnboardingFlowScreen: View {
                     .pickerStyle(.wheel)
                     .frame(height: 166)
                     .clipped()
+                    .onChange(of: age) { _, _ in
+                        didProvideAge = true
+                    }
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in
+                                didProvideAge = true
+                            }
+                    )
                     .accessibilityIdentifier("onboarding.age.picker")
                 }
             }
         } bottom: {
-            OnboardingPrimaryButton(title: "Continue") {
+            OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinueAge) {
+                guard canContinueAge else { return }
                 onboardingStore.setAge(age)
-                step = .habits
+                step = .apps
             }
             .accessibilityIdentifier("onboarding.age.continue")
         }
@@ -201,9 +232,10 @@ struct OnboardingFlowScreen: View {
                 .padding(.top, 22)
             }
         } bottom: {
-            OnboardingPrimaryButton(title: "Continue") {
+            OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinueHabits) {
+                guard canContinueHabits else { return }
                 onboardingStore.setSelectedHabits(selectedHabits)
-                step = .apps
+                step = .age
             }
             .accessibilityIdentifier("onboarding.habits.continue")
         }
@@ -212,7 +244,7 @@ struct OnboardingFlowScreen: View {
     private var appsPage: some View {
         OnboardingWhitePage(onBack: goBack) {
             VStack(spacing: 12) {
-                OnboardingTitle("Which apps do you use\nthe most?")
+                OnboardingTitle("Where do you spend the\nmost time scrolling?")
                     .padding(.top, 20)
 
                 Text("select one or more")
@@ -232,9 +264,10 @@ struct OnboardingFlowScreen: View {
                 .padding(.top, 26)
             }
         } bottom: {
-            OnboardingPrimaryButton(title: "Continue") {
+            OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinueApps) {
+                guard canContinueApps else { return }
                 onboardingStore.setSelectedApps(selectedApps)
-                step = .vpn
+                step = .phoneTime
             }
             .accessibilityIdentifier("onboarding.apps.continue")
         }
@@ -304,6 +337,8 @@ struct OnboardingFlowScreen: View {
         displayName = appSettingsStore.displayName
         phoneHours = Double(onboardingStore.phoneHours ?? 0)
         age = onboardingStore.age ?? 18
+        didProvidePhoneHours = onboardingStore.phoneHours != nil
+        didProvideAge = onboardingStore.age != nil
         selectedHabits = onboardingStore.selectedHabits
         selectedApps = onboardingStore.selectedApps
     }
@@ -355,15 +390,15 @@ private enum OnboardingStep {
         case .name:
             return .splash
         case .phoneTime:
-            return .name
-        case .age:
-            return .phoneTime
-        case .habits:
-            return .age
-        case .apps:
-            return .habits
-        case .vpn:
             return .apps
+        case .age:
+            return .habits
+        case .habits:
+            return .name
+        case .apps:
+            return .age
+        case .vpn:
+            return .phoneTime
         case .account:
             return .vpn
         }
@@ -402,10 +437,10 @@ private enum OnboardingMetrics {
 
 private enum OnboardingCopy {
     static let habits = [
-        "Ignoring people around you",
+        "Ignoring people around me",
         "Scrolling in bed",
         "Constantly checking my phone",
-        "Scrolling as soon as you wake up",
+        "Scrolling as soon as I wake up",
         "Interrupting my work/studying",
         "Feeling bad after using my phone"
     ]
@@ -846,6 +881,7 @@ private struct OnboardingPhoneSlider: View {
 
     let range: ClosedRange<Double>
     let step: Double
+    var onInteraction: () -> Void = {}
 
     private let thumbSize: CGFloat = 30
     private let trackHeight: CGFloat = 8
@@ -889,6 +925,7 @@ private struct OnboardingPhoneSlider: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
+                        onInteraction()
                         updateValue(from: gesture.location.x, width: usableWidth)
                     }
             )
@@ -900,8 +937,10 @@ private struct OnboardingPhoneSlider: View {
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment:
+                onInteraction()
                 value = min(range.upperBound, value + step)
             case .decrement:
+                onInteraction()
                 value = max(range.lowerBound, value - step)
             @unknown default:
                 break
