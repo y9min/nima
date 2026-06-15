@@ -138,10 +138,66 @@ final class OnboardingStoreTests: XCTestCase {
         XCTAssertEqual(store.age, 13)
     }
 
+    func testPhoneProjectionUsesWholeNumbers() {
+        let projection = OnboardingProjection.calculate(
+            dailyPhoneHours: 8,
+            userAge: 25,
+            date: testDate(year: 2026, month: 1, day: 1),
+            calendar: testCalendar
+        )
+
+        XCTAssertEqual(projection.daysThisYear, 122)
+        XCTAssertEqual(projection.lifeYears, 30)
+        XCTAssertEqual(projection.yearsBack, 9)
+    }
+
+    func testDaysRemainingIncludesToday() {
+        let date = testDate(year: 2026, month: 12, day: 31)
+
+        XCTAssertEqual(OnboardingProjection.daysRemainingInYearIncludingToday(from: date, calendar: testCalendar), 1)
+
+        let projection = OnboardingProjection.calculate(
+            dailyPhoneHours: 12,
+            userAge: 25,
+            date: date,
+            calendar: testCalendar
+        )
+
+        XCTAssertEqual(projection.daysThisYear, 1)
+    }
+
+    func testProjectionMinimumsClampToOneForLifeYearsAndYearsBack() {
+        let projection = OnboardingProjection.calculate(
+            dailyPhoneHours: 0,
+            userAge: 85,
+            date: testDate(year: 2026, month: 1, day: 1),
+            calendar: testCalendar
+        )
+
+        XCTAssertEqual(projection.daysThisYear, 0)
+        XCTAssertEqual(projection.lifeYears, 1)
+        XCTAssertEqual(projection.yearsBack, 1)
+    }
+
+    func testCarouselValuesNeverGoBelowOne() {
+        XCTAssertEqual(OnboardingProjection.carouselValues(for: 1), [1, 1, 2])
+        XCTAssertEqual(OnboardingProjection.carouselValues(for: 9), [8, 9, 10])
+    }
+
     private func testDefaults() -> UserDefaults {
         let suiteName = "OnboardingStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         return defaults
+    }
+
+    private var testCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+
+    private func testDate(year: Int, month: Int, day: Int) -> Date {
+        testCalendar.date(from: DateComponents(year: year, month: month, day: day))!
     }
 }

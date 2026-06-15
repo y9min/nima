@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import Combine
+import UserNotifications
 
 struct OnboardingFlowScreen: View {
     @Environment(OnboardingStore.self) private var onboardingStore
@@ -74,6 +75,16 @@ struct OnboardingFlowScreen: View {
             namePage
         case .phoneTime:
             phoneTimePage
+        case .calculating:
+            calculatingPage
+        case .newsTransition:
+            newsTransitionPage
+        case .badNews:
+            badNewsPage
+        case .goodNews:
+            goodNewsPage
+        case .stayConnected:
+            stayConnectedPage
         case .age:
             agePage
         case .habits:
@@ -82,6 +93,8 @@ struct OnboardingFlowScreen: View {
             appsPage
         case .vpn:
             vpnEducationPage
+        case .notifications:
+            notificationsPage
         case .account:
             accountPage
         }
@@ -144,9 +157,118 @@ struct OnboardingFlowScreen: View {
             OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinuePhoneTime) {
                 guard canContinuePhoneTime else { return }
                 onboardingStore.setPhoneHours(Int(phoneHours.rounded()))
-                step = .vpn
+                step = .calculating
             }
             .accessibilityIdentifier("onboarding.phone.continue")
+        }
+    }
+
+    private var calculatingPage: some View {
+        OnboardingWhitePage(onBack: goBack) {
+            VStack(spacing: 28) {
+                Spacer(minLength: 0)
+
+                OnboardingTitle("Calculating…")
+
+                PulsatingDotsLoader()
+                    .frame(height: 42)
+                    .accessibilityLabel("Calculating")
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } bottom: {
+            EmptyView()
+        }
+        .onAppear {
+            advanceAfterDelay(from: .calculating, to: .newsTransition, delay: 2.0)
+        }
+    }
+
+    private var newsTransitionPage: some View {
+        OnboardingWhitePage(onBack: goBack) {
+            OnboardingTransitionMessage {
+                advanceAfterDelay(from: .newsTransition, to: .badNews, delay: 2.0)
+            }
+        } bottom: {
+            EmptyView()
+        }
+    }
+
+    private var badNewsPage: some View {
+        let projection = currentProjection
+
+        return OnboardingWhitePage(onBack: goBack) {
+            OnboardingProjectionPage(
+                topLines: [
+                    ProjectionTextLine(text: "The bad news is you’ll spend", highlightedText: nil),
+                    ProjectionTextLine(text: "\(projection.daysThisYear) days on your phone this year", highlightedText: "\(projection.daysThisYear) days")
+                ],
+                leadInLines: [
+                    "meaning that you’re on track",
+                    "to spend"
+                ],
+                carouselValue: projection.lifeYears,
+                middleSuffix: "",
+                bottomLines: [
+                    "of your life looking down at your",
+                    "phone. Yep, you read that right"
+                ],
+                disclaimer: "Projection of your current habits, based\non an average 16 waking hours each day",
+                accessibilityPrefix: "Bad news"
+            )
+        } bottom: {
+            OnboardingDelayedButton(title: "Fix this", delay: ProjectionRevealTiming.buttonDelay) {
+                step = .goodNews
+            }
+            .accessibilityIdentifier("onboarding.bad-news.continue")
+        }
+    }
+
+    private var goodNewsPage: some View {
+        let projection = currentProjection
+
+        return OnboardingWhitePage(onBack: goBack) {
+            OnboardingProjectionPage(
+                topLines: [
+                    ProjectionTextLine(text: "The good news is that Nima can", highlightedText: nil),
+                    ProjectionTextLine(text: "help you get back", highlightedText: nil)
+                ],
+                leadInLines: [],
+                carouselValue: projection.yearsBack,
+                middleSuffix: " years+",
+                bottomLines: [
+                    "of your life from scrolling, so you",
+                    "can spend it on what actually",
+                    "matters"
+                ],
+                disclaimer: "Projection based on your answers and an\nestimated reduction while Nima is active",
+                accessibilityPrefix: "Good news"
+            )
+        } bottom: {
+            OnboardingDelayedButton(title: "Get years back", delay: ProjectionRevealTiming.buttonDelay) {
+                step = .stayConnected
+            }
+            .accessibilityIdentifier("onboarding.good-news.continue")
+        }
+    }
+
+    private var stayConnectedPage: some View {
+        OnboardingWhitePage(onBack: goBack) {
+            StayConnectedContent()
+        } bottom: {
+            VStack(spacing: 16) {
+                Label("Keep what matters. Lose what doesn’t.", systemImage: "heart")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(OnboardingPalette.green)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+
+                OnboardingPrimaryButton(title: "Set Up Nima") {
+                    step = .vpn
+                }
+                .accessibilityIdentifier("onboarding.stay-connected.continue")
+            }
         }
     }
 
@@ -303,6 +425,45 @@ struct OnboardingFlowScreen: View {
         }
     }
 
+    private var notificationsPage: some View {
+        OnboardingWhitePage(onBack: goBack) {
+            VStack(spacing: 14) {
+                OnboardingTitle("Stay on track with\nreminders")
+                    .padding(.top, 22)
+
+                Text("Nima can remind you when a blocking\nwindow starts, ends, or needs\nyour attention")
+                    .font(.system(size: 20, weight: .regular))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.78)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(OnboardingPalette.secondaryText)
+
+                Spacer()
+                    .frame(height: 30)
+
+                NotificationPermissionIllustration()
+                    .frame(width: 270, height: 255)
+                    .offset(y: -8)
+            }
+        } bottom: {
+            VStack(spacing: 16) {
+                Text("You can change this at any time")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(OnboardingPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                OnboardingPrimaryButton(title: "Continue") {
+                    requestNotificationPermissionAndContinue()
+                }
+                .accessibilityIdentifier("onboarding.notifications.continue")
+            }
+        }
+    }
+
     private var accountPage: some View {
         OnboardingWhitePage(topLogoWidth: OnboardingMetrics.topLogoWidth, onBack: goBack) {
             VStack(spacing: 32) {
@@ -343,12 +504,35 @@ struct OnboardingFlowScreen: View {
         selectedApps = onboardingStore.selectedApps
     }
 
+    private var currentProjection: OnboardingProjection {
+        OnboardingProjection.calculate(
+            dailyPhoneHours: Int(phoneHours.rounded()),
+            userAge: age
+        )
+    }
+
+    private func advanceAfterDelay(from expectedStep: OnboardingStep, to nextStep: OnboardingStep, delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard step == expectedStep else { return }
+            step = nextStep
+        }
+    }
+
     private func triggerVPNPermissionAndContinue() {
         onboardingStore.markVPNPermissionRequested()
         vpnManager.startVPN(source: "onboarding.vpn_permission")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             showsPrivacySheet = false
-            step = .account
+            step = .notifications
+        }
+    }
+
+    private func requestNotificationPermissionAndContinue() {
+        appSettingsStore.setWindowsNotificationsEnabled(true)
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
+            DispatchQueue.main.async {
+                step = .account
+            }
         }
     }
 
@@ -377,10 +561,16 @@ private enum OnboardingStep {
     case splash
     case name
     case phoneTime
+    case calculating
+    case newsTransition
+    case badNews
+    case goodNews
+    case stayConnected
     case age
     case habits
     case apps
     case vpn
+    case notifications
     case account
 
     var previous: OnboardingStep? {
@@ -391,6 +581,16 @@ private enum OnboardingStep {
             return .splash
         case .phoneTime:
             return .apps
+        case .calculating:
+            return .phoneTime
+        case .newsTransition:
+            return .calculating
+        case .badNews:
+            return .newsTransition
+        case .goodNews:
+            return .badNews
+        case .stayConnected:
+            return .goodNews
         case .age:
             return .habits
         case .habits:
@@ -398,9 +598,653 @@ private enum OnboardingStep {
         case .apps:
             return .age
         case .vpn:
-            return .phoneTime
-        case .account:
+            return .stayConnected
+        case .notifications:
             return .vpn
+        case .account:
+            return .notifications
+        }
+    }
+}
+
+struct OnboardingProjection: Equatable {
+    let daysThisYear: Int
+    let lifeYears: Int
+    let yearsBack: Int
+
+    static func calculate(
+        dailyPhoneHours: Int,
+        userAge: Int,
+        date: Date = Date(),
+        calendar: Calendar = .current
+    ) -> OnboardingProjection {
+        let clampedHours = max(0, dailyPhoneHours)
+        let remainingYears = max(0, 85 - userAge)
+        let daysThisYear = Int(((Double(clampedHours) * Double(daysRemainingInYearIncludingToday(from: date, calendar: calendar))) / 24).rounded())
+        let lifeYears = max(1, Int(((Double(clampedHours) / 16) * Double(remainingYears)).rounded()))
+        let yearsBack = max(1, Int((Double(lifeYears) * 0.30).rounded()))
+
+        return OnboardingProjection(
+            daysThisYear: daysThisYear,
+            lifeYears: lifeYears,
+            yearsBack: yearsBack
+        )
+    }
+
+    static func carouselValues(for value: Int) -> [Int] {
+        [max(1, value - 1), max(1, value), max(1, value + 1)]
+    }
+
+    static func daysRemainingInYearIncludingToday(from date: Date, calendar: Calendar = .current) -> Int {
+        let startOfToday = calendar.startOfDay(for: date)
+        let year = calendar.component(.year, from: startOfToday)
+        guard let startOfNextYear = calendar.date(from: DateComponents(year: year + 1, month: 1, day: 1)) else {
+            return 0
+        }
+        return max(0, calendar.dateComponents([.day], from: startOfToday, to: startOfNextYear).day ?? 0)
+    }
+}
+
+private struct ProjectionTextLine: Identifiable {
+    let id = UUID()
+    let text: String
+    let highlightedText: String?
+}
+
+private struct PulsatingDotsLoader: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            PulsatingDot(delay: 0)
+            PulsatingDot(delay: 0.3)
+            PulsatingDot(delay: 0.6)
+        }
+    }
+}
+
+private struct PulsatingDot: View {
+    let delay: Double
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 60)) { timeline in
+            let progress = reduceMotion ? 0.5 : animationProgress(at: timeline.date)
+
+            Circle()
+                .fill(OnboardingPalette.green)
+                .frame(width: 12, height: 12)
+                .scaleEffect(1 + (0.5 * progress))
+                .opacity(0.5 + (0.5 * progress))
+        }
+    }
+
+    private func animationProgress(at date: Date) -> Double {
+        let cycleDuration = 1.0
+        let rawPhase = (date.timeIntervalSinceReferenceDate - delay).truncatingRemainder(dividingBy: cycleDuration)
+        let phase = rawPhase < 0 ? rawPhase + cycleDuration : rawPhase
+        let triangleProgress = phase < 0.5 ? phase / 0.5 : (cycleDuration - phase) / 0.5
+        return 0.5 - (0.5 * cos(.pi * triangleProgress))
+    }
+}
+private struct OnboardingTransitionMessage: View {
+    let onReady: () -> Void
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Spacer(minLength: 0)
+
+            AnimatedRevealText(
+                "Some not so good news,",
+                delay: 0.18,
+                font: .system(size: 27, weight: .black),
+                color: .black,
+                lineLimit: 1
+            )
+
+            AnimatedRevealText(
+                "& some great news…",
+                delay: 0.72,
+                font: .system(size: 27, weight: .black),
+                color: .black,
+                lineLimit: 1
+            )
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear(perform: onReady)
+    }
+}
+
+private struct StayConnectedContent: View {
+    var body: some View {
+        GeometryReader { proxy in
+            let isCompact = proxy.size.height < 590
+            let titleSize: CGFloat = isCompact ? 30 : 37
+            let titleTopPadding: CGFloat = isCompact ? 10 : 20
+            let titleBottomPadding: CGFloat = isCompact ? 16 : 26
+            let rowSpacing: CGFloat = isCompact ? 10 : 14
+            let rowIconSize: CGFloat = isCompact ? 50 : 58
+            let cardHeight: CGFloat = isCompact ? 94 : 112
+
+            VStack(spacing: 0) {
+                StayConnectedTitle(fontSize: titleSize)
+                    .padding(.top, titleTopPadding)
+                    .padding(.bottom, titleBottomPadding)
+
+                VStack(spacing: rowSpacing) {
+                    StayConnectedRow(
+                        systemImage: "hourglass",
+                        title: "App limits still rely on discipline.",
+                        bodyText: "They’re easy to ignore when\nyou want to scroll.",
+                        iconSize: rowIconSize
+                    )
+
+                    StayConnectedDivider()
+
+                    StayConnectedRow(
+                        systemImage: "bubble.left.and.bubble.right.fill",
+                        title: "Deleting apps cuts you off\nfrom messages and real plans.",
+                        bodyText: "It’s an all-or-nothing approach\nthat doesn’t work.",
+                        iconSize: rowIconSize
+                    )
+
+                    StayConnectedDivider()
+
+                    StayConnectedRow(
+                        systemImage: "lock.fill",
+                        title: "Full blockers treat the whole\napp like the problem.",
+                        bodyText: "Too blunt. Too extreme.\nNot built for real life.",
+                        iconSize: rowIconSize
+                    )
+                }
+
+                Spacer(minLength: isCompact ? 14 : 24)
+
+                StayConnectedNimaCard()
+                    .frame(height: cardHeight)
+            }
+            .padding(.horizontal, isCompact ? 2 : 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+private struct StayConnectedTitle: View {
+    let fontSize: CGFloat
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("Stay connected")
+                .foregroundStyle(.black)
+            Text("without")
+                .foregroundStyle(OnboardingPalette.green)
+            Text("getting trapped")
+                .foregroundStyle(.black)
+        }
+        .font(.system(size: fontSize, weight: .black))
+        .multilineTextAlignment(.center)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Stay connected without getting trapped")
+    }
+}
+
+private struct StayConnectedRow: View {
+    let systemImage: String
+    let title: String
+    let bodyText: String
+    let iconSize: CGFloat
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(OnboardingPalette.green.opacity(0.10))
+
+                Image(systemName: systemImage)
+                    .font(.system(size: iconSize * 0.42, weight: .bold))
+                    .foregroundStyle(OnboardingPalette.green)
+                    .symbolRenderingMode(.hierarchical)
+            }
+            .frame(width: iconSize, height: iconSize)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.black)
+                    .lineSpacing(1)
+                    .lineLimit(nil)
+                    .minimumScaleFactor(0.76)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(bodyText)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(OnboardingPalette.secondaryText)
+                    .lineSpacing(2)
+                    .lineLimit(nil)
+                    .minimumScaleFactor(0.76)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct StayConnectedDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(OnboardingPalette.rule)
+            .frame(height: 1)
+            .padding(.leading, 80)
+    }
+}
+
+private struct StayConnectedNimaCard: View {
+    var body: some View {
+        cardText
+            .font(.system(size: 25, weight: .black))
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 16)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(OnboardingPalette.darkGreen)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: OnboardingPalette.green.opacity(0.10), radius: 8, x: 0, y: 4)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Nima blocks the scroll, not the social.")
+    }
+
+    private var cardText: Text {
+        Text("Nima ")
+            .foregroundColor(.white)
+            + Text("blocks the scroll,\n")
+            .foregroundColor(Color(red: 0.16, green: 0.92, blue: 0.52))
+            + Text("not the social.")
+            .foregroundColor(.white)
+    }
+}
+
+private struct OnboardingProjectionPage: View {
+    let topLines: [ProjectionTextLine]
+    let leadInLines: [String]
+    let carouselValue: Int
+    let middleSuffix: String
+    let bottomLines: [String]
+    let disclaimer: String
+    let accessibilityPrefix: String
+
+    var body: some View {
+        GeometryReader { proxy in
+            let isCompact = proxy.size.height < 600
+            let topPadding: CGFloat = isCompact ? 8 : 22
+            let firstGap: CGFloat = isCompact ? 14 : 28
+            let leadInGap: CGFloat = isCompact ? 14 : 28
+            let carouselGap: CGFloat = isCompact ? 16 : 30
+            let carouselHeight: CGFloat = isCompact ? 132 : 166
+            let disclaimerGap: CGFloat = isCompact ? 14 : 40
+
+            VStack(spacing: 0) {
+                Spacer(minLength: topPadding)
+
+                VStack(spacing: 2) {
+                    ForEach(Array(topLines.enumerated()), id: \.element.id) { index, line in
+                        AnimatedProjectionLine(
+                            line: line,
+                            delay: ProjectionRevealTiming.topStart + (Double(index) * ProjectionRevealTiming.lineGap),
+                            fontSize: isCompact ? 20 : 22,
+                            fontWeight: .bold
+                        )
+                    }
+                }
+
+                Color.clear
+                    .frame(height: firstGap)
+
+                if !leadInLines.isEmpty {
+                    VStack(spacing: 2) {
+                        ForEach(Array(leadInLines.enumerated()), id: \.offset) { index, line in
+                            AnimatedRevealText(
+                                line,
+                                delay: ProjectionRevealTiming.leadInStart + (Double(index) * ProjectionRevealTiming.lineGap),
+                                font: .system(size: isCompact ? 20 : 22, weight: .bold),
+                                color: .black,
+                                lineLimit: 1
+                            )
+                        }
+                    }
+
+                    Color.clear
+                        .frame(height: leadInGap)
+                }
+
+                NumberCarouselView(
+                    value: carouselValue,
+                    finalMiddleSuffix: middleSuffix,
+                    startDelay: ProjectionRevealTiming.carouselStart
+                )
+                    .frame(height: carouselHeight)
+
+                Color.clear
+                    .frame(height: carouselGap)
+
+                VStack(spacing: 2) {
+                    ForEach(Array(bottomLines.enumerated()), id: \.offset) { index, line in
+                        AnimatedRevealText(
+                            line,
+                            delay: ProjectionRevealTiming.bottomStart + (Double(index) * ProjectionRevealTiming.bottomLineGap),
+                            font: .system(size: isCompact ? 18 : 20, weight: .bold),
+                            color: .black,
+                            lineLimit: 1
+                        )
+                    }
+                }
+
+                Spacer(minLength: disclaimerGap)
+
+                AnimatedRevealText(
+                    disclaimer,
+                    delay: ProjectionRevealTiming.disclaimerStart,
+                    font: .system(size: isCompact ? 14 : 16, weight: .regular),
+                    color: OnboardingPalette.secondaryText,
+                    lineLimit: 2
+                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityPrefix)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private enum ProjectionRevealTiming {
+    static let topStart = 0.2
+    static let lineGap = 0.38
+    static let leadInStart = 1.18
+    static let carouselStart = 1.88
+    static let bottomStart = 4.05
+    static let bottomLineGap = 0.3
+    static let disclaimerStart = 4.82
+    static let buttonDelay = 5.2
+}
+
+private struct AnimatedProjectionLine: View {
+    let line: ProjectionTextLine
+    let delay: Double
+    let fontSize: CGFloat
+    let fontWeight: Font.Weight
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+
+    var body: some View {
+        styledText
+            .font(.system(size: fontSize, weight: fontWeight))
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .frame(maxWidth: .infinity)
+            .opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible || reduceMotion ? 0 : 10)
+            .onAppear(perform: reveal)
+    }
+
+    private var styledText: Text {
+        guard let highlightedText = line.highlightedText,
+              let range = line.text.range(of: highlightedText) else {
+            return Text(line.text).foregroundColor(.black)
+        }
+
+        let prefix = String(line.text[..<range.lowerBound])
+        let suffix = String(line.text[range.upperBound...])
+        return Text(prefix).foregroundColor(.black)
+            + Text(highlightedText).foregroundColor(OnboardingPalette.green)
+            + Text(suffix).foregroundColor(.black)
+    }
+
+    private func reveal() {
+        guard !isVisible else { return }
+        guard !reduceMotion else {
+            isVisible = true
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            withAnimation(.easeOut(duration: 0.42)) {
+                isVisible = true
+            }
+        }
+    }
+}
+
+private struct AnimatedRevealText: View {
+    let text: String
+    let delay: Double
+    let font: Font
+    let color: Color
+    let lineLimit: Int
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+
+    init(
+        _ text: String,
+        delay: Double,
+        font: Font,
+        color: Color,
+        lineLimit: Int
+    ) {
+        self.text = text
+        self.delay = delay
+        self.font = font
+        self.color = color
+        self.lineLimit = lineLimit
+    }
+
+    var body: some View {
+        Text(text)
+            .font(font)
+            .foregroundStyle(color)
+            .multilineTextAlignment(.center)
+            .lineSpacing(2)
+            .lineLimit(lineLimit)
+            .minimumScaleFactor(0.72)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity)
+            .opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible || reduceMotion ? 0 : 10)
+            .onAppear(perform: reveal)
+    }
+
+    private func reveal() {
+        guard !isVisible else { return }
+        guard !reduceMotion else {
+            isVisible = true
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            withAnimation(.easeOut(duration: 0.42)) {
+                isVisible = true
+            }
+        }
+    }
+}
+
+private struct NumberCarouselView: View {
+    let value: Int
+    let finalMiddleSuffix: String
+    let startDelay: Double
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var scrollOffset: CGFloat = 0
+    @State private var hasSettled = false
+    @State private var spinTask: Task<Void, Never>?
+
+    private let rowHeight: CGFloat = 62
+
+    private var finalValues: [Int] {
+        OnboardingProjection.carouselValues(for: value)
+    }
+
+    private var spinValues: [Int] {
+        let highValue = max(36, value + 18)
+        let finalRun = Array(max(1, value - 4)...(value + 2))
+        return Array(1...highValue) + finalRun
+    }
+
+    private var finalSpinIndex: Int {
+        max(0, spinValues.count - 3)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let viewportHeight = proxy.size.height
+
+            ZStack {
+                spinningList(viewportHeight: viewportHeight)
+                    .opacity(hasSettled || reduceMotion ? 0 : 1)
+
+                finalRows
+                    .opacity(hasSettled || reduceMotion ? 1 : 0)
+                    .scaleEffect(hasSettled || reduceMotion ? 1 : 0.96)
+                    .blur(radius: hasSettled || reduceMotion ? 0 : 2)
+            }
+            .frame(width: proxy.size.width, height: viewportHeight)
+            .clipped()
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.16),
+                        .init(color: .black, location: 0.78),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .animation(.easeOut(duration: 0.26), value: hasSettled)
+        .onAppear(perform: startAnimation)
+        .onDisappear {
+            spinTask?.cancel()
+            spinTask = nil
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(middleText)
+    }
+
+    private func spinningList(viewportHeight: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(spinValues.enumerated()), id: \.offset) { _, year in
+                Text("\(year) years")
+                    .font(.system(size: 54, weight: .black))
+                    .foregroundStyle(OnboardingPalette.green)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.62)
+                    .monospacedDigit()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: rowHeight)
+            }
+        }
+        .offset(y: centeredOffset(for: scrollOffset, viewportHeight: viewportHeight))
+        .blur(radius: 5.5)
+        .opacity(0.72)
+    }
+
+    private var finalRows: some View {
+        VStack(spacing: 4) {
+            carouselText("\(finalValues[0]) years", fontSize: 30, opacity: 0.46, color: OnboardingPalette.green, weight: .black)
+            carouselText(middleText, fontSize: 60, opacity: 1, color: OnboardingPalette.green, weight: .black)
+            carouselText("\(finalValues[2]) years", fontSize: 30, opacity: 0.28, color: OnboardingPalette.green, weight: .black)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var middleText: String {
+        guard hasSettled, !finalMiddleSuffix.isEmpty else {
+            return "\(finalValues[1]) years"
+        }
+        return "\(finalValues[1])\(finalMiddleSuffix)"
+    }
+
+    private func carouselText(_ text: String, fontSize: CGFloat, opacity: Double, color: Color, weight: Font.Weight = .bold) -> some View {
+        Text(text)
+            .font(.system(size: fontSize, weight: weight))
+            .foregroundStyle(color.opacity(opacity))
+            .lineLimit(1)
+            .minimumScaleFactor(0.62)
+            .monospacedDigit()
+            .frame(maxWidth: .infinity)
+    }
+
+    private func startAnimation() {
+        guard !hasSettled else { return }
+        scrollOffset = 0
+        guard !reduceMotion else {
+            hasSettled = true
+            return
+        }
+
+        spinTask?.cancel()
+        spinTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(startDelay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+
+            withAnimation(.easeOut(duration: 1.85)) {
+                scrollOffset = CGFloat(finalSpinIndex)
+            }
+
+            try? await Task.sleep(nanoseconds: 1_850_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.28)) {
+                hasSettled = true
+            }
+        }
+    }
+
+    private func centeredOffset(for index: CGFloat, viewportHeight: CGFloat) -> CGFloat {
+        (viewportHeight / 2) - (rowHeight / 2) - (index * rowHeight)
+    }
+}
+
+private struct OnboardingDelayedButton: View {
+    let title: String
+    let delay: Double
+    let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+
+    var body: some View {
+        OnboardingPrimaryButton(title: title, action: action)
+            .opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible || reduceMotion ? 0 : 10)
+            .allowsHitTesting(isVisible)
+            .onAppear(perform: reveal)
+    }
+
+    private func reveal() {
+        guard !isVisible else { return }
+        guard !reduceMotion else {
+            isVisible = true
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            withAnimation(.easeOut(duration: 0.36)) {
+                isVisible = true
+            }
         }
     }
 }
@@ -1065,6 +1909,59 @@ private struct VPNPermissionIllustration: View {
                 .offset(x: 60, y: 34)
         }
         .accessibilityLabel("Example VPN permission dialog")
+    }
+}
+
+private struct NotificationPermissionIllustration: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("“Nima” Would Like to Send You\nNotifications")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Notifications may include alerts,\nsounds and icon badges. These can\nbe configured in Settings.")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.white.opacity(0.62))
+                .lineSpacing(2)
+
+            Spacer()
+
+            HStack(spacing: 10) {
+                Text("Don’t Allow")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 40)
+                    .background(Color.white.opacity(0.14))
+                    .clipShape(Capsule())
+
+                Text("Allow")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 40)
+                    .background(Color.white.opacity(0.14))
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(22)
+        .background {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Color.black.opacity(0.94))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .stroke(OnboardingPalette.green.opacity(0.42), lineWidth: 1)
+                }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            CurvedArrow()
+                .stroke(OnboardingPalette.green, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .frame(width: 70, height: 84)
+                .scaleEffect(x: -1, y: 1)
+                .offset(x: -48, y: 34)
+        }
+        .accessibilityLabel("Example notification permission dialog")
     }
 }
 
