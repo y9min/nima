@@ -38,6 +38,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var tun2SocksConsecutiveUnexpectedExits = 0
     private var tun2SocksRestartCount = 0
     private var autoStopNoActiveProtectionRequested = false
+    private var autoStopInactiveProtectionGate = AutoStopInactiveProtectionGate()
     private var pressureSamplerTimer: DispatchSourceTimer?
     private var lastKnownEarnedStreakDate: String?
 
@@ -933,7 +934,17 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private func requestAutoStopIfProtectionInactive(now: Date) -> Bool {
         let protectionState = TunnelProtectionState(defaults: sharedDefaults)
-        guard !protectionState.shouldKeepVPNRunning(now: now) else {
+        let evaluation = protectionState.evaluate(now: now)
+        let shouldRequestAutoStop = autoStopInactiveProtectionGate.record(evaluation)
+        guard shouldRequestAutoStop else {
+            if !evaluation.shouldKeepVPNRunning {
+                log.logAndFlush(
+                    "AUTO_STOP inactive guard deferred " +
+                        "consecutive=\(autoStopInactiveProtectionGate.consecutiveInactiveResults) " +
+                        "required=\(autoStopInactiveProtectionGate.requiredConsecutiveInactiveResults) " +
+                        evaluation.diagnosticSummary
+                )
+            }
             return false
         }
 
@@ -957,6 +968,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         sharedDefaults?.set(nowTS, forKey: BubbleConstants.vpnLifecyclePendingStopTSKey)
         ensureStopEventExists(nowTS: nowTS)
         upsertStopSignal(candidate: "app_requested_stop", ts: nowTS, osRaw: nil, osName: nil, tun2socksExitCode: nil)
+        log.logAndFlush("AUTO_STOP guard inputs \(evaluation.diagnosticSummary)")
         log.logAndFlush("AUTO_STOP no active blockers; cancelling tunnel source=\(source) stop_id=\(stopID)")
         stopHeartbeat()
         cancelTunnelWithError(nil)

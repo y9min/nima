@@ -64,6 +64,53 @@ enum TimeWindowWeekday: String, Codable, CaseIterable, Hashable, Identifiable {
     static let weekend: [TimeWindowWeekday] = [.saturday, .sunday]
 }
 
+struct ScheduledProtectionSnapshot: Equatable {
+    let hasPersistedState: Bool
+    let desiredVPNOn: Bool
+    let reason: String
+    let source: String
+    let desiredUntil: TimeInterval
+    let activeAppIDs: Set<String>
+    let activeWindowIDs: Set<String>
+    let manualOffUntil: TimeInterval
+    let lastInterruptionAt: TimeInterval
+    let lastRepairResult: String
+
+    func isActive(now: Date = Date()) -> Bool {
+        desiredVPNOn &&
+            desiredUntil > now.timeIntervalSince1970 &&
+            manualOffUntil <= now.timeIntervalSince1970 &&
+            !activeAppIDs.isEmpty
+    }
+
+    func isDesiredProtectionActive(now: Date = Date()) -> Bool {
+        isActive(now: now)
+    }
+
+    func isManualOverrideActive(now: Date = Date()) -> Bool {
+        manualOffUntil > now.timeIntervalSince1970
+    }
+}
+
+enum ScheduledProtectionSnapshotReader {
+    static func snapshot(
+        defaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID)
+    ) -> ScheduledProtectionSnapshot {
+        ScheduledProtectionSnapshot(
+            hasPersistedState: defaults?.object(forKey: BubbleConstants.scheduleDesiredVPNOnKey) != nil,
+            desiredVPNOn: defaults?.bool(forKey: BubbleConstants.scheduleDesiredVPNOnKey) ?? false,
+            reason: defaults?.string(forKey: BubbleConstants.scheduleDesiredReasonKey) ?? "",
+            source: defaults?.string(forKey: BubbleConstants.scheduleDesiredSourceKey) ?? "",
+            desiredUntil: defaults?.double(forKey: BubbleConstants.scheduleDesiredUntilTSKey) ?? 0,
+            activeAppIDs: Set(defaults?.stringArray(forKey: BubbleConstants.scheduleActiveAppIDsKey) ?? []),
+            activeWindowIDs: Set(defaults?.stringArray(forKey: BubbleConstants.scheduleActiveWindowIDsKey) ?? []),
+            manualOffUntil: defaults?.double(forKey: BubbleConstants.scheduleManualOffUntilTSKey) ?? 0,
+            lastInterruptionAt: defaults?.double(forKey: BubbleConstants.scheduleLastInterruptionTSKey) ?? 0,
+            lastRepairResult: defaults?.string(forKey: BubbleConstants.scheduleLastRepairResultKey) ?? ""
+        )
+    }
+}
+
 struct TimeWindow: Codable, Identifiable, Equatable {
     var id: String
     var name: String

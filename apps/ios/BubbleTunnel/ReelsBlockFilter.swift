@@ -140,10 +140,80 @@ struct FeaturePolicyV1: Codable {
 }
 
 struct TunnelProtectionState {
+    struct Evaluation: Equatable {
+        let manualBlockerActive: Bool
+        let persistedSchedule: ScheduledProtectionSnapshot
+        let persistedScheduleActive: Bool
+        let persistedScheduleManualOffActive: Bool
+        let directScheduledBlockerActive: Bool?
+        let shouldKeepVPNRunning: Bool
+
+        var diagnosticSummary: String {
+            [
+                "manual_blocker=\(manualBlockerActive)",
+                "persisted_schedule_present=\(persistedSchedule.hasPersistedState)",
+                "persisted_schedule_active=\(persistedScheduleActive)",
+                "schedule_manual_off_active=\(persistedScheduleManualOffActive)",
+                "schedule_active_apps=\(persistedSchedule.activeAppIDs.sorted().joined(separator: ","))",
+                "schedule_active_windows=\(persistedSchedule.activeWindowIDs.sorted().joined(separator: ","))",
+                "schedule_desired_until=\(Self.formatTimestamp(persistedSchedule.desiredUntil))",
+                "schedule_manual_off_until=\(Self.formatTimestamp(persistedSchedule.manualOffUntil))",
+                "direct_window_active=\(directScheduledBlockerActive.map { String($0) } ?? "skipped")",
+                "should_keep_vpn=\(shouldKeepVPNRunning)"
+            ].joined(separator: " ")
+        }
+
+        private static func formatTimestamp(_ ts: TimeInterval) -> String {
+            guard ts > 0 else { return "unknown" }
+            return ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: ts))
+        }
+    }
+
     let defaults: UserDefaults?
 
     func shouldKeepVPNRunning(now: Date = Date(), calendar: Calendar = .current) -> Bool {
-        hasManualEnabledBlocker() || hasActiveScheduledBlocker(now: now, calendar: calendar)
+        evaluate(now: now, calendar: calendar).shouldKeepVPNRunning
+    }
+
+    func evaluate(now: Date = Date(), calendar: Calendar = .current) -> Evaluation {
+        let manualBlockerActive = hasManualEnabledBlocker()
+        let persistedSchedule = ScheduledProtectionSnapshotReader.snapshot(defaults: defaults)
+        let persistedScheduleActive = persistedSchedule.isActive(now: now)
+        let persistedScheduleManualOffActive = persistedSchedule.isManualOverrideActive(now: now)
+
+        if manualBlockerActive || persistedScheduleActive {
+            return Evaluation(
+                manualBlockerActive: manualBlockerActive,
+                persistedSchedule: persistedSchedule,
+                persistedScheduleActive: persistedScheduleActive,
+                persistedScheduleManualOffActive: persistedScheduleManualOffActive,
+                directScheduledBlockerActive: nil,
+                shouldKeepVPNRunning: true
+            )
+        }
+
+        if persistedScheduleManualOffActive || persistedSchedule.hasPersistedState {
+            return Evaluation(
+                manualBlockerActive: manualBlockerActive,
+                persistedSchedule: persistedSchedule,
+                persistedScheduleActive: persistedScheduleActive,
+                persistedScheduleManualOffActive: persistedScheduleManualOffActive,
+                directScheduledBlockerActive: persistedScheduleManualOffActive
+                    ? hasActiveScheduledBlocker(now: now, calendar: calendar)
+                    : nil,
+                shouldKeepVPNRunning: false
+            )
+        }
+
+        let directScheduledBlockerActive = hasActiveScheduledBlocker(now: now, calendar: calendar)
+        return Evaluation(
+            manualBlockerActive: manualBlockerActive,
+            persistedSchedule: persistedSchedule,
+            persistedScheduleActive: persistedScheduleActive,
+            persistedScheduleManualOffActive: persistedScheduleManualOffActive,
+            directScheduledBlockerActive: directScheduledBlockerActive,
+            shouldKeepVPNRunning: directScheduledBlockerActive
+        )
     }
 
     private func hasManualEnabledBlocker() -> Bool {
@@ -197,6 +267,25 @@ struct TunnelProtectionState {
         policy.appToggles.values.contains { options in
             options.values.contains(true)
         }
+    }
+}
+
+struct AutoStopInactiveProtectionGate {
+    let requiredConsecutiveInactiveResults: Int
+    private(set) var consecutiveInactiveResults: Int = 0
+
+    init(requiredConsecutiveInactiveResults: Int = 2) {
+        self.requiredConsecutiveInactiveResults = max(1, requiredConsecutiveInactiveResults)
+    }
+
+    mutating func record(_ evaluation: TunnelProtectionState.Evaluation) -> Bool {
+        guard !evaluation.shouldKeepVPNRunning else {
+            consecutiveInactiveResults = 0
+            return false
+        }
+
+        consecutiveInactiveResults += 1
+        return consecutiveInactiveResults >= requiredConsecutiveInactiveResults
     }
 }
 

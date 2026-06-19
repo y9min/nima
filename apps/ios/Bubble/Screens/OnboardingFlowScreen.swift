@@ -1340,13 +1340,11 @@ private struct OnboardingSplashPage: View {
                 VStack {
                     Spacer()
 
-                    OnboardingPrimaryButton(title: "Get started") {
+                    OnboardingPrimaryButton(title: "Get Started") {
                         onStart()
                     }
                     .frame(width: min(254, max(220, proxy.size.width * 0.63)))
                     .padding(.bottom, max(54, proxy.safeAreaInsets.bottom + 22))
-                    .scaleEffect(splashSettled ? 1 : 0.98)
-                    .offset(y: splashSettled ? 0 : 8)
                     .contentShape(Capsule())
                     .accessibilityIdentifier("onboarding.splash.start")
                 }

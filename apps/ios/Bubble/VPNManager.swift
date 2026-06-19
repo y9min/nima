@@ -94,6 +94,7 @@ final class VPNManager: ObservableObject {
             (UIApplication.willResignActiveNotification, "inactive"),
             (UIApplication.didEnterBackgroundNotification, "background"),
             (UIApplication.willEnterForegroundNotification, "foreground"),
+            (UIApplication.significantTimeChangeNotification, "significant_time_change"),
             (UIApplication.protectedDataDidBecomeAvailableNotification, "protected_data_available"),
             (UIApplication.protectedDataWillBecomeUnavailableNotification, "protected_data_unavailable"),
             (UIApplication.didReceiveMemoryWarningNotification, "memory_warning"),
@@ -146,6 +147,9 @@ final class VPNManager: ObservableObject {
 
         if shouldLog {
             appendLog("APP_LIFECYCLE event=\(event) state=\(state) protected_data_available=\(protectedDataAvailable) thermal=\(thermalState)")
+        }
+        if event == "active" || event == "foreground" || event == "significant_time_change" {
+            repairScheduledProtectionIfNeeded(source: "app_lifecycle.\(event)")
         }
     }
 
@@ -470,10 +474,16 @@ final class VPNManager: ObservableObject {
             appendLog("Starting VPN tunnel... source=\(source)")
             try manager.connection.startVPNTunnel()
             appendLog("startVPNTunnel() called successfully")
+            if source.hasPrefix("schedule.") {
+                ScheduledProtectionStateStore.recordRepairResult(defaults: sharedDefaults, result: "\(source)_start_called")
+            }
         } catch {
             let nsError = error as NSError
             appendLog("ERROR starting: \(error.localizedDescription)")
             appendLog("Error details: \(nsError.domain) code \(nsError.code)")
+            if source.hasPrefix("schedule.") {
+                ScheduledProtectionStateStore.recordRepairResult(defaults: sharedDefaults, result: "\(source)_start_failed_code_\(nsError.code)")
+            }
         }
         startInFlight = false
     }
@@ -495,6 +505,9 @@ final class VPNManager: ObservableObject {
     }
 
     func stopVPN(source: String = "unknown") {
+        if source == "settings.toggle_button" {
+            ScheduledProtectionStateStore.suppressCurrentScheduleWindow(defaults: sharedDefaults, source: source)
+        }
         guard let manager = self.manager else {
             pendingTunnelIntent = .stop(source: source)
             appendLog("VPN manager not ready; queued stop source=\(source)")
@@ -589,6 +602,11 @@ final class VPNManager: ObservableObject {
             return
         }
         let policyDesiredOn = shouldVPNBeOnFromPolicy()
+        let scheduleSnapshot = ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults)
+        if scheduleSnapshot.isDesiredProtectionActive(), !manualOffRequested {
+            scheduleScheduledProtectionReconnect(source: "schedule.drop_reconnect")
+            return
+        }
         if policyDesiredOn, isWithinManagerReadyGraceWindow() {
             appendLog("Disconnect during manager readiness grace; deferring reconnect without crash classification")
             scheduleDeferredPolicyReconnect(source: "manager_ready_grace")
@@ -726,6 +744,43 @@ final class VPNManager: ObservableObject {
                     self.appendLog("Auto-reconnect attempt \(self.reconnectAttempts)/\(self.reconnectMaxAttempts) delay=\(String(format: "%.2f", reconnectDelay))s")
                     self.startVPN(source: "auto_reconnect")
                 }
+            }
+        }
+    }
+
+    func repairScheduledProtectionIfNeeded(source: String) {
+        let snapshot = ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults)
+        guard snapshot.isDesiredProtectionActive() else { return }
+        if manualOffRequested {
+            setManualOffRequested(false)
+            appendLog("Schedule protection cleared stale manual_off_requested source=\(source)")
+        }
+        guard let manager else {
+            appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true status=manager_not_ready action=start source=\(source)")
+            ScheduledProtectionStateStore.recordRepairResult(defaults: sharedDefaults, result: "manager_not_ready_start_queued")
+            startVPN(source: "schedule.repair")
+            return
+        }
+
+        manager.loadFromPreferences { [weak self] error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let error {
+                    self.appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true status=load_failed action=none source=\(source) error=\(error.localizedDescription)")
+                    ScheduledProtectionStateStore.recordRepairResult(defaults: self.sharedDefaults, result: "repair_load_failed")
+                    return
+                }
+                let status = manager.connection.status
+                self.vpnStatus = status
+                self.previousVPNStatus = status
+                if Self.isConnectedLike(status) {
+                    self.appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true status=\(Self.statusString(for: status)) action=none source=\(source)")
+                    ScheduledProtectionStateStore.recordRepairResult(defaults: self.sharedDefaults, result: "already_connected")
+                    return
+                }
+                self.appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true status=\(Self.statusString(for: status)) action=start source=\(source)")
+                ScheduledProtectionStateStore.recordRepairResult(defaults: self.sharedDefaults, result: "repair_starting")
+                self.startVPN(source: "schedule.repair")
             }
         }
     }
@@ -907,6 +962,39 @@ final class VPNManager: ObservableObject {
                 guard let self else { return }
                 self.reconnectTask = nil
                 guard self.vpnStatus == .disconnected, self.shouldVPNBeOnFromPolicy(), !self.manualOffRequested else { return }
+                self.startVPN(source: source)
+            }
+        }
+    }
+
+    private func scheduleScheduledProtectionReconnect(source: String) {
+        guard reconnectAttempts < reconnectMaxAttempts else {
+            appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true status=disconnected action=skip_retry_cap source=\(source)")
+            ScheduledProtectionStateStore.recordRepairResult(defaults: sharedDefaults, result: "retry_cap_reached")
+            return
+        }
+        let attempt = reconnectAttempts + 1
+        let delay = reconnectAttempts == 0 ? 0 : reconnectAttemptBackoffSeconds()
+        reconnectAttempts = attempt
+        ScheduledProtectionStateStore.recordInterruption(
+            defaults: sharedDefaults,
+            result: "unexpected_drop_reconnect_attempt_\(attempt)"
+        )
+        appendLog(
+            "SCHEDULE_PROTECTION_REPAIR desired_on=true status=disconnected action=start attempt=\(attempt)/\(reconnectMaxAttempts) delay=\(String(format: "%.2f", delay)) source=\(source)"
+        )
+        reconnectTask = Task { [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.reconnectTask = nil
+                guard self.vpnStatus == .disconnected,
+                      ScheduledProtectionStateStore.snapshot(defaults: self.sharedDefaults).isDesiredProtectionActive(),
+                      !self.manualOffRequested else {
+                    return
+                }
                 self.startVPN(source: source)
             }
         }
@@ -1223,7 +1311,15 @@ final class VPNManager: ObservableObject {
     }
 
     private func shouldVPNBeOnFromPolicy() -> Bool {
-        guard let data = sharedDefaults?.data(forKey: BubbleConstants.featurePolicyKey),
+        let scheduleSnapshot = ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults)
+        if scheduleSnapshot.isDesiredProtectionActive() {
+            if manualOffRequested {
+                setManualOffRequested(false)
+                appendLog("Schedule protection desired; clearing stale manual_off_requested")
+            }
+            return true
+        }
+        guard let data = sharedDefaults?.data(forKey: BubbleConstants.manualFeaturePolicyKey),
               var policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
             return false
         }
@@ -1663,6 +1759,7 @@ final class VPNManager: ObservableObject {
         let extensionPressureSampleTS = sharedDefaults?.double(forKey: BubbleConstants.vpnLifecycleExtensionPressureLastSampleTSKey) ?? 0
         let extensionPressureRuntime = sharedDefaults?.double(forKey: BubbleConstants.vpnLifecycleExtensionPressureRuntimeSecondsKey) ?? 0
         let extensionPressureMemory = sharedDefaults?.double(forKey: BubbleConstants.vpnLifecycleExtensionPressureMemoryMBKey) ?? -1
+        let scheduleSnapshot = ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults)
         let integrityMissing: [String] = [
             stopEventStartTS > 0 ? nil : "stop_event_start",
             (sharedDefaults?.string(forKey: BubbleConstants.vpnLifecycleDropBoundaryLifecycleEventKey)?.isEmpty == false) ? nil : "drop_boundary_lifecycle",
@@ -1691,6 +1788,14 @@ final class VPNManager: ObservableObject {
             "tunnel_operational=\(vpnStatus == .connected)",
             "policy_enabled=\(shouldVPNBeOnFromPolicy())",
             "manual_off_requested=\(manualOffRequested)",
+            "schedule_desired_vpn_on=\(scheduleSnapshot.isDesiredProtectionActive())",
+            "schedule_desired_vpn_on_raw=\(scheduleSnapshot.desiredVPNOn)",
+            "schedule_desired_until=\(formatUnixTS(scheduleSnapshot.desiredUntil))",
+            "schedule_manual_off_until=\(formatUnixTS(scheduleSnapshot.manualOffUntil))",
+            "schedule_active_app_ids=\(scheduleSnapshot.activeAppIDs.sorted().joined(separator: ","))",
+            "schedule_active_window_ids=\(scheduleSnapshot.activeWindowIDs.sorted().joined(separator: ","))",
+            "schedule_last_interruption_at=\(formatUnixTS(scheduleSnapshot.lastInterruptionAt))",
+            "schedule_last_repair_result=\(scheduleSnapshot.lastRepairResult.isEmpty ? "none" : scheduleSnapshot.lastRepairResult)",
             "last_start=\(formatUnixTS(lastStart))",
             "last_stop=\(formatUnixTS(lastStop))",
             "last_stop_source=\(stopSource)",

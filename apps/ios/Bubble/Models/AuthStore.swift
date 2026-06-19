@@ -14,6 +14,17 @@ final class AuthStore {
         userEmail = email
     }
 
+    func loadCurrentSession() async {
+        guard !isDemo, let supabaseClient else { return }
+        guard let session = try? await supabaseClient.auth.session else {
+            isLoggedIn = false
+            userEmail = ""
+            return
+        }
+        isLoggedIn = true
+        userEmail = session.user.email ?? ""
+    }
+
     func logout() async {
         if !isDemo {
             try? await supabaseClient?.auth.signOut()

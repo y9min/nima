@@ -39,11 +39,21 @@ final class DiagnosticContractTests: XCTestCase {
             BubbleConstants.vpnLifecycleDNSStartupDrainFramesProcessedKey,
             BubbleConstants.vpnLifecycleEarlyReconnectSuppressedKey,
             BubbleConstants.vpnLifecycleIOSSafeModeReasonKey,
+            BubbleConstants.scheduleDesiredVPNOnKey,
+            BubbleConstants.scheduleDesiredUntilTSKey,
+            BubbleConstants.scheduleManualOffUntilTSKey,
+            BubbleConstants.scheduleActiveAppIDsKey,
+            BubbleConstants.scheduleActiveWindowIDsKey,
+            BubbleConstants.scheduleLastInterruptionTSKey,
+            BubbleConstants.scheduleLastRepairResultKey,
         ]
 
         for key in keys {
             XCTAssertTrue(
-                key.hasPrefix("vpnLifecycle.") || key.hasSuffix("_json") || key.hasPrefix("udp_crash_guard_"),
+                key.hasPrefix("vpnLifecycle.") ||
+                    key.hasPrefix("schedule.") ||
+                    key.hasSuffix("_json") ||
+                    key.hasPrefix("udp_crash_guard_"),
                 "key drifted from diagnostic contract: \(key)"
             )
             XCTAssertFalse(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

@@ -15,6 +15,7 @@ struct BubbleApp: App {
     @State private var authStore = AuthStore()
     @State private var appSettingsStore = AppSettingsStore()
     @State private var onboardingStore = OnboardingStore()
+    @State private var subscriptionStore = SubscriptionStore()
     @State private var didConfigureProtection = false
     @State private var guidedOnboardingPresentationMode: GuidedOnboardingPresentationMode?
     @State private var guidedPracticePhase: GuidedPracticePhase = .hidden
@@ -22,6 +23,7 @@ struct BubbleApp: App {
     @State private var guidedPracticePIPError: String?
     @State private var isStartingGuidedPracticePIP = false
     @State private var pipInstructionController = PiPInstructionVideoController()
+    @State private var didStartLaunchServices = false
 
     init() {
         TimeWindowNotificationCoordinator.shared.install()
@@ -45,7 +47,6 @@ struct BubbleApp: App {
             }
             sharedDefaults?.set(true, forKey: BubbleConstants.transportProtectionV2StabilityFirstDefaultMigratedKey)
         }
-        _ = AppOptionsService.shared
     }
 
     private static func migrateUDPSelectiveSafeModeDefault(_ defaults: UserDefaults?) {
@@ -133,20 +134,15 @@ struct BubbleApp: App {
                 .environment(authStore)
                 .environment(appSettingsStore)
                 .environment(onboardingStore)
+                .environment(subscriptionStore)
                 .environmentObject(vpnManager)
                 .statusBarHidden(!onboardingStore.isCompleted)
                 .preferredColorScheme(.dark)
                 .task {
-                    SVGCache.shared.preload(svgNames: ["instagram", "kalshi", "fanduel"])
-                    SVGCache.shared.preload(svgNames: ["home_mountains"], size: CGSize(width: 500, height: 280))
-                }
-                .task {
-                    await authStore.listenForAuthChanges()
+                    await startLaunchServicesIfNeeded()
                 }
                 .onAppear {
-                    vpnManager.setup()
-                    configureProtectionIfNeeded()
-                    presentGuidedOnboardingIfNeeded()
+                    // Keep the first SwiftUI frame lightweight so iOS can leave the launch screen.
                 }
                 .onChange(of: onboardingStore.isCompleted) { _, isCompleted in
                     guard isCompleted else {
@@ -164,8 +160,23 @@ struct BubbleApp: App {
                     markStreakIfEligible(source: "onboarding.completed")
                     presentGuidedOnboardingIfNeeded()
                 }
-                .onChange(of: authStore.isLoggedIn) { _, _ in
+                .onChange(of: authStore.isLoggedIn) { _, isLoggedIn in
+                    if isLoggedIn {
+                        path = NavigationPath()
+                        guidedOnboardingPresentationMode = nil
+                        if guidedPracticePhase != .waitingForReturn {
+                            guidedPracticePhase = .hidden
+                        }
+                        subscriptionStore.identify(appUserID: authStore.userEmail)
+                    } else {
+                        subscriptionStore.logOut()
+                    }
                     presentGuidedOnboardingIfNeeded()
+                }
+                .onChange(of: subscriptionStore.hasPremium) { _, hasPremium in
+                    if hasPremium {
+                        presentGuidedOnboardingIfNeeded()
+                    }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     handleScenePhaseChange(newPhase)
@@ -212,6 +223,34 @@ struct BubbleApp: App {
         }
     }
 
+    @MainActor
+    private func startLaunchServicesIfNeeded() async {
+        guard !didStartLaunchServices else { return }
+        didStartLaunchServices = true
+
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 250_000_000)
+
+        _ = AppOptionsService.shared
+        SVGCache.shared.preload(svgNames: ["instagram", "kalshi", "fanduel"])
+        SVGCache.shared.preload(svgNames: ["home_mountains"], size: CGSize(width: 500, height: 280))
+
+        vpnManager.setup()
+        configureProtectionIfNeeded()
+        presentGuidedOnboardingIfNeeded()
+
+        await authStore.loadCurrentSession()
+        subscriptionStore.configure()
+        if authStore.isLoggedIn, !authStore.userEmail.isEmpty {
+            subscriptionStore.identify(appUserID: authStore.userEmail)
+            subscriptionStore.loadOfferings()
+        } else {
+            subscriptionStore.refreshAfterLaunch()
+        }
+
+        await authStore.listenForAuthChanges()
+    }
+
     private func configureProtectionIfNeeded() {
         guard onboardingStore.isCompleted, !didConfigureProtection else { return }
         didConfigureProtection = true
@@ -241,7 +280,13 @@ struct BubbleApp: App {
     @ViewBuilder
     private var rootScreen: some View {
         if onboardingStore.isCompleted {
-            mainTabsScreen
+            if shouldWaitForSubscriptionStatus {
+                SubscriptionStatusLoadingScreen()
+            } else if shouldShowPaywall {
+                PaywallScreen(onUnlocked: completePaywall)
+            } else {
+                mainTabsScreen
+            }
         } else {
             OnboardingFlowScreen()
         }
@@ -263,6 +308,22 @@ struct BubbleApp: App {
             },
             guidedPracticeCardStep: guidedPracticeCardStep
         )
+    }
+
+    private var shouldShowPaywall: Bool {
+        needsSubscriptionGate
+            && subscriptionStore.isReadyForPaywallDecision
+            && !subscriptionStore.hasPremium
+    }
+
+    private var shouldWaitForSubscriptionStatus: Bool {
+        needsSubscriptionGate
+            && !subscriptionStore.isReadyForPaywallDecision
+    }
+
+    private var needsSubscriptionGate: Bool {
+        onboardingStore.isCompleted
+            && onboardingStore.hasCompletedGuidedPractice
     }
 
     @ViewBuilder
@@ -316,6 +377,9 @@ struct BubbleApp: App {
         guard onboardingStore.isCompleted else {
             return
         }
+        guard !shouldShowPaywall, !shouldWaitForSubscriptionStatus else {
+            return
+        }
 
         if onboardingStore.hasGuidedPracticeReturnPending {
             path = NavigationPath()
@@ -333,6 +397,11 @@ struct BubbleApp: App {
 
         guidedPracticePhase = .introSlides
         guidedOnboardingPresentationMode = .firstRunPractice
+    }
+
+    private func completePaywall() {
+        path = NavigationPath()
+        presentGuidedOnboardingIfNeeded()
     }
 
     private func beginGuidedPractice() {
@@ -436,6 +505,11 @@ struct BubbleApp: App {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         switch newPhase {
         case .active:
+            if onboardingStore.isCompleted {
+                timeWindowStore.evaluateSchedules(source: "app.scene.active", forceApply: true)
+                store.syncVPNState(source: "app.scene.active")
+                vpnManager.repairScheduledProtectionIfNeeded(source: "app.scene.active")
+            }
             guard onboardingStore.hasGuidedPracticeReturnPending else { return }
             pipInstructionController.stop()
             path = NavigationPath()
@@ -470,5 +544,32 @@ struct BubbleApp: App {
 
     private static func isProtectionActive(_ status: NEVPNStatus) -> Bool {
         status == .connected || status == .connecting || status == .reasserting
+    }
+}
+
+private struct SubscriptionStatusLoadingScreen: View {
+    var body: some View {
+        ZStack {
+            Color(red: 0.0, green: 0.12, blue: 0.07)
+                .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                if let image = UIImage(named: "nima_logo") {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 150, height: 54)
+                } else {
+                    Text("nima")
+                        .font(.system(size: 48, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+
+                ProgressView()
+                    .tint(Color(red: 0.73, green: 0.93, blue: 0.09))
+            }
+        }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
     }
 }

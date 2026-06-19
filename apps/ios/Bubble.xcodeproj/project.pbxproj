@@ -60,6 +60,7 @@
 		6AB0C375DDD14ACE8678338E /* SupabaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3EF496D1E6382443B39705A /* SupabaseClient.swift */; };
 		6C7C6CFB4CD7288B0D1F0A69 /* BlockingOptionsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB2E25C599188EFFAA656AA /* BlockingOptionsScreen.swift */; };
 		6DDAA9B83BDB927ECCD6C3A3 /* BubbleConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1667E69648547EFD349BE102 /* BubbleConstants.swift */; };
+		6FBCC2E1424F570B5B18F843 /* PaywallScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F380780550A4EFE146BCCAD /* PaywallScreen.swift */; };
 		70B4745705645F5656FD3835 /* guided_onboarding_feed_placeholder.png in Resources */ = {isa = PBXBuildFile; fileRef = 70D7EDDA1994ACC60AF5840A /* guided_onboarding_feed_placeholder.png */; };
 		71822AB1F25DBC71BA51ED4E /* TimeWindowCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD8125FF359F09C371E5E696 /* TimeWindowCore.swift */; };
 		7187CAA7759A0FB102770E7D /* SVGView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11372BC005F536F03A206A0C /* SVGView.swift */; };
@@ -104,9 +105,11 @@
 		B63F3A7EE3787197C19D9D8A /* Coolvetica Rg It.otf in Resources */ = {isa = PBXBuildFile; fileRef = B033FC1D06B6F626D38BA842 /* Coolvetica Rg It.otf */; };
 		B6B171FEBB0DB8C0233D540D /* DialSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DE9069ED02F96B6B3BF4062 /* DialSelector.swift */; };
 		B7F4E889C0C9CF5017891111 /* AppIconCircle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1AF9CB0269E85989CE0DC6 /* AppIconCircle.swift */; };
+		BCC611554A3CD8F2BFF5A23E /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9FAD236BAEAC5E7B9A7383 /* RevenueCat */; };
 		BDCC491361083C1350D56D61 /* TrafficMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB19D08E8B5A85636A6A69E /* TrafficMonitor.swift */; };
 		C3E37E71922E29CA38A09A4B /* HexGridOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B73DFB24FA4518541EBD14 /* HexGridOverlay.swift */; };
 		C6AEC30F94B85A6EC0C4906F /* TunnelLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEA7BE93263D6CD81892233 /* TunnelLogger.swift */; };
+		C994F0FE651BEC9AF665DE9D /* SubscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AC96B34C294D9751B32173B /* SubscriptionStore.swift */; };
 		CF3F063123F262178BC1D9A6 /* UDPControlStreamDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7831C0FFFBDC9598861EA2C /* UDPControlStreamDecoder.swift */; };
 		D17DC657B0825DC7A8EBCC0A /* GuidedOnboardingModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBE4754FF3EABEC7214C1C7F /* GuidedOnboardingModal.swift */; };
 		D24EEA7B7533B79C957AE48B /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9148902051FD9DE18F6352FA /* NetworkExtension.framework */; };
@@ -171,6 +174,7 @@
 		04B4EC3C0F908E65D671403F /* AppOptionArcs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOptionArcs.swift; sourceTree = "<group>"; };
 		04C4502521522E3E2BE93F73 /* AppCluster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCluster.swift; sourceTree = "<group>"; };
 		0539B9C9F2715CF3DB4B8084 /* TimeWindowsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowsScreen.swift; sourceTree = "<group>"; };
+		0AC96B34C294D9751B32173B /* SubscriptionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionStore.swift; sourceTree = "<group>"; };
 		0CC67A0124138EABA163B004 /* nima_logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = nima_logo.png; sourceTree = "<group>"; };
 		106E25D023D63E8571E5D893 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		10B73DFB24FA4518541EBD14 /* HexGridOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HexGridOverlay.swift; sourceTree = "<group>"; };
@@ -179,6 +183,7 @@
 		1667E69648547EFD349BE102 /* BubbleConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleConstants.swift; sourceTree = "<group>"; };
 		1A0A6E06F3393512D15706E4 /* kalshi.svg */ = {isa = PBXFileReference; path = kalshi.svg; sourceTree = "<group>"; };
 		1DECDACBEC0EF265C1407E1A /* LandingPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandingPage.swift; sourceTree = "<group>"; };
+		1F380780550A4EFE146BCCAD /* PaywallScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallScreen.swift; sourceTree = "<group>"; };
 		1F5711BEF04A102BB3BFB382 /* BubbleTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = BubbleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1FB8B9D12B287276CD1AA084 /* fanduel.svg */ = {isa = PBXFileReference; path = fanduel.svg; sourceTree = "<group>"; };
 		20345791A014E523FE297C46 /* HarnessScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessScenarioTests.swift; sourceTree = "<group>"; };
@@ -308,6 +313,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				500F83671A2ED73A3C38D9CA /* Supabase in Frameworks */,
+				BCC611554A3CD8F2BFF5A23E /* RevenueCat in Frameworks */,
 				D24EEA7B7533B79C957AE48B /* NetworkExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -358,6 +364,7 @@
 				6E171A52D23611FA571259FA /* MagicSignInScreen.swift */,
 				0117F99A663FC040BE649CFE /* MainTabsScreen.swift */,
 				453418A2FCA8E67D87561ADD /* OnboardingFlowScreen.swift */,
+				1F380780550A4EFE146BCCAD /* PaywallScreen.swift */,
 				7DC9D63B18B99140D579F4C2 /* SettingsScreen.swift */,
 				0539B9C9F2715CF3DB4B8084 /* TimeWindowsScreen.swift */,
 				4EE3FD04E3B7CE85B81695EC /* TrafficDashboardView.swift */,
@@ -405,6 +412,7 @@
 				7B0C1E5601B9B32DAC6278F3 /* OnboardingStore.swift */,
 				4F5A0931BEF4F3F4B1BF8741 /* Route.swift */,
 				40244D93DD162923C3E74946 /* StreakStore.swift */,
+				0AC96B34C294D9751B32173B /* SubscriptionStore.swift */,
 				E3EF496D1E6382443B39705A /* SupabaseClient.swift */,
 				BD765D996DF508EC38014A6F /* TimeWindowNotificationCoordinator.swift */,
 				49F6E89613AD57D1454C5219 /* TimeWindowStore.swift */,
@@ -612,6 +620,7 @@
 			name = Bubble;
 			packageProductDependencies = (
 				065627B19E991EA9FDC0DEE2 /* Supabase */,
+				5A9FAD236BAEAC5E7B9A7383 /* RevenueCat */,
 			);
 			productName = Bubble;
 			productReference = BB94751122DA9ADC81F89EE3 /* Bubble.app */;
@@ -713,6 +722,7 @@
 			mainGroup = B327284E55C5CB5F30B80CE8;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				38FF1C58E86FFAB7B79E4218 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 				0D5A816901074CD6C9DB1462 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 				09BA57D88C33EB19F3D4F30C /* XCRemoteSwiftPackageReference "Tun2SocksKit" */,
 			);
@@ -876,6 +886,7 @@
 				7EFFE97514BB9F951238F90A /* OnboardingFlowScreen.swift in Sources */,
 				59511478CCAC11338F00DFDE /* OnboardingStore.swift in Sources */,
 				3422D1868715CE563B813F46 /* PageIndicator.swift in Sources */,
+				6FBCC2E1424F570B5B18F843 /* PaywallScreen.swift in Sources */,
 				52A18EC966315016A8A15DEF /* PiPInstructionVideoController.swift in Sources */,
 				0E6B244A6DE7DF4C8BEE6CB9 /* Route.swift in Sources */,
 				4CBD13A9A63EB6FFDE23B67B /* SVGCache.swift in Sources */,
@@ -884,6 +895,7 @@
 				DA022CE2410220BBEB0EFC55 /* SkyBackgroundView.swift in Sources */,
 				63985968494496186AAAAE97 /* SocialMediaIcon.swift in Sources */,
 				E9FB9E914F4EB7BD439383E6 /* StreakStore.swift in Sources */,
+				C994F0FE651BEC9AF665DE9D /* SubscriptionStore.swift in Sources */,
 				6AB0C375DDD14ACE8678338E /* SupabaseClient.swift in Sources */,
 				EDA02713C4468918CD71127A /* TimeWindowCore.swift in Sources */,
 				B16404A5FFB4AA79941E74D0 /* TimeWindowNotificationCoordinator.swift in Sources */,
@@ -1300,6 +1312,14 @@
 				minimumVersion = 2.0.0;
 			};
 		};
+		38FF1C58E86FFAB7B79E4218 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1307,6 +1327,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0D5A816901074CD6C9DB1462 /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Supabase;
+		};
+		5A9FAD236BAEAC5E7B9A7383 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 38FF1C58E86FFAB7B79E4218 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
 		};
 		712B88E0966656BBE8DCBF46 /* Tun2SocksKit */ = {
 			isa = XCSwiftPackageProductDependency;

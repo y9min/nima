@@ -324,6 +324,20 @@ final class AppOptionsService {
         firstEnabledBlockerSource != nil
     }
 
+    var hasAnyManuallyEnabledBlockingOption: Bool {
+        let preferredAppOrder = ["instagram", "tiktok", "x"]
+        let otherAppIDs = manualPolicy.appToggles.keys
+            .filter { !preferredAppOrder.contains($0) }
+            .sorted()
+
+        for appId in preferredAppOrder + otherAppIDs {
+            if manualPolicy.appToggles[appId]?.values.contains(true) == true {
+                return true
+            }
+        }
+        return false
+    }
+
     var firstEnabledBlockerSource: String? {
         let preferredAppOrder = ["instagram", "tiktok", "x"]
         let otherAppIDs = optionStates.keys

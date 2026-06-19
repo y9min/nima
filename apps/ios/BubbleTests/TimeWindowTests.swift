@@ -439,6 +439,98 @@ final class TimeWindowStorePauseTests: XCTestCase {
         XCTAssertEqual(applied.last, Set(["instagram"]))
     }
 
+    func testActiveSchedulePersistsDesiredProtectionState() {
+        let defaults = testDefaults()
+        let store = makeStore(defaults: defaults)
+        var applied: [Set<String>] = []
+
+        store.configure(
+            applyScheduledApps: { appIDs, _ in applied.append(appIDs) },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+        let window = activeWindow(apps: ["instagram"])
+        store.addWindow(window)
+
+        let snapshot = ScheduledProtectionStateStore.snapshot(defaults: defaults)
+        XCTAssertEqual(applied.last, Set(["instagram"]))
+        XCTAssertTrue(snapshot.desiredVPNOn)
+        XCTAssertTrue(snapshot.isDesiredProtectionActive())
+        XCTAssertEqual(snapshot.activeAppIDs, Set(["instagram"]))
+        XCTAssertEqual(snapshot.activeWindowIDs, Set([window.id]))
+        XCTAssertGreaterThan(snapshot.desiredUntil, Date().timeIntervalSince1970)
+    }
+
+    func testManualOffSuppressesDesiredProtectionForCurrentWindow() {
+        let defaults = testDefaults()
+        let store = makeStore(defaults: defaults)
+
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+        store.addWindow(activeWindow(apps: ["tiktok"]))
+
+        ScheduledProtectionStateStore.suppressCurrentScheduleWindow(defaults: defaults, source: "settings.toggle_button")
+
+        let snapshot = ScheduledProtectionStateStore.snapshot(defaults: defaults)
+        XCTAssertTrue(snapshot.desiredVPNOn)
+        XCTAssertTrue(snapshot.isManualOverrideActive())
+        XCTAssertFalse(snapshot.isDesiredProtectionActive())
+        XCTAssertEqual(snapshot.lastRepairResult, "manual_off_current_window source=settings.toggle_button")
+    }
+
+    func testExpiredManualOffDoesNotSuppressNextWindow() {
+        let defaults = testDefaults()
+        let now = Date(timeIntervalSince1970: 1_000)
+        let firstEnd = now.addingTimeInterval(60)
+        ScheduledProtectionStateStore.persistScheduleEvaluation(
+            appIDs: ["instagram"],
+            windowIDs: ["first"],
+            desiredUntil: firstEnd,
+            source: "test.first",
+            defaults: defaults,
+            now: now
+        )
+        ScheduledProtectionStateStore.suppressCurrentScheduleWindow(
+            defaults: defaults,
+            source: "settings.toggle_button",
+            now: now
+        )
+
+        let nextStart = firstEnd.addingTimeInterval(1)
+        ScheduledProtectionStateStore.persistScheduleEvaluation(
+            appIDs: ["instagram"],
+            windowIDs: ["next"],
+            desiredUntil: nextStart.addingTimeInterval(60),
+            source: "test.next",
+            defaults: defaults,
+            now: nextStart
+        )
+
+        let snapshot = ScheduledProtectionStateStore.snapshot(defaults: defaults)
+        XCTAssertFalse(snapshot.isManualOverrideActive(now: nextStart))
+        XCTAssertTrue(snapshot.isDesiredProtectionActive(now: nextStart))
+        XCTAssertEqual(snapshot.activeWindowIDs, Set(["next"]))
+    }
+
+    func testInterruptionAndRepairResultArePersistedForDiagnostics() {
+        let defaults = testDefaults()
+        let now = Date(timeIntervalSince1970: 2_000)
+
+        ScheduledProtectionStateStore.recordInterruption(
+            defaults: defaults,
+            result: "unexpected_drop_reconnect_attempt_1",
+            now: now
+        )
+        ScheduledProtectionStateStore.recordRepairResult(defaults: defaults, result: "schedule.repair_start_called")
+
+        let snapshot = ScheduledProtectionStateStore.snapshot(defaults: defaults)
+        XCTAssertEqual(snapshot.lastInterruptionAt, now.timeIntervalSince1970)
+        XCTAssertEqual(snapshot.lastRepairResult, "schedule.repair_start_called")
+    }
+
     func testEndingActiveWindowClearsScheduledBlockersWithoutDisablingWindow() {
         let defaults = testDefaults()
         let store = makeStore(defaults: defaults)

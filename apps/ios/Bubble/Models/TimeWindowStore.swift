@@ -198,6 +198,14 @@ final class TimeWindowStore {
         let active = activeWindows()
         activeWindowIDs = Set(active.map(\.id))
         let nextScheduledApps = Set(active.flatMap(\.apps))
+        let activeEndDates = active.compactMap { TimeWindowScheduleEvaluator.activeEndDate(for: $0) }
+        ScheduledProtectionStateStore.persistScheduleEvaluation(
+            appIDs: nextScheduledApps,
+            windowIDs: activeWindowIDs,
+            desiredUntil: activeEndDates.max(),
+            source: source,
+            defaults: defaults
+        )
         let didChange = nextScheduledApps != scheduledAppIDs
         scheduledAppIDs = nextScheduledApps
         guard didChange || forceApply || lastAppliedScheduledAppIDs != nextScheduledApps else { return }
@@ -381,5 +389,95 @@ final class TimeWindowStore {
 
     private var pauseIntervalMinutes: Int {
         AppSettingsStore.pauseIntervalMinutes(defaults: defaults)
+    }
+}
+
+enum ScheduledProtectionStateStore {
+    typealias Snapshot = ScheduledProtectionSnapshot
+
+    static func snapshot(
+        defaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID)
+    ) -> Snapshot {
+        ScheduledProtectionSnapshotReader.snapshot(defaults: defaults)
+    }
+
+    static func persistScheduleEvaluation(
+        appIDs: Set<String>,
+        windowIDs: Set<String>,
+        desiredUntil: Date?,
+        source: String,
+        defaults: UserDefaults?,
+        now: Date = Date()
+    ) {
+        purgeExpiredManualOverride(defaults: defaults, now: now)
+        let normalizedApps = appIDs.intersection(["instagram", "tiktok"])
+        guard !normalizedApps.isEmpty, let desiredUntil, desiredUntil > now else {
+            defaults?.set(false, forKey: BubbleConstants.scheduleDesiredVPNOnKey)
+            defaults?.removeObject(forKey: BubbleConstants.scheduleDesiredReasonKey)
+            defaults?.set(source, forKey: BubbleConstants.scheduleDesiredSourceKey)
+            defaults?.removeObject(forKey: BubbleConstants.scheduleDesiredUntilTSKey)
+            defaults?.set([String](), forKey: BubbleConstants.scheduleActiveAppIDsKey)
+            defaults?.set([String](), forKey: BubbleConstants.scheduleActiveWindowIDsKey)
+            AppDiagnosticsLogger.log(
+                "SCHEDULE_PROTECTION_STATE desired_on=false apps=[] windows=[] source=\(source)"
+            )
+            return
+        }
+
+        defaults?.set(true, forKey: BubbleConstants.scheduleDesiredVPNOnKey)
+        defaults?.set("schedule", forKey: BubbleConstants.scheduleDesiredReasonKey)
+        defaults?.set(source, forKey: BubbleConstants.scheduleDesiredSourceKey)
+        defaults?.set(desiredUntil.timeIntervalSince1970, forKey: BubbleConstants.scheduleDesiredUntilTSKey)
+        defaults?.set(normalizedApps.sorted(), forKey: BubbleConstants.scheduleActiveAppIDsKey)
+        defaults?.set(windowIDs.sorted(), forKey: BubbleConstants.scheduleActiveWindowIDsKey)
+        AppDiagnosticsLogger.log(
+            "SCHEDULE_PROTECTION_STATE desired_on=true apps=\(normalizedApps.sorted()) windows=\(windowIDs.sorted()) desired_until=\(format(desiredUntil.timeIntervalSince1970)) source=\(source)"
+        )
+    }
+
+    static func suppressCurrentScheduleWindow(
+        defaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID),
+        source: String,
+        now: Date = Date()
+    ) {
+        let current = snapshot(defaults: defaults)
+        guard current.desiredVPNOn, current.desiredUntil > now.timeIntervalSince1970 else { return }
+        defaults?.set(current.desiredUntil, forKey: BubbleConstants.scheduleManualOffUntilTSKey)
+        defaults?.set("manual_off_current_window source=\(source)", forKey: BubbleConstants.scheduleLastRepairResultKey)
+        AppDiagnosticsLogger.log(
+            "SCHEDULE_PROTECTION_MANUAL_OFF until=\(format(current.desiredUntil)) source=\(source) apps=\(current.activeAppIDs.sorted()) windows=\(current.activeWindowIDs.sorted())"
+        )
+    }
+
+    static func recordInterruption(
+        defaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID),
+        result: String,
+        now: Date = Date()
+    ) {
+        defaults?.set(now.timeIntervalSince1970, forKey: BubbleConstants.scheduleLastInterruptionTSKey)
+        defaults?.set(result, forKey: BubbleConstants.scheduleLastRepairResultKey)
+        AppDiagnosticsLogger.log(
+            "SCHEDULE_PROTECTION_INTERRUPTION at=\(format(now.timeIntervalSince1970)) result=\(result)"
+        )
+    }
+
+    static func recordRepairResult(
+        defaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID),
+        result: String
+    ) {
+        defaults?.set(result, forKey: BubbleConstants.scheduleLastRepairResultKey)
+        AppDiagnosticsLogger.log("SCHEDULE_PROTECTION_REPAIR_RESULT result=\(result)")
+    }
+
+    private static func purgeExpiredManualOverride(defaults: UserDefaults?, now: Date) {
+        let manualOffUntil = defaults?.double(forKey: BubbleConstants.scheduleManualOffUntilTSKey) ?? 0
+        guard manualOffUntil > 0, manualOffUntil <= now.timeIntervalSince1970 else { return }
+        defaults?.removeObject(forKey: BubbleConstants.scheduleManualOffUntilTSKey)
+        AppDiagnosticsLogger.log("SCHEDULE_PROTECTION_MANUAL_OFF_EXPIRED at=\(format(now.timeIntervalSince1970))")
+    }
+
+    private static func format(_ ts: TimeInterval) -> String {
+        guard ts > 0 else { return "unknown" }
+        return ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: ts))
     }
 }

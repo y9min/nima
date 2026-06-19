@@ -33,6 +33,7 @@ final class AppStore {
     @ObservationIgnored private var vpnStartInFlight = false
     @ObservationIgnored private var vpnStopInFlight = false
     @ObservationIgnored private var pendingVPNSyncTask: Task<Void, Never>?
+    @ObservationIgnored private let sharedDefaults = UserDefaults(suiteName: BubbleConstants.appGroupID)
 
     init() {
         refreshFromOptionsService()
@@ -108,7 +109,7 @@ final class AppStore {
         guard let vpnStartHandler, let vpnStopHandler, let vpnStatusProvider else { return }
         let status = vpnStatusProvider()
         let isConnectedLike = status == .connected || status == .connecting || status == .reasserting
-        let shouldVPNBeOn = hasAnyEnabledBlockingOption
+        let shouldVPNBeOn = shouldVPNBeOnFromPolicy()
 
         if shouldVPNBeOn {
             if isConnectedLike {
@@ -150,7 +151,16 @@ final class AppStore {
         optionsService.hasAnyEnabledBlockingOption
     }
 
+    var hasAnyManuallyEnabledBlockingOption: Bool {
+        optionsService.hasAnyManuallyEnabledBlockingOption
+    }
+
     var firstEnabledBlockerSource: String? {
         optionsService.firstEnabledBlockerSource
+    }
+
+    private func shouldVPNBeOnFromPolicy(now: Date = Date()) -> Bool {
+        hasAnyManuallyEnabledBlockingOption ||
+            ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults).isDesiredProtectionActive(now: now)
     }
 }

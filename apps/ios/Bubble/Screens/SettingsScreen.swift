@@ -91,6 +91,14 @@ struct SettingsScreen: View {
             ) {
                 WindowsSettingsPage()
             }
+        case .subscription?:
+            SettingsPageScaffold(
+                title: "Subscription",
+                layout: layout,
+                onBack: { destination = nil }
+            ) {
+                SubscriptionSettingsPage()
+            }
         case .advanced?:
             SettingsPageScaffold(
                 title: "Advanced",
@@ -152,6 +160,9 @@ struct SettingsScreen: View {
                     }
                     SettingsNavigationRow(icon: "clock", title: "Windows") {
                         destination = .windows
+                    }
+                    SettingsNavigationRow(icon: "creditcard", title: "Manage Subscription") {
+                        destination = .subscription
                     }
                     SettingsNavigationRow(icon: "wrench", title: "Advanced") {
                         destination = .advanced
@@ -219,6 +230,7 @@ private enum SettingsDestination: Equatable {
     case account
     case notifications
     case windows
+    case subscription
     case advanced
     case help
     case privacy
@@ -596,6 +608,165 @@ private struct WindowsSettingsPage: View {
                 timeWindowStore.setPauseIntervalMinutes(minutes)
             }
         )
+    }
+}
+
+private struct SubscriptionSettingsPage: View {
+    @Environment(SubscriptionStore.self) private var subscriptionStore
+    @AppStorage("subscriptionCancellationReason")
+    private var cancellationReason = ""
+
+    @State private var isShowingCancellationReasons = false
+    @State private var subscriptionManagementError: String?
+
+    private let cancellationReasons = [
+        "Too expensive",
+        "Not using it enough",
+        "Still seeing distracting content",
+        "Technical issue",
+        "Missing feature",
+        "Other"
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Apple handles plan changes, renewals and cancellations. You can upgrade, downgrade or cancel from Apple subscriptions.")
+                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .foregroundStyle(AppChromePalette.muted.opacity(0.92))
+                .fixedSize(horizontal: false, vertical: true)
+
+            SettingsFormPanel {
+                SettingsInfoRow(
+                    title: "Status",
+                    value: subscriptionStore.hasPremium ? "Active" : "No active subscription"
+                )
+
+                SettingsInlineDivider()
+
+                Button {
+                    openSubscriptionManagement()
+                } label: {
+                    SettingsActionRow(
+                        title: "Manage plan",
+                        subtitle: "Change, upgrade or cancel in the App Store.",
+                        icon: "arrow.up.arrow.down"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                SettingsInlineDivider()
+
+                Button(role: .destructive) {
+                    isShowingCancellationReasons = true
+                } label: {
+                    SettingsActionRow(
+                        title: "Cancel subscription",
+                        subtitle: nil,
+                        icon: "xmark.circle"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                if let subscriptionManagementError {
+                    SettingsInlineDivider()
+
+                    Text(subscriptionManagementError)
+                        .font(.system(size: 13.5, weight: .regular, design: .rounded))
+                        .foregroundStyle(.red.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 10)
+                }
+            }
+        }
+        .confirmationDialog(
+            "Why are you cancelling?",
+            isPresented: $isShowingCancellationReasons,
+            titleVisibility: .visible
+        ) {
+            ForEach(cancellationReasons, id: \.self) { reason in
+                Button(reason) {
+                    cancellationReason = reason
+                    openSubscriptionManagement()
+                }
+            }
+
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private func openSubscriptionManagement() {
+        subscriptionManagementError = nil
+
+        guard let url = URL(string: "https://apps.apple.com/account/subscriptions") else {
+            subscriptionManagementError = "Could not open Apple subscriptions right now."
+            return
+        }
+
+        UIApplication.shared.open(url) { didOpen in
+            guard !didOpen else { return }
+            subscriptionManagementError = "Could not open Apple subscriptions right now."
+        }
+    }
+}
+
+private struct SettingsInfoRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Text(title)
+                .font(.system(size: 19, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+
+            Spacer()
+
+            Text(value)
+                .font(.system(size: 15, weight: .regular, design: .rounded))
+                .foregroundStyle(AppChromePalette.muted.opacity(0.92))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+        }
+        .padding(.vertical, 10)
+    }
+}
+
+private struct SettingsActionRow: View {
+    let title: String
+    let subtitle: String?
+    let icon: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 19, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 13.5, weight: .regular, design: .rounded))
+                        .foregroundStyle(AppChromePalette.muted.opacity(0.92))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(AppChromePalette.muted)
+        }
+        .contentShape(Rectangle())
+        .padding(.vertical, 10)
     }
 }
 

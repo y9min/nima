@@ -1076,6 +1076,62 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertTrue(TunnelProtectionState(defaults: defaults).shouldKeepVPNRunning(now: now, calendar: testCalendar))
     }
 
+    func testTunnelProtectionStatePersistedScheduleKeepsVPNRunningWhenDirectWindowEvaluationIsEmpty() {
+        let now = testDate(hour: 12)
+        let defaults = makeProtectionDefaults(windows: [])
+        persistScheduleState(
+            defaults: defaults,
+            desiredVPNOn: true,
+            desiredUntil: testDate(hour: 17),
+            activeAppIDs: ["instagram", "tiktok"]
+        )
+
+        let evaluation = TunnelProtectionState(defaults: defaults).evaluate(now: now, calendar: testCalendar)
+
+        XCTAssertTrue(evaluation.persistedScheduleActive)
+        XCTAssertNil(evaluation.directScheduledBlockerActive)
+        XCTAssertTrue(evaluation.shouldKeepVPNRunning)
+    }
+
+    func testTunnelProtectionStatePersistedManualOffAllowsVPNStopEvenWhenRawWindowIsActive() {
+        let now = testDate(hour: 12)
+        let manualOffUntil = testDate(hour: 17)
+        let defaults = makeProtectionDefaults(windows: [
+            testWindow(id: "tw_focus", startTime: "09:00", endTime: "17:00", apps: ["instagram"])
+        ])
+        persistScheduleState(
+            defaults: defaults,
+            desiredVPNOn: true,
+            desiredUntil: manualOffUntil,
+            activeAppIDs: ["instagram"],
+            manualOffUntil: manualOffUntil
+        )
+
+        let evaluation = TunnelProtectionState(defaults: defaults).evaluate(now: now, calendar: testCalendar)
+
+        XCTAssertTrue(evaluation.persistedScheduleManualOffActive)
+        XCTAssertEqual(evaluation.directScheduledBlockerActive, true)
+        XCTAssertFalse(evaluation.shouldKeepVPNRunning)
+    }
+
+    func testTunnelProtectionStateExpiredPersistedScheduleAllowsVPNStop() {
+        let now = testDate(hour: 12)
+        let defaults = makeProtectionDefaults(windows: [])
+        persistScheduleState(
+            defaults: defaults,
+            desiredVPNOn: true,
+            desiredUntil: testDate(hour: 10),
+            activeAppIDs: ["instagram"]
+        )
+
+        let evaluation = TunnelProtectionState(defaults: defaults).evaluate(now: now, calendar: testCalendar)
+
+        XCTAssertTrue(evaluation.persistedSchedule.hasPersistedState)
+        XCTAssertFalse(evaluation.persistedScheduleActive)
+        XCTAssertNil(evaluation.directScheduledBlockerActive)
+        XCTAssertFalse(evaluation.shouldKeepVPNRunning)
+    }
+
     func testTunnelProtectionStateEndedScheduledBlockerAllowsVPNStop() {
         let now = testDate(hour: 12)
         let defaults = makeProtectionDefaults(windows: [
@@ -1122,6 +1178,32 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(TunnelProtectionState(defaults: defaults).shouldKeepVPNRunning(now: now, calendar: testCalendar))
+    }
+
+    func testAutoStopGateRequiresTwoInactiveResultsAndResetsOnActiveProtection() {
+        let now = testDate(hour: 12)
+        let inactiveDefaults = makeProtectionDefaults(windows: [])
+        persistScheduleState(defaults: inactiveDefaults, desiredVPNOn: false, desiredUntil: nil, activeAppIDs: [])
+        let inactive = TunnelProtectionState(defaults: inactiveDefaults).evaluate(now: now, calendar: testCalendar)
+
+        let activeDefaults = makeProtectionDefaults(windows: [])
+        persistScheduleState(
+            defaults: activeDefaults,
+            desiredVPNOn: true,
+            desiredUntil: testDate(hour: 17),
+            activeAppIDs: ["tiktok"]
+        )
+        let active = TunnelProtectionState(defaults: activeDefaults).evaluate(now: now, calendar: testCalendar)
+
+        var gate = AutoStopInactiveProtectionGate()
+        XCTAssertFalse(gate.record(inactive))
+        XCTAssertEqual(gate.consecutiveInactiveResults, 1)
+        XCTAssertTrue(gate.record(inactive))
+        XCTAssertEqual(gate.consecutiveInactiveResults, 2)
+        XCTAssertFalse(gate.record(active))
+        XCTAssertEqual(gate.consecutiveInactiveResults, 0)
+        XCTAssertFalse(gate.record(inactive))
+        XCTAssertEqual(gate.consecutiveInactiveResults, 1)
     }
 
     private var testCalendar: Calendar {
@@ -1185,5 +1267,27 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
             defaults?.set(endedTimestamps, forKey: BubbleConstants.timeWindowsEndedUntilKey)
         }
         return defaults
+    }
+
+    private func persistScheduleState(
+        defaults: UserDefaults?,
+        desiredVPNOn: Bool,
+        desiredUntil: Date?,
+        activeAppIDs: [String],
+        manualOffUntil: Date? = nil
+    ) {
+        defaults?.set(desiredVPNOn, forKey: BubbleConstants.scheduleDesiredVPNOnKey)
+        if let desiredUntil {
+            defaults?.set(desiredUntil.timeIntervalSince1970, forKey: BubbleConstants.scheduleDesiredUntilTSKey)
+        } else {
+            defaults?.removeObject(forKey: BubbleConstants.scheduleDesiredUntilTSKey)
+        }
+        defaults?.set(activeAppIDs, forKey: BubbleConstants.scheduleActiveAppIDsKey)
+        defaults?.set(activeAppIDs.isEmpty ? [] : ["tw_focus"], forKey: BubbleConstants.scheduleActiveWindowIDsKey)
+        if let manualOffUntil {
+            defaults?.set(manualOffUntil.timeIntervalSince1970, forKey: BubbleConstants.scheduleManualOffUntilTSKey)
+        } else {
+            defaults?.removeObject(forKey: BubbleConstants.scheduleManualOffUntilTSKey)
+        }
     }
 }

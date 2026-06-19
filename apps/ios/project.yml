@@ -17,6 +17,9 @@ packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
     from: "2.0.0"
+  RevenueCat:
+    url: https://github.com/RevenueCat/purchases-ios-spm.git
+    from: "5.0.0"
 
 targets:
   Bubble:
@@ -27,6 +30,8 @@ targets:
       - path: Shared
     dependencies:
       - package: Supabase
+      - package: RevenueCat
+        product: RevenueCat
       - target: BubbleTunnel
       - sdk: NetworkExtension.framework
     info:
@@ -45,6 +50,7 @@ targets:
           - audio
         SUPABASE_URL: $(SUPABASE_URL)
         SUPABASE_KEY: $(SUPABASE_KEY)
+        REVENUECAT_API_KEY: $(REVENUECAT_API_KEY)
     entitlements:
       path: Bubble/chungus.entitlements
       properties:
