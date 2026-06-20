@@ -20,6 +20,8 @@ struct OnboardingFlowScreen: View {
     @State private var showsPrivacySheet = false
     @State private var isAuthenticating = false
     @State private var authErrorMessage: String?
+    @State private var emailAuthAddress = ""
+    @State private var pendingEmailAuthAddress = ""
 
     private var hasValidDisplayName: Bool {
         AppSettingsStore.normalizedDisplayName(displayName) != nil
@@ -39,6 +41,14 @@ struct OnboardingFlowScreen: View {
 
     private var canContinueApps: Bool {
         !selectedApps.isEmpty
+    }
+
+    private var normalizedEmailAuthAddress: String {
+        emailAuthAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var canSendEmailAuthLink: Bool {
+        isValidEmail(normalizedEmailAuthAddress)
     }
 
     var body: some View {
@@ -100,6 +110,10 @@ struct OnboardingFlowScreen: View {
             notificationsPage
         case .account:
             accountPage
+        case .emailEntry:
+            emailEntryPage
+        case .emailLinkSent:
+            emailLinkSentPage
         }
     }
 
@@ -484,8 +498,8 @@ struct OnboardingFlowScreen: View {
                         signInWithGoogleAndComplete()
                     }
                     .disabled(isAuthenticating)
-                    OnboardingAuthButton(title: "Sign up with email", systemImage: "envelope", isOutlined: true) {
-                        completeOnboarding()
+                    OnboardingAuthButton(title: "Continue with email", systemImage: "envelope", isOutlined: true) {
+                        startEmailAuthFlow()
                     }
                     .disabled(isAuthenticating)
 
@@ -503,11 +517,123 @@ struct OnboardingFlowScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    Text("Already have an account?")
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundStyle(OnboardingPalette.placeholder)
-                        .padding(.top, 6)
+                    Button("Already have an account? Log in") {
+                        startEmailAuthFlow()
+                    }
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(OnboardingPalette.placeholder)
+                    .buttonStyle(.plain)
+                    .padding(.top, 6)
+                    .disabled(isAuthenticating)
                 }
+            }
+        } bottom: {
+            EmptyView()
+        }
+    }
+
+    private var emailEntryPage: some View {
+        OnboardingWhitePage(keyboardAvoidance: true, onBack: goBack) {
+            VStack(spacing: 28) {
+                Spacer()
+                    .frame(height: 44)
+
+                OnboardingTitle("Continue with email")
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Email")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(OnboardingPalette.darkGreen)
+
+                    TextField("", text: $emailAuthAddress, prompt: Text("you@example.com")
+                        .foregroundStyle(OnboardingPalette.placeholder))
+                        .font(.system(size: 22, weight: .regular))
+                        .foregroundStyle(.black)
+                        .textInputAutocapitalization(.never)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .autocorrectionDisabled()
+                        .submitLabel(.continue)
+                        .onSubmit(sendEmailAuthLink)
+                        .padding(.horizontal, 18)
+                        .frame(height: 58)
+                        .background(Color.black.opacity(0.04))
+                        .clipShape(Capsule())
+                        .overlay {
+                            Capsule()
+                                .stroke(OnboardingPalette.darkGreen.opacity(0.22), lineWidth: 1)
+                        }
+                        .accessibilityIdentifier("onboarding.email.input")
+                }
+
+                if isAuthenticating {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(OnboardingPalette.darkGreen)
+                }
+
+                if let authErrorMessage {
+                    Text(authErrorMessage)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(.red.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text("We’ll send a sign-in link to this email. Tap the link to open Nima and finish login.")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(OnboardingPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+            }
+        } bottom: {
+            OnboardingPrimaryButton(
+                title: isAuthenticating ? "Sending..." : "Send link",
+                isDisabled: isAuthenticating || !canSendEmailAuthLink,
+                action: sendEmailAuthLink
+            )
+            .accessibilityIdentifier("onboarding.email.send_link")
+        }
+    }
+
+    private var emailLinkSentPage: some View {
+        OnboardingWhitePage(keyboardAvoidance: true, onBack: goBack) {
+            VStack(spacing: 26) {
+                Spacer()
+                    .frame(height: 44)
+
+                OnboardingTitle("Check your email")
+
+                Text("We sent a Nima sign-in link to \(pendingEmailAuthAddress). Tap that link to open the app and finish login.")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(OnboardingPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.8)
+
+                if isAuthenticating {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(OnboardingPalette.darkGreen)
+                }
+
+                if let authErrorMessage {
+                    Text(authErrorMessage)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(.red.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button("Resend link") {
+                    resendEmailAuthLink()
+                }
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(OnboardingPalette.darkGreen)
+                .buttonStyle(.plain)
+                .disabled(isAuthenticating)
+                .accessibilityIdentifier("onboarding.email.resend_link")
             }
         } bottom: {
             EmptyView()
@@ -560,6 +686,46 @@ struct OnboardingFlowScreen: View {
         onboardingStore.markCompleted()
     }
 
+    private func startEmailAuthFlow() {
+        authErrorMessage = nil
+        step = .emailEntry
+    }
+
+    private func sendEmailAuthLink() {
+        guard !isAuthenticating, canSendEmailAuthLink else { return }
+        let email = normalizedEmailAuthAddress
+        sendEmailAuthLink(to: email, shouldAdvance: true)
+    }
+
+    private func resendEmailAuthLink() {
+        guard !isAuthenticating, !pendingEmailAuthAddress.isEmpty else { return }
+        sendEmailAuthLink(to: pendingEmailAuthAddress, shouldAdvance: false)
+    }
+
+    private func sendEmailAuthLink(to email: String, shouldAdvance: Bool) {
+        isAuthenticating = true
+        authErrorMessage = nil
+
+        Task {
+            do {
+                try await authStore.sendEmailMagicLink(to: email)
+                await MainActor.run {
+                    pendingEmailAuthAddress = email
+                    emailAuthAddress = email
+                    isAuthenticating = false
+                    if shouldAdvance {
+                        step = .emailLinkSent
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isAuthenticating = false
+                    authErrorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
     private func signInWithAppleAndComplete() {
         signInAndComplete {
             try await authStore.signInWithApple()
@@ -598,6 +764,9 @@ struct OnboardingFlowScreen: View {
         if showsPrivacySheet {
             showsPrivacySheet = false
         }
+        if step == .emailEntry || step == .emailLinkSent {
+            authErrorMessage = nil
+        }
         step = previousStep
     }
 
@@ -607,6 +776,11 @@ struct OnboardingFlowScreen: View {
         } else {
             set.insert(value)
         }
+    }
+
+    private func isValidEmail(_ email: String) -> Bool {
+        let emailPattern = #"^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,64}$"#
+        return email.range(of: emailPattern, options: .regularExpression) != nil
     }
 }
 
@@ -625,6 +799,8 @@ private enum OnboardingStep {
     case vpn
     case notifications
     case account
+    case emailEntry
+    case emailLinkSent
 
     var previous: OnboardingStep? {
         switch self {
@@ -656,6 +832,10 @@ private enum OnboardingStep {
             return .vpn
         case .account:
             return .notifications
+        case .emailEntry:
+            return .account
+        case .emailLinkSent:
+            return .emailEntry
         }
     }
 }

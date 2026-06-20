@@ -59,6 +59,8 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - $(GOOGLE_REVERSED_CLIENT_ID)
+          - CFBundleURLSchemes:
+              - nima
         REVENUECAT_API_KEY: $(REVENUECAT_API_KEY)
     entitlements:
       path: Bubble/chungus.entitlements

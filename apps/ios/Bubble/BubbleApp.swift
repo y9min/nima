@@ -131,7 +131,7 @@ struct BubbleApp: App {
                     await startLaunchServicesIfNeeded()
                 }
                 .onOpenURL { url in
-                    GIDSignIn.sharedInstance.handle(url)
+                    handleIncomingURL(url)
                 }
                 .onAppear {
                     // Keep the first SwiftUI frame lightweight so iOS can leave the launch screen.
@@ -525,6 +525,22 @@ struct BubbleApp: App {
             startGuidedPracticePIP()
         @unknown default:
             break
+        }
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        if GIDSignIn.sharedInstance.handle(url) {
+            return
+        }
+
+        Task {
+            do {
+                let handled = try await authStore.handleEmailMagicLink(url)
+                guard handled else { return }
+                await MainActor.run {
+                    onboardingStore.markCompleted()
+                }
+            } catch {}
         }
     }
 
