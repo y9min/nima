@@ -1,3 +1,4 @@
+import GoogleSignIn
 import SwiftUI
 import NetworkExtension
 import UIKit
@@ -97,19 +98,6 @@ struct BubbleApp: App {
                             )
                         case .blockingOptions(let appId):
                             BlockingOptionsScreen(appId: appId)
-                        case .magicSignIn:
-                            MagicSignInScreen(
-                                onCodeSent: { email in
-                                    path.append(Route.codeVerification(email: email))
-                                },
-                                onDemoLogin: {
-                                    path = NavigationPath()
-                                }
-                            )
-                        case .codeVerification(let email):
-                            CodeVerificationScreen(email: email, onVerified: {
-                                path = NavigationPath()
-                            })
                         case .settings:
                             SettingsScreen(
                                 onHome: {
@@ -118,7 +106,8 @@ struct BubbleApp: App {
                                 onWindows: {
                                     path = NavigationPath()
                                     path.append(Route.timeWindows)
-                                }
+                                },
+                                onAccountDeleted: routeToSplashAfterAccountDeletion
                             )
                         case .trafficDashboard:
                             TrafficDashboardView()
@@ -140,6 +129,9 @@ struct BubbleApp: App {
                 .preferredColorScheme(.dark)
                 .task {
                     await startLaunchServicesIfNeeded()
+                }
+                .onOpenURL { url in
+                    GIDSignIn.sharedInstance.handle(url)
                 }
                 .onAppear {
                     // Keep the first SwiftUI frame lightweight so iOS can leave the launch screen.
@@ -196,11 +188,13 @@ struct BubbleApp: App {
                     await handleGuidedPracticePhaseTask()
                 }
 
-                PiPInstructionVideoHost(controller: pipInstructionController)
-                    .frame(width: 1, height: 1)
-                    .opacity(0.01)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                if shouldMountPiPInstructionHost {
+                    PiPInstructionVideoHost(controller: pipInstructionController)
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
 
                 if let guidedOnboardingPresentationMode {
                     GuidedOnboardingModal(completionTitle: guidedOnboardingPresentationMode.completionTitle) {
@@ -297,9 +291,7 @@ struct BubbleApp: App {
             onSelectApp: { app in
                 path.append(Route.blockingOptions(appId: app.id))
             },
-            onSignIn: {
-                path.append(Route.magicSignIn)
-            },
+            onAccountDeleted: routeToSplashAfterAccountDeletion,
             onTrafficDashboard: {
                 path.append(Route.trafficDashboard)
             },
@@ -324,6 +316,10 @@ struct BubbleApp: App {
     private var needsSubscriptionGate: Bool {
         onboardingStore.isCompleted
             && onboardingStore.hasCompletedGuidedPractice
+    }
+
+    private func routeToSplashAfterAccountDeletion() {
+        path = NavigationPath()
     }
 
     @ViewBuilder
@@ -370,6 +366,15 @@ struct BubbleApp: App {
             return .dragTikTok
         case .hidden, .introSlides, .openAppPrompt, .waitingForReturn, .success, .troubleshooting, .completed:
             return nil
+        }
+    }
+
+    private var shouldMountPiPInstructionHost: Bool {
+        switch guidedPracticePhase {
+        case .openAppPrompt, .waitingForReturn:
+            return true
+        case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .success, .troubleshooting, .completed:
+            return false
         }
     }
 

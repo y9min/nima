@@ -4,8 +4,12 @@ import UIKit
 struct SettingsScreen: View {
     @Environment(\.sizeCategory) private var contentSizeCategory
     @Environment(AppStore.self) private var appStore
+    @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(AuthStore.self) private var authStore
+    @Environment(GridPositionStore.self) private var gridPositionStore
     @Environment(OnboardingStore.self) private var onboardingStore
+    @Environment(StreakStore.self) private var streakStore
+    @Environment(TimeWindowStore.self) private var timeWindowStore
     @EnvironmentObject private var vpnManager: VPNManager
 
     @State private var destination: SettingsDestination?
@@ -14,15 +18,18 @@ struct SettingsScreen: View {
 
     let onHome: () -> Void
     let onWindows: () -> Void
+    let onAccountDeleted: () -> Void
     var showsDock: Bool
 
     init(
         onHome: @escaping () -> Void = {},
         onWindows: @escaping () -> Void = {},
+        onAccountDeleted: @escaping () -> Void = {},
         showsDock: Bool = true
     ) {
         self.onHome = onHome
         self.onWindows = onWindows
+        self.onAccountDeleted = onAccountDeleted
         self.showsDock = showsDock
     }
 
@@ -58,7 +65,7 @@ struct SettingsScreen: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $isShowingShareSheet) {
-            ShareSheet(items: ["Try Nima to block distracting feeds."])
+            ShareSheet(items: ["Try Nima to block distracting feeds: \(NimaSupportURL.home.absoluteString)"])
         }
     }
 
@@ -73,7 +80,10 @@ struct SettingsScreen: View {
                 layout: layout,
                 onBack: { destination = nil }
             ) {
-                AccountSettingsPage()
+                AccountSettingsPage(
+                    onSignOut: logOutAndReturnHome,
+                    onAccountDeleted: handleAccountDeleted
+                )
             }
         case .notifications?:
             SettingsPageScaffold(
@@ -113,9 +123,10 @@ struct SettingsScreen: View {
                 layout: layout,
                 onBack: { destination = nil }
             ) {
-                PlaceholderSettingsPage(
-                    title: "Help Centre",
-                    bodyText: "Support resources will live here."
+                ExternalLinkSettingsPage(
+                    bodyText: "Setup, troubleshooting, billing and contact help are available on nima.so.",
+                    buttonTitle: "Open Help Centre",
+                    url: NimaSupportURL.help
                 )
             }
         case .privacy?:
@@ -124,9 +135,22 @@ struct SettingsScreen: View {
                 layout: layout,
                 onBack: { destination = nil }
             ) {
-                PlaceholderSettingsPage(
-                    title: "Privacy Policy",
-                    bodyText: "Privacy details will live here."
+                ExternalLinkSettingsPage(
+                    bodyText: "Read how nima handles privacy and data on nima.so.",
+                    buttonTitle: "Open Privacy Policy",
+                    url: NimaSupportURL.privacyPolicy
+                )
+            }
+        case .terms?:
+            SettingsPageScaffold(
+                title: "Terms",
+                layout: layout,
+                onBack: { destination = nil }
+            ) {
+                ExternalLinkSettingsPage(
+                    bodyText: "Read the terms that apply to using nima.",
+                    buttonTitle: "Open Terms",
+                    url: NimaSupportURL.terms
                 )
             }
         case .logs?:
@@ -180,6 +204,9 @@ struct SettingsScreen: View {
                     SettingsFooterButton(title: "Privacy Policy") {
                         destination = .privacy
                     }
+                    SettingsFooterButton(title: "Terms & Conditions") {
+                        destination = .terms
+                    }
                     SettingsFooterButton(title: "Share This App") {
                         isShowingShareSheet = true
                     }
@@ -224,6 +251,16 @@ struct SettingsScreen: View {
             }
         }
     }
+
+    private func handleAccountDeleted() {
+        appSettingsStore.resetForAccountDeletion()
+        streakStore.resetForAccountDeletion()
+        timeWindowStore.resetForAccountDeletion()
+        gridPositionStore.resetForAccountDeletion()
+        appStore.resetAllBlockingOptions(source: "settings.account_deletion")
+        onboardingStore.resetForOnboardingRestart()
+        onAccountDeleted()
+    }
 }
 
 private enum SettingsDestination: Equatable {
@@ -234,6 +271,7 @@ private enum SettingsDestination: Equatable {
     case advanced
     case help
     case privacy
+    case terms
     case logs
 }
 
@@ -245,6 +283,19 @@ private extension HomeDashboardLayout {
     var settingsTopInset: CGFloat {
         max(0, contentTopInset + topPadding)
     }
+}
+
+private enum NimaSupportURL {
+    static let home = URL(string: "https://nima.so/")!
+    static let help = URL(string: "https://nima.so/help")!
+    static let manage = URL(string: "https://nima.so/manage")!
+    static let cancel = URL(string: "https://nima.so/cancel")!
+    static let privacyPolicy = URL(string: "https://nima.so/privacy-policy")!
+    static let terms = URL(string: "https://nima.so/terms-and-conditions")!
+}
+
+private enum AppleSubscriptionURL {
+    static let manage = URL(string: "https://apps.apple.com/account/subscriptions")!
 }
 
 private struct SettingsPageScaffold<Content: View>: View {
@@ -447,37 +498,86 @@ private struct SettingsInlineDivider: View {
 }
 
 private struct AccountSettingsPage: View {
+    @Environment(AuthStore.self) private var authStore
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var draftName = ""
+    @State private var isShowingDeleteAccountSheet = false
+
+    let onSignOut: () -> Void
+    let onAccountDeleted: () -> Void
 
     var body: some View {
-        SettingsFormPanel {
-            VStack(alignment: .leading, spacing: 9) {
-                Text("Name")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsFormPanel {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("Name")
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
 
-                TextField("Name", text: $draftName)
-                    .font(.system(size: 19, weight: .regular, design: .rounded))
-                    .foregroundStyle(.white)
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(AppChromePalette.border.opacity(0.8), lineWidth: 1)
+                    TextField("Name", text: $draftName)
+                        .font(.system(size: 19, weight: .regular, design: .rounded))
+                        .foregroundStyle(.white)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(AppChromePalette.border.opacity(0.8), lineWidth: 1)
+                        )
+                        .onChange(of: draftName) { _, newValue in
+                            appSettingsStore.setDisplayName(newValue)
+                        }
+                }
+                .padding(.vertical, 8)
+
+                if !authStore.userEmail.isEmpty {
+                    SettingsInlineDivider()
+
+                    SettingsInfoRow(
+                        title: "Email",
+                        value: authStore.userEmail
                     )
-                    .onChange(of: draftName) { _, newValue in
-                        appSettingsStore.setDisplayName(newValue)
-                    }
+                }
+
+                SettingsInlineDivider()
+
+                Button(action: onSignOut) {
+                    SettingsActionRow(
+                        title: "Sign out",
+                        subtitle: nil,
+                        icon: "rectangle.portrait.and.arrow.right"
+                    )
+                }
+                .buttonStyle(.plain)
             }
-            .padding(.vertical, 8)
+
+            SettingsFormPanel {
+                Button(role: .destructive) {
+                    isShowingDeleteAccountSheet = true
+                } label: {
+                    SettingsActionRow(
+                        title: "Delete Account",
+                        subtitle: "Permanently delete your Nima account.",
+                        icon: "trash",
+                        foregroundStyle: .red
+                    )
+                }
+                .buttonStyle(.plain)
+            }
         }
         .onAppear {
             draftName = appSettingsStore.displayName
+        }
+        .sheet(isPresented: $isShowingDeleteAccountSheet) {
+            DeleteAccountSheet(
+                onDeleted: {
+                    isShowingDeleteAccountSheet = false
+                    onAccountDeleted()
+                }
+            )
         }
     }
 }
@@ -613,20 +713,13 @@ private struct WindowsSettingsPage: View {
 
 private struct SubscriptionSettingsPage: View {
     @Environment(SubscriptionStore.self) private var subscriptionStore
-    @AppStorage("subscriptionCancellationReason")
-    private var cancellationReason = ""
 
-    @State private var isShowingCancellationReasons = false
+    @State private var isShowingCancellationFeedback = false
+    @State private var selectedCancellationReason: SubscriptionCancellationReason = .tooExpensive
+    @State private var cancellationDetails = ""
+    @State private var isSubmittingCancellationFeedback = false
+    @State private var cancellationFeedbackError: String?
     @State private var subscriptionManagementError: String?
-
-    private let cancellationReasons = [
-        "Too expensive",
-        "Not using it enough",
-        "Still seeing distracting content",
-        "Technical issue",
-        "Missing feature",
-        "Other"
-    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -657,7 +750,8 @@ private struct SubscriptionSettingsPage: View {
                 SettingsInlineDivider()
 
                 Button(role: .destructive) {
-                    isShowingCancellationReasons = true
+                    cancellationFeedbackError = nil
+                    isShowingCancellationFeedback = true
                 } label: {
                     SettingsActionRow(
                         title: "Cancel subscription",
@@ -678,33 +772,389 @@ private struct SubscriptionSettingsPage: View {
                 }
             }
         }
-        .confirmationDialog(
-            "Why are you cancelling?",
-            isPresented: $isShowingCancellationReasons,
-            titleVisibility: .visible
-        ) {
-            ForEach(cancellationReasons, id: \.self) { reason in
-                Button(reason) {
-                    cancellationReason = reason
+        .sheet(isPresented: $isShowingCancellationFeedback) {
+            CancellationFeedbackSheet(
+                selectedReason: $selectedCancellationReason,
+                details: $cancellationDetails,
+                isSubmitting: isSubmittingCancellationFeedback,
+                errorMessage: cancellationFeedbackError,
+                onSubmit: submitCancellationFeedback,
+                onDismiss: {
+                    isShowingCancellationFeedback = false
+                }
+            )
+        }
+    }
+
+    private func submitCancellationFeedback() {
+        guard !isSubmittingCancellationFeedback else { return }
+        isSubmittingCancellationFeedback = true
+        cancellationFeedbackError = nil
+
+        Task {
+            do {
+                try await SubscriptionCancellationFeedbackService.submit(
+                    reason: selectedCancellationReason,
+                    details: cancellationDetails
+                )
+                await MainActor.run {
+                    isSubmittingCancellationFeedback = false
+                    isShowingCancellationFeedback = false
+                    cancellationDetails = ""
                     openSubscriptionManagement()
                 }
+            } catch {
+                await MainActor.run {
+                    isSubmittingCancellationFeedback = false
+                    cancellationFeedbackError = error.localizedDescription
+                }
             }
-
-            Button("Cancel", role: .cancel) {}
         }
     }
 
     private func openSubscriptionManagement() {
         subscriptionManagementError = nil
 
-        guard let url = URL(string: "https://apps.apple.com/account/subscriptions") else {
-            subscriptionManagementError = "Could not open Apple subscriptions right now."
-            return
-        }
-
-        UIApplication.shared.open(url) { didOpen in
+        UIApplication.shared.open(AppleSubscriptionURL.manage) { didOpen in
             guard !didOpen else { return }
             subscriptionManagementError = "Could not open Apple subscriptions right now."
+        }
+    }
+}
+
+private struct CancellationFeedbackSheet: View {
+    @Binding var selectedReason: SubscriptionCancellationReason
+    @Binding var details: String
+
+    let isSubmitting: Bool
+    let errorMessage: String?
+    let onSubmit: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Tell us why before Apple opens subscription management.")
+                        .font(.system(size: 15, weight: .regular, design: .rounded))
+                        .foregroundStyle(AppChromePalette.muted.opacity(0.92))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    SettingsFormPanel {
+                        VStack(spacing: 0) {
+                            ForEach(SubscriptionCancellationReason.allCases) { reason in
+                                Button {
+                                    selectedReason = reason
+                                } label: {
+                                    HStack {
+                                        Text(reason.label)
+                                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                            .foregroundStyle(.white)
+
+                                        Spacer()
+
+                                        if selectedReason == reason {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(AppChromePalette.accent)
+                                        }
+                                    }
+                                    .padding(.vertical, 10)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+
+                                if reason != SubscriptionCancellationReason.allCases.last {
+                                    SettingsInlineDivider()
+                                }
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Details optional")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+
+                        TextEditor(text: detailsBinding)
+                            .font(.system(size: 16, weight: .regular, design: .rounded))
+                            .foregroundStyle(.white)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 110)
+                            .padding(8)
+                            .background(AppChromePalette.card.opacity(0.82))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(AppChromePalette.border.opacity(0.75), lineWidth: 1)
+                            )
+
+                        Text("\(details.count)/500")
+                            .font(.system(size: 12, weight: .regular, design: .rounded))
+                            .foregroundStyle(AppChromePalette.muted.opacity(0.78))
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 13.5, weight: .regular, design: .rounded))
+                            .foregroundStyle(.red.opacity(0.9))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Button(action: onSubmit) {
+                        HStack {
+                            if isSubmitting {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .tint(.black)
+                            }
+
+                            Text(isSubmitting ? "Saving..." : "Continue to Apple")
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .foregroundStyle(.black)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(AppChromePalette.accent)
+                        .clipShape(Capsule())
+                    }
+                    .disabled(isSubmitting)
+                }
+                .padding(20)
+            }
+            .background(AppChromePalette.background.ignoresSafeArea())
+            .navigationTitle("Cancel subscription")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close", action: onDismiss)
+                        .disabled(isSubmitting)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .preferredColorScheme(.dark)
+    }
+
+    private var detailsBinding: Binding<String> {
+        Binding(
+            get: { details },
+            set: { details = String($0.prefix(500)) }
+        )
+    }
+}
+
+private struct DeleteAccountSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var authStore
+
+    @State private var isShowingFinalConfirmation = false
+    @State private var isDeleting = false
+    @State private var errorMessage: String?
+    @State private var subscriptionManagementError: String?
+
+    let onDeleted: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Deleting your account permanently removes your Nima account and account-linked data.")
+                        .font(.system(size: 15, weight: .regular, design: .rounded))
+                        .foregroundStyle(AppChromePalette.muted.opacity(0.92))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    SettingsFormPanel {
+                        DeleteAccountBulletRow(
+                            icon: "person.crop.circle.badge.xmark",
+                            title: "Deletes your Nima account",
+                            bodyText: "Your account and account-linked data will be removed."
+                        )
+
+                        SettingsInlineDivider()
+
+                        DeleteAccountBulletRow(
+                            icon: "creditcard",
+                            title: "Does not cancel Apple billing",
+                            bodyText: "Subscriptions managed by Apple must be cancelled separately."
+                        )
+
+                        SettingsInlineDivider()
+
+                        DeleteAccountBulletRow(
+                            icon: "exclamationmark.triangle",
+                            title: "This is permanent",
+                            bodyText: "You cannot undo account deletion after it completes."
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Deleting your account does not cancel subscriptions managed by Apple. To stop billing, cancel your subscription first in Manage Subscription.")
+                            .font(.system(size: 14, weight: .regular, design: .rounded))
+                            .foregroundStyle(AppChromePalette.muted.opacity(0.92))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Button {
+                            openSubscriptionManagement()
+                        } label: {
+                            HStack {
+                                Text("Manage Subscription")
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 13, weight: .bold))
+                            }
+                            .foregroundStyle(AppChromePalette.accent)
+                        }
+                        .buttonStyle(.plain)
+
+                        if let subscriptionManagementError {
+                            Text(subscriptionManagementError)
+                                .font(.system(size: 13.5, weight: .regular, design: .rounded))
+                                .foregroundStyle(.red.opacity(0.9))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+
+                    if let errorMessage {
+                        Text("\(errorMessage) Contact support@nima.so if this keeps happening.")
+                            .font(.system(size: 13.5, weight: .regular, design: .rounded))
+                            .foregroundStyle(.red.opacity(0.9))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Button(role: .destructive) {
+                        errorMessage = nil
+                        isShowingFinalConfirmation = true
+                    } label: {
+                        HStack {
+                            if isDeleting {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .tint(.white)
+                            }
+
+                            Text(isDeleting ? "Deleting..." : "Delete Account")
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Color.red.opacity(isDeleting ? 0.48 : 0.82))
+                        .clipShape(Capsule())
+                    }
+                    .disabled(isDeleting)
+                }
+                .padding(20)
+            }
+            .background(AppChromePalette.background.ignoresSafeArea())
+            .navigationTitle("Delete Account")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close") {
+                        guard !isDeleting else { return }
+                        dismiss()
+                    }
+                    .disabled(isDeleting)
+                }
+            }
+        }
+        .interactiveDismissDisabled(isDeleting)
+        .alert("Delete account permanently?", isPresented: $isShowingFinalConfirmation) {
+            Button("Delete Account", role: .destructive) {
+                deleteAccount()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete your Nima account and sign you out. Apple subscriptions must be cancelled separately.")
+        }
+        .presentationDetents([.large])
+        .preferredColorScheme(.dark)
+    }
+
+    private func deleteAccount() {
+        guard !isDeleting else { return }
+        isDeleting = true
+        errorMessage = nil
+
+        Task {
+            do {
+                try await AccountDeletionService.deleteCurrentUserPlaceholder()
+                await authStore.logout()
+                await MainActor.run {
+                    LocalAccountDataCleaner.clearAll()
+                    isDeleting = false
+                    onDeleted()
+                }
+            } catch {
+                await MainActor.run {
+                    isDeleting = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func openSubscriptionManagement() {
+        subscriptionManagementError = nil
+        UIApplication.shared.open(AppleSubscriptionURL.manage) { didOpen in
+            guard !didOpen else { return }
+            subscriptionManagementError = "Could not open Apple subscriptions right now."
+        }
+    }
+}
+
+private struct DeleteAccountBulletRow: View {
+    let icon: String
+    let title: String
+    let bodyText: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 16.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Text(bodyText)
+                    .font(.system(size: 13.5, weight: .regular, design: .rounded))
+                    .foregroundStyle(AppChromePalette.muted.opacity(0.92))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 10)
+    }
+}
+
+private enum AccountDeletionService {
+    static func deleteCurrentUserPlaceholder() async throws {
+        try await Task.sleep(nanoseconds: 450_000_000)
+    }
+}
+
+private enum LocalAccountDataCleaner {
+    static func clearAll() {
+        if let defaults = UserDefaults(suiteName: BubbleConstants.appGroupID) {
+            defaults.removePersistentDomain(forName: BubbleConstants.appGroupID)
+            defaults.synchronize()
+        }
+
+        if let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: BubbleConstants.appGroupID
+        ) {
+            let contents = (try? FileManager.default.contentsOfDirectory(
+                at: containerURL,
+                includingPropertiesForKeys: nil
+            )) ?? []
+            for url in contents {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
     }
 }
@@ -735,18 +1185,19 @@ private struct SettingsActionRow: View {
     let title: String
     let subtitle: String?
     let icon: String
+    var foregroundStyle: Color = .white
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(.white)
+                .foregroundStyle(foregroundStyle)
                 .frame(width: 24, height: 28)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 19, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(foregroundStyle)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
 
@@ -865,24 +1316,42 @@ private struct AdvancedSettingsPage: View {
     }
 }
 
-private struct PlaceholderSettingsPage: View {
-    let title: String
+private struct ExternalLinkSettingsPage: View {
+    @Environment(\.openURL) private var openURL
+
     let bodyText: String
+    let buttonTitle: String
+    let url: URL
 
     var body: some View {
-        SettingsFormPanel {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title)
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsFormPanel {
                 Text(bodyText)
                     .font(.system(size: 15, weight: .regular, design: .rounded))
                     .foregroundStyle(AppChromePalette.muted.opacity(0.92))
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 8)
+
+            Button {
+                openURL(url)
+            } label: {
+                HStack {
+                    Text(buttonTitle)
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.black)
+
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.black)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(AppChromePalette.accent)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
         }
     }
 }

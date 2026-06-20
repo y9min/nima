@@ -124,6 +124,32 @@ final class TimeWindowStore {
         }
     }
 
+    func resetForAccountDeletion() {
+        windows = []
+        pauseAll = false
+        pauseExpiresAt = nil
+        homeFocusRequestID = nil
+        activeWindowIDs = []
+        scheduledAppIDs = []
+        endedWindowUntilByID = [:]
+        lastAppliedScheduledAppIDs = nil
+
+        defaults?.removeObject(forKey: BubbleConstants.timeWindowsKey)
+        defaults?.removeObject(forKey: BubbleConstants.timeWindowsPauseAllKey)
+        defaults?.removeObject(forKey: BubbleConstants.timeWindowsPauseExpiresAtKey)
+        defaults?.removeObject(forKey: BubbleConstants.timeWindowsEndedUntilKey)
+        ScheduledProtectionStateStore.persistScheduleEvaluation(
+            appIDs: [],
+            windowIDs: [],
+            desiredUntil: nil,
+            source: "account_deletion.local_reset",
+            defaults: defaults
+        )
+        notificationScheduler.cancelStartNotifications()
+        notificationScheduler.cancelPauseReminderNotifications()
+        applyScheduledApps?([], "account_deletion.local_reset")
+    }
+
     func status(for window: TimeWindow, now: Date = Date()) -> TimeWindowStatus {
         TimeWindowScheduleEvaluator.status(
             for: window,

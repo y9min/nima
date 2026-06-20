@@ -195,6 +195,23 @@ final class AppSettingsStore {
         Self.resetAdvancedDefaults(defaults: defaults)
     }
 
+    func resetForAccountDeletion() {
+        displayName = ""
+        windowsNotificationsEnabled = true
+        streakRemindersEnabled = Self.defaultStreakRemindersEnabled
+        streakReminderHour = Self.defaultStreakReminderHour
+        streakReminderMinute = Self.defaultStreakReminderMinute
+        pauseIntervalMinutes = Self.defaultPauseIntervalMinutes
+
+        defaults?.removeObject(forKey: BubbleConstants.displayNameKey)
+        defaults?.set(windowsNotificationsEnabled, forKey: BubbleConstants.windowsNotificationsEnabledKey)
+        defaults?.set(streakRemindersEnabled, forKey: BubbleConstants.streakRemindersEnabledKey)
+        defaults?.set(streakReminderHour, forKey: BubbleConstants.streakReminderHourKey)
+        defaults?.set(streakReminderMinute, forKey: BubbleConstants.streakReminderMinuteKey)
+        defaults?.set(pauseIntervalMinutes, forKey: BubbleConstants.pauseIntervalMinutesKey)
+        streakReminderScheduler.cancelStreakReminder()
+    }
+
     func syncStreakReminder(
         hasEarnedToday: Bool,
         now: Date = Date(),

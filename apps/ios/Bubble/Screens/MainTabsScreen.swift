@@ -7,7 +7,7 @@ struct MainTabsScreen: View {
     @State private var pendingAddWindowRequestID: UUID?
 
     let onSelectApp: (BlockedApp) -> Void
-    let onSignIn: () -> Void
+    let onAccountDeleted: () -> Void
     let onTrafficDashboard: () -> Void
     let onShowGuidedOnboarding: () -> Void
     let guidedPracticeCardStep: GuidedPracticeCardStep?
@@ -28,7 +28,6 @@ struct MainTabsScreen: View {
                             onSelectApp: onSelectApp,
                             onTimeWindows: { selectedTab = .windows },
                             onAddTimeWindow: openAddTimeWindow,
-                            onSignIn: onSignIn,
                             onSettings: { selectedTab = .settings },
                             onTrafficDashboard: onTrafficDashboard,
                             onShowGuidedOnboarding: onShowGuidedOnboarding,
@@ -51,6 +50,7 @@ struct MainTabsScreen: View {
                         SettingsScreen(
                             onHome: { selectedTab = .home },
                             onWindows: { selectedTab = .windows },
+                            onAccountDeleted: onAccountDeleted,
                             showsDock: false
                         )
                         .transition(.opacity)

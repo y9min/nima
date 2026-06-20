@@ -4,6 +4,7 @@ import Combine
 import UserNotifications
 
 struct OnboardingFlowScreen: View {
+    @Environment(AuthStore.self) private var authStore
     @Environment(OnboardingStore.self) private var onboardingStore
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @EnvironmentObject private var vpnManager: VPNManager
@@ -17,6 +18,8 @@ struct OnboardingFlowScreen: View {
     @State private var selectedHabits: Set<String> = []
     @State private var selectedApps: Set<String> = []
     @State private var showsPrivacySheet = false
+    @State private var isAuthenticating = false
+    @State private var authErrorMessage: String?
 
     private var hasValidDisplayName: Bool {
         AppSettingsStore.normalizedDisplayName(displayName) != nil
@@ -474,13 +477,30 @@ struct OnboardingFlowScreen: View {
 
                 VStack(spacing: 18) {
                     OnboardingAuthButton(title: "Continue with Apple", systemImage: "apple.logo") {
-                        completeOnboarding()
+                        signInWithAppleAndComplete()
                     }
+                    .disabled(isAuthenticating)
                     OnboardingAuthButton(title: "Continue with Google", letter: "G") {
-                        completeOnboarding()
+                        signInWithGoogleAndComplete()
                     }
+                    .disabled(isAuthenticating)
                     OnboardingAuthButton(title: "Sign up with email", systemImage: "envelope", isOutlined: true) {
                         completeOnboarding()
+                    }
+                    .disabled(isAuthenticating)
+
+                    if isAuthenticating {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(OnboardingPalette.darkGreen)
+                    }
+
+                    if let authErrorMessage {
+                        Text(authErrorMessage)
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(.red.opacity(0.9))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Text("Already have an account?")
@@ -538,6 +558,39 @@ struct OnboardingFlowScreen: View {
 
     private func completeOnboarding() {
         onboardingStore.markCompleted()
+    }
+
+    private func signInWithAppleAndComplete() {
+        signInAndComplete {
+            try await authStore.signInWithApple()
+        }
+    }
+
+    private func signInWithGoogleAndComplete() {
+        signInAndComplete {
+            try await authStore.signInWithGoogle()
+        }
+    }
+
+    private func signInAndComplete(_ action: @escaping () async throws -> Void) {
+        guard !isAuthenticating else { return }
+        isAuthenticating = true
+        authErrorMessage = nil
+
+        Task {
+            do {
+                try await action()
+                await MainActor.run {
+                    isAuthenticating = false
+                    completeOnboarding()
+                }
+            } catch {
+                await MainActor.run {
+                    isAuthenticating = false
+                    authErrorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 
     private func goBack() {

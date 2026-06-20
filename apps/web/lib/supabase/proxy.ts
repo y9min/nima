@@ -2,6 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function updateSession(request: NextRequest) {
+  if (isPublicPath(request.nextUrl.pathname)) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -40,4 +44,13 @@ export async function updateSession(request: NextRequest) {
   }
 
   return supabaseResponse;
+}
+
+function isPublicPath(pathname: string) {
+  return (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth") ||
+    pathname === "/android-waitlist" ||
+    pathname === "/android-waitlist.js"
+  );
 }

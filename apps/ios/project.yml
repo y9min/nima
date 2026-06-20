@@ -6,8 +6,8 @@ options:
   xcodeVersion: "16.0"
 
 configFiles:
-  Debug: Secrets.xcconfig.example
-  Release: Secrets.xcconfig.example
+  Debug: Secrets.xcconfig
+  Release: Secrets.xcconfig
 
 packages:
   Tun2SocksKit:
@@ -17,6 +17,9 @@ packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
     from: "2.0.0"
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: "9.0.0"
   RevenueCat:
     url: https://github.com/RevenueCat/purchases-ios-spm.git
     from: "5.0.0"
@@ -30,6 +33,8 @@ targets:
       - path: Shared
     dependencies:
       - package: Supabase
+      - package: GoogleSignIn
+        product: GoogleSignIn
       - package: RevenueCat
         product: RevenueCat
       - target: BubbleTunnel
@@ -50,10 +55,16 @@ targets:
           - audio
         SUPABASE_URL: $(SUPABASE_URL)
         SUPABASE_KEY: $(SUPABASE_KEY)
+        GOOGLE_IOS_CLIENT_ID: $(GOOGLE_IOS_CLIENT_ID)
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - $(GOOGLE_REVERSED_CLIENT_ID)
         REVENUECAT_API_KEY: $(REVENUECAT_API_KEY)
     entitlements:
       path: Bubble/chungus.entitlements
       properties:
+        com.apple.developer.applesignin:
+          - Default
         com.apple.developer.networking.networkextension:
           - packet-tunnel-provider
         com.apple.security.application-groups:

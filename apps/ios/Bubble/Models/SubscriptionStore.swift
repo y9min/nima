@@ -27,7 +27,11 @@ final class SubscriptionStore {
             return
         }
 
+        #if DEBUG
         Purchases.logLevel = .debug
+        #else
+        Purchases.logLevel = .warn
+        #endif
         Purchases.configure(withAPIKey: apiKey)
         isConfigured = true
     }

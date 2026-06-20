@@ -3,7 +3,7 @@ import Observation
 
 @Observable
 final class GridPositionStore {
-    private static let userDefaultsKey = "hexGridPositions"
+    static let userDefaultsKey = "hexGridPositions"
 
     private(set) var positions: [String: HexCoordinate] = [:]
 
@@ -76,5 +76,10 @@ final class GridPositionStore {
         if let data = try? JSONEncoder().encode(positions) {
             UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
         }
+    }
+
+    func resetForAccountDeletion() {
+        positions = [:]
+        UserDefaults.standard.removeObject(forKey: Self.userDefaultsKey)
     }
 }

@@ -15,7 +15,6 @@ struct HomeScreen: View {
     var onSelectApp: (BlockedApp) -> Void
     var onTimeWindows: (() -> Void)? = nil
     var onAddTimeWindow: (() -> Void)? = nil
-    var onSignIn: (() -> Void)? = nil
     var onSettings: (() -> Void)? = nil
     var onTrafficDashboard: (() -> Void)? = nil
     var onShowGuidedOnboarding: (() -> Void)? = nil
@@ -700,7 +699,7 @@ private struct HomeDashboardDebugOverlay: View {
 #endif
 
 #Preview {
-    HomeScreen(onSelectApp: { _ in }, onSignIn: {})
+    HomeScreen(onSelectApp: { _ in })
         .environment(AppStore())
         .environment(StreakStore(defaults: nil))
         .environment(TimeWindowStore())

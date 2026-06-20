@@ -81,6 +81,11 @@ final class StreakStore {
         return earnedDateSet.contains(Self.localDateString(for: now, calendar: calendar))
     }
 
+    func resetForAccountDeletion() {
+        records = []
+        defaults?.removeObject(forKey: storageKey)
+    }
+
     func currentStreak(now: Date = Date(), calendar: Calendar = .current) -> Int {
         let calendar = Self.normalizedCalendar(calendar)
         let earnedDates = earnedDateSet
