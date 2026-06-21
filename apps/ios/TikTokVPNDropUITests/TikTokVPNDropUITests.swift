@@ -22,19 +22,19 @@ final class TikTokVPNDropUITests: XCTestCase {
         let duration = environment.doubleValue(for: "TIKTOK_HARNESS_DURATION", defaultValue: 300)
         let swipeInterval = environment.doubleValue(for: "TIKTOK_HARNESS_SWIPE_INTERVAL", defaultValue: 2.5)
         let swipeMode = environment["TIKTOK_HARNESS_SWIPE_MODE"] ?? "combo"
-        let bubbleWarmup = environment.doubleValue(for: "TIKTOK_HARNESS_BUBBLE_WARMUP", defaultValue: 8)
+        let nimaWarmup = environment.doubleValue(for: "TIKTOK_HARNESS_NIMA_WARMUP", defaultValue: 8)
         let tiktokWarmup = environment.doubleValue(for: "TIKTOK_HARNESS_TIKTOK_WARMUP", defaultValue: 6)
-        let bubbleBundleID = environment["BUBBLE_BUNDLE_ID"] ?? "com.yamin.nimademo"
+        let nimaBundleID = environment["NIMA_BUNDLE_ID"] ?? "com.yamin.nimademo"
         let tiktokBundleID = environment["TIKTOK_BUNDLE_ID"] ?? "com.zhiliaoapp.musically"
         let startX = environment.doubleValue(for: "TIKTOK_HARNESS_SWIPE_START_X", defaultValue: 0.50)
         let startY = environment.doubleValue(for: "TIKTOK_HARNESS_SWIPE_START_Y", defaultValue: 0.78)
         let endX = environment.doubleValue(for: "TIKTOK_HARNESS_SWIPE_END_X", defaultValue: 0.50)
         let endY = environment.doubleValue(for: "TIKTOK_HARNESS_SWIPE_END_Y", defaultValue: 0.18)
 
-        let bubble = XCUIApplication(bundleIdentifier: bubbleBundleID)
-        prepareBubbleDemoLogin(app: bubble)
-        enableTikTokVideoBlock(in: bubble)
-        sleep(seconds: bubbleWarmup)
+        let nima = XCUIApplication(bundleIdentifier: nimaBundleID)
+        prepareNimaDemoLogin(app: nima)
+        enableTikTokVideoBlock(in: nima)
+        sleep(seconds: nimaWarmup)
 
         let tiktok = XCUIApplication(bundleIdentifier: tiktokBundleID)
         tiktok.launch()
@@ -63,44 +63,44 @@ final class TikTokVPNDropUITests: XCTestCase {
         }
     }
 
-    private func prepareBubbleDemoLogin(app: XCUIApplication) {
+    private func prepareNimaDemoLogin(app: XCUIApplication) {
         app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), "Bubble did not reach foreground.")
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), "Nima did not reach foreground.")
 
-        let homeTikTokIcon = app.descendants(matching: .any)["bubble.app.tiktok"].firstMatch
+        let homeTikTokIcon = app.descendants(matching: .any)["nima.app.tiktok"].firstMatch
         if homeTikTokIcon.waitForExistence(timeout: 2) {
             return
         }
 
-        let continueButton = app.buttons["bubble.landing.go"].firstMatch
+        let continueButton = app.buttons["nima.landing.go"].firstMatch
         if continueButton.waitForExistence(timeout: 8) {
             continueButton.tap()
         } else {
-            XCTFail("Bubble landing continue button was not visible.")
+            XCTFail("Nima landing continue button was not visible.")
         }
 
         if homeTikTokIcon.waitForExistence(timeout: 4) {
             return
         }
 
-        let emailField = app.textFields["bubble.demo.email"].firstMatch
+        let emailField = app.textFields["nima.demo.email"].firstMatch
         if emailField.waitForExistence(timeout: 10) {
             emailField.tap()
             emailField.typeText("demo")
 
-            let sendCodeButton = app.buttons["bubble.demo.send_code"].firstMatch
-            XCTAssertTrue(sendCodeButton.waitForExistence(timeout: 5), "Bubble demo login button was not found after entering demo.")
+            let sendCodeButton = app.buttons["nima.demo.send_code"].firstMatch
+            XCTAssertTrue(sendCodeButton.waitForExistence(timeout: 5), "Nima demo login button was not found after entering demo.")
             sendCodeButton.tap()
-            XCTAssertTrue(homeTikTokIcon.waitForExistence(timeout: 10), "Bubble home did not appear after demo login.")
+            XCTAssertTrue(homeTikTokIcon.waitForExistence(timeout: 10), "Nima home did not appear after demo login.")
             return
         }
 
-        XCTFail("Bubble did not reach home or demo email screen after tapping Continue.")
+        XCTFail("Nima did not reach home or demo email screen after tapping Continue.")
     }
 
     private func enableTikTokVideoBlock(in app: XCUIApplication) {
-        let tiktokIcon = app.descendants(matching: .any)["bubble.app.tiktok"].firstMatch
-        XCTAssertTrue(tiktokIcon.waitForExistence(timeout: 15), "Bubble home did not show the TikTok control.")
+        let tiktokIcon = app.descendants(matching: .any)["nima.app.tiktok"].firstMatch
+        XCTAssertTrue(tiktokIcon.waitForExistence(timeout: 15), "Nima home did not show the TikTok control.")
 
         if (tiktokIcon.value as? String) != "enabled" {
             tiktokIcon.tap()
@@ -108,11 +108,11 @@ final class TikTokVPNDropUITests: XCTestCase {
 
         let enabled = waitForAccessibilityValue(
             in: app,
-            identifier: "bubble.app.tiktok",
+            identifier: "nima.app.tiktok",
             value: "enabled",
             timeout: 5
         )
-        XCTAssertTrue(enabled, "Bubble TikTok control did not turn on.")
+        XCTAssertTrue(enabled, "Nima TikTok control did not turn on.")
     }
 
     private func waitForAccessibilityValue(

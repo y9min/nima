@@ -94,19 +94,19 @@ struct ScheduledProtectionSnapshot: Equatable {
 
 enum ScheduledProtectionSnapshotReader {
     static func snapshot(
-        defaults: UserDefaults? = UserDefaults(suiteName: BubbleConstants.appGroupID)
+        defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID)
     ) -> ScheduledProtectionSnapshot {
         ScheduledProtectionSnapshot(
-            hasPersistedState: defaults?.object(forKey: BubbleConstants.scheduleDesiredVPNOnKey) != nil,
-            desiredVPNOn: defaults?.bool(forKey: BubbleConstants.scheduleDesiredVPNOnKey) ?? false,
-            reason: defaults?.string(forKey: BubbleConstants.scheduleDesiredReasonKey) ?? "",
-            source: defaults?.string(forKey: BubbleConstants.scheduleDesiredSourceKey) ?? "",
-            desiredUntil: defaults?.double(forKey: BubbleConstants.scheduleDesiredUntilTSKey) ?? 0,
-            activeAppIDs: Set(defaults?.stringArray(forKey: BubbleConstants.scheduleActiveAppIDsKey) ?? []),
-            activeWindowIDs: Set(defaults?.stringArray(forKey: BubbleConstants.scheduleActiveWindowIDsKey) ?? []),
-            manualOffUntil: defaults?.double(forKey: BubbleConstants.scheduleManualOffUntilTSKey) ?? 0,
-            lastInterruptionAt: defaults?.double(forKey: BubbleConstants.scheduleLastInterruptionTSKey) ?? 0,
-            lastRepairResult: defaults?.string(forKey: BubbleConstants.scheduleLastRepairResultKey) ?? ""
+            hasPersistedState: defaults?.object(forKey: NimaConstants.scheduleDesiredVPNOnKey) != nil,
+            desiredVPNOn: defaults?.bool(forKey: NimaConstants.scheduleDesiredVPNOnKey) ?? false,
+            reason: defaults?.string(forKey: NimaConstants.scheduleDesiredReasonKey) ?? "",
+            source: defaults?.string(forKey: NimaConstants.scheduleDesiredSourceKey) ?? "",
+            desiredUntil: defaults?.double(forKey: NimaConstants.scheduleDesiredUntilTSKey) ?? 0,
+            activeAppIDs: Set(defaults?.stringArray(forKey: NimaConstants.scheduleActiveAppIDsKey) ?? []),
+            activeWindowIDs: Set(defaults?.stringArray(forKey: NimaConstants.scheduleActiveWindowIDsKey) ?? []),
+            manualOffUntil: defaults?.double(forKey: NimaConstants.scheduleManualOffUntilTSKey) ?? 0,
+            lastInterruptionAt: defaults?.double(forKey: NimaConstants.scheduleLastInterruptionTSKey) ?? 0,
+            lastRepairResult: defaults?.string(forKey: NimaConstants.scheduleLastRepairResultKey) ?? ""
         )
     }
 }

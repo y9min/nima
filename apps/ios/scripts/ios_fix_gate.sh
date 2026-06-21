@@ -10,7 +10,7 @@ usage() {
   cat <<USAGE
 Usage: $(basename "$0") [--duration SECONDS] [--device UDID] [--artifact-dir DIR]
 
-Runs the normal BubbleTunnel regression gate, then the physical-iPhone TikTok
+Runs the normal NimaTunnel regression gate, then the physical-iPhone TikTok
 VPN drop smoke test. Default device duration is 300 seconds.
 USAGE
 }
@@ -49,7 +49,7 @@ if ! [[ "$DURATION" =~ ^[0-9]+$ ]] || [[ "$DURATION" -lt 300 ]]; then
   exit 1
 fi
 
-echo "[fix-gate] running fast BubbleTunnel regression gate"
+echo "[fix-gate] running fast NimaTunnel regression gate"
 "$SCRIPT_DIR/ios_regression_gate.sh"
 
 echo "[fix-gate] running physical-device TikTok VPN drop smoke (${DURATION}s)"

@@ -1,4 +1,4 @@
-# Bubble – VPN traffic filtering (WireGuard + mitmproxy)
+# Nima – VPN traffic filtering (WireGuard + mitmproxy)
 
 Filter VPN traffic on the server using:
 
@@ -11,7 +11,7 @@ You already have WireGuard set up; this adds the proxy and optional packet filte
 
 ```bash
 # On the VPN server
-cd /path/to/bubble
+cd /path/to/nima
 cp config.example.env .env
 # Edit .env if you want a different port or interface
 pip install -r requirements.txt
@@ -75,14 +75,14 @@ Copy `config.example.env` to `.env` and edit as needed. Changing `.env` and rest
 
 So the proxy and packet filter survive reboots and WireGuard restarts:
 
-1. **Proxy:** Copy `systemd/bubble-proxy.service` to `/etc/systemd/system/`. Create user `bubble`, deploy the repo to `/opt/bubble` (or set `BUBBLE_ROOT` in `/etc/default/bubble`), then:
+1. **Proxy:** Copy `systemd/nima-proxy.service` to `/etc/systemd/system/`. Create user `nima`, deploy the repo to `/opt/nima` (or set `NIMA_ROOT` in `/etc/default/nima`), then:
    ```bash
-   sudo systemctl daemon-reload && sudo systemctl enable --now bubble-proxy
+   sudo systemctl daemon-reload && sudo systemctl enable --now nima-proxy
    ```
-2. **Packet filter:** Copy `systemd/bubble-packet-filter.service` to `/etc/systemd/system/`. Set `PACKET_MAX_BYTES` and `WG_INTERFACE` in `/opt/bubble/.env`, then:
+2. **Packet filter:** Copy `systemd/nima-packet-filter.service` to `/etc/systemd/system/`. Set `PACKET_MAX_BYTES` and `WG_INTERFACE` in `/opt/nima/.env`, then:
    ```bash
-   sudo systemctl daemon-reload && sudo systemctl enable bubble-packet-filter
-   sudo systemctl start bubble-packet-filter
+   sudo systemctl daemon-reload && sudo systemctl enable nima-packet-filter
+   sudo systemctl start nima-packet-filter
    ```
    The oneshot reapplies nftables rules on boot.
 

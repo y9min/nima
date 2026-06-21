@@ -16,13 +16,13 @@ fi
 
 WG_INTERFACE="${WG_INTERFACE:-wg0}"
 PACKET_MAX_BYTES="${PACKET_MAX_BYTES:-0}"
-TABLE_NAME="bubble_filter"
+TABLE_NAME="nima_filter"
 CHAIN_NAME="wg_filter"
 
 usage() {
   echo "Usage: $0 [enable|disable|status]" >&2
   echo "  enable   - add nftables rules to drop packets larger than PACKET_MAX_BYTES on $WG_INTERFACE" >&2
-  echo "  disable  - remove bubble filter table" >&2
+  echo "  disable  - remove nima filter table" >&2
   echo "  status   - show current rules" >&2
   echo "Set PACKET_MAX_BYTES and WG_INTERFACE in .env or config.example.env." >&2
   exit 1

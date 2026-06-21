@@ -5,7 +5,7 @@ set -euo pipefail
 # diagnostics are missing.
 #
 # Expected flow:
-# 1) install + launch Bubble on physical device
+# 1) install + launch Nima on physical device
 # 2) run scripted toggles for: TT-only 20m, IG-only 20m, both-on 20m
 # 3) export diagnostic report after each phase
 # 4) parse for hard thresholds and fail on breach

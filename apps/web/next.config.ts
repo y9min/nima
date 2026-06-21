@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@bubble/assets"],
+  transpilePackages: ["@nima/assets"],
 };
 
 export default nextConfig;

@@ -38,7 +38,7 @@ WG_INTERFACE="${WG_INTERFACE:-wg0}"
 VPN_SUBNET="${VPN_SUBNET:-}"
 CONN_MAX_BYTES="${CONN_MAX_BYTES:-2000000}"
 
-TABLE_NAME="bubble_connlimit"
+TABLE_NAME="nima_connlimit"
 
 usage() {
   echo "Usage: $0 [enable|disable|status]" >&2

@@ -1,0 +1,22 @@
+# Reapply packet-level nftables filter on boot (after network is up).
+# Install: copy to /etc/systemd/system/, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable nima-packet-filter
+# Ensure .env with PACKET_MAX_BYTES and WG_INTERFACE is in NIMA_ROOT (e.g. /opt/nima).
+# Requires root to run nft; run as root or use sudo in ExecStart.
+
+[Unit]
+Description=Nima packet filter (nftables on WireGuard)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=NIMA_ROOT=/opt/nima
+EnvironmentFile=-/etc/default/nima
+# Source .env and run enable; requires root.
+ExecStart=/bin/sh -c '"${NIMA_ROOT}/scripts/setup_packet_filter.sh" enable || true'
+
+[Install]
+WantedBy=multi-user.target
