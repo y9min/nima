@@ -1,3 +1,5 @@
+import Foundation
+import Supabase
 import SwiftUI
 import UIKit
 
@@ -1080,7 +1082,7 @@ private struct DeleteAccountSheet: View {
 
         Task {
             do {
-                try await AccountDeletionService.deleteCurrentUserPlaceholder()
+                try await AccountDeletionService.deleteCurrentUser(isDemo: authStore.isDemo)
                 await authStore.logout()
                 await MainActor.run {
                     LocalAccountDataCleaner.clearAll()
@@ -1132,9 +1134,134 @@ private struct DeleteAccountBulletRow: View {
     }
 }
 
-private enum AccountDeletionService {
-    static func deleteCurrentUserPlaceholder() async throws {
-        try await Task.sleep(nanoseconds: 450_000_000)
+enum AccountDeletionService {
+    typealias RequestExecutor = (URLRequest) async throws -> (Data, URLResponse)
+    typealias AccessTokenProvider = () async throws -> String
+
+    static func deleteCurrentUser(
+        isDemo: Bool,
+        accountDeletionURL: URL? = configuredAccountDeletionURL,
+        publishableKey: String? = configuredSupabasePublishableKey,
+        accessTokenProvider: AccessTokenProvider = currentAccessToken,
+        requestExecutor: @escaping RequestExecutor = { request in
+            try await URLSession.shared.data(for: request)
+        }
+    ) async throws {
+        guard !isDemo else { return }
+        guard let accountDeletionURL else {
+            throw AccountDeletionError.missingFunctionURL
+        }
+
+        let accessToken = try await accessTokenProvider()
+        let request = try deletionRequest(
+            accountDeletionURL: accountDeletionURL,
+            accessToken: accessToken,
+            publishableKey: publishableKey
+        )
+        let (data, response) = try await requestExecutor(request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AccountDeletionError.invalidResponse
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw AccountDeletionError.backend(
+                statusCode: httpResponse.statusCode,
+                message: backendErrorMessage(from: data)
+            )
+        }
+    }
+
+    static var configuredAccountDeletionURL: URL? {
+        guard let supabaseURL = configuredSupabaseURL else {
+            return nil
+        }
+
+        return supabaseURL
+            .appendingPathComponent("functions")
+            .appendingPathComponent("v1")
+            .appendingPathComponent("delete-account")
+    }
+
+    static func deletionRequest(
+        accountDeletionURL: URL,
+        accessToken: String,
+        publishableKey: String? = configuredSupabasePublishableKey
+    ) throws -> URLRequest {
+        var request = URLRequest(url: accountDeletionURL)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let publishableKey {
+            request.setValue(publishableKey, forHTTPHeaderField: "apikey")
+        }
+        return request
+    }
+
+    private static var configuredSupabaseURL: URL? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String else {
+            return nil
+        }
+
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("$(") else { return nil }
+        return URL(string: trimmed)
+    }
+
+    private static var configuredSupabasePublishableKey: String? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_KEY") as? String else {
+            return nil
+        }
+
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("$(") else { return nil }
+        return trimmed
+    }
+
+    private static func currentAccessToken() async throws -> String {
+        guard let supabaseClient else {
+            throw AccountDeletionError.supabaseUnavailable
+        }
+
+        let session = try await supabaseClient.auth.session
+        return session.accessToken
+    }
+
+    private static func backendErrorMessage(from data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let error = object["error"] as? String,
+           !error.isEmpty {
+            return error
+        }
+
+        let text = String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+}
+
+enum AccountDeletionError: LocalizedError, Equatable {
+    case missingFunctionURL
+    case supabaseUnavailable
+    case invalidResponse
+    case backend(statusCode: Int, message: String?)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingFunctionURL:
+            return "Account deletion is unavailable until Supabase is configured."
+        case .supabaseUnavailable:
+            return "Account deletion is unavailable until Supabase is configured."
+        case .invalidResponse:
+            return "Account deletion failed because the server returned an invalid response."
+        case .backend(let statusCode, let message):
+            if let message, !message.isEmpty {
+                return "Account deletion failed: \(message)"
+            }
+            return "Account deletion failed with status \(statusCode)."
+        }
     }
 }
 
