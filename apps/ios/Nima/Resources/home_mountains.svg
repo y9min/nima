@@ -1,0 +1,25 @@
+<svg preserveAspectRatio="none" width="100%" height="100%" overflow="visible" style="display: block;" viewBox="0 0 1129 633.981" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="sun and mountains">
+<path id="mount 2" d="M606.249 44.3562C626.301 31.8813 651.699 31.8813 671.751 44.3562L879.074 173.337C932.022 206.277 908.681 287.981 846.323 287.981H431.677C369.319 287.981 345.978 206.277 398.926 173.337L606.249 44.3562Z" fill="var(--fill-0, #017F51)"/>
+<g id="mount  1" filter="url(#filter0_d_0_18)">
+<path d="M457.249 55.3562C477.301 42.8813 502.699 42.8813 522.751 55.3562L730.074 184.337C783.022 217.277 759.681 298.981 697.323 298.981H282.677C220.319 298.981 196.978 217.277 249.926 184.337L457.249 55.3562Z" fill="var(--fill-0, #048F5D)"/>
+</g>
+<rect id="Rectangle 51" x="496" y="210.981" width="226" height="423" fill="url(#paint0_linear_0_18)"/>
+</g>
+<defs>
+<filter id="filter0_d_0_18" x="176.567" y="0" width="638.866" height="352.981" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dx="6" dy="4"/>
+<feGaussianBlur stdDeviation="25"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.3 0"/>
+<feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_0_18"/>
+<feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_0_18" result="shape"/>
+</filter>
+<linearGradient id="paint0_linear_0_18" x1="609" y1="210.981" x2="609" y2="633.981" gradientUnits="userSpaceOnUse">
+<stop stop-color="#048F5D"/>
+<stop offset="1" stop-color="#001E11"/>
+</linearGradient>
+</defs>
+</svg>

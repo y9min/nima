@@ -1,4 +1,4 @@
-name: Bubble
+name: Nima
 options:
   bundleIdPrefix: com.yamin.nimademo
   deploymentTarget:
@@ -6,8 +6,8 @@ options:
   xcodeVersion: "16.0"
 
 configFiles:
-  Debug: Secrets.xcconfig.example
-  Release: Secrets.xcconfig.example
+  Debug: Secrets.xcconfig
+  Release: Secrets.xcconfig
 
 packages:
   Tun2SocksKit:
@@ -17,32 +17,58 @@ packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
     from: "2.0.0"
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: "9.0.0"
+  RevenueCat:
+    url: https://github.com/RevenueCat/purchases-ios-spm.git
+    from: "5.0.0"
 
 targets:
-  Bubble:
+  Nima:
     type: application
     platform: iOS
     sources:
-      - path: Bubble
+      - path: Nima
+      - path: Shared
+    resources:
+      - path: Nima/PrivacyInfo.xcprivacy
     dependencies:
       - package: Supabase
-      - target: BubbleTunnel
+      - package: GoogleSignIn
+        product: GoogleSignIn
+      - package: RevenueCat
+        product: RevenueCat
+      - target: NimaTunnel
       - sdk: NetworkExtension.framework
     info:
-      path: Bubble/Info.plist
+      path: Nima/Info.plist
       properties:
+        CFBundleDisplayName: Nima
+        CFBundleName: Nima
         UIAppFonts:
           - SK Pupok Solid 400.ttf
           - Coolvetica Rg.otf
           - Coolvetica Rg It.otf
         UIViewControllerBasedStatusBarAppearance: false
         UIStatusBarStyle: UIStatusBarStyleLightContent
-        UILaunchScreen: {}
+        UILaunchStoryboardName: LaunchScreen
+        UIBackgroundModes:
+          - audio
         SUPABASE_URL: $(SUPABASE_URL)
         SUPABASE_KEY: $(SUPABASE_KEY)
+        GOOGLE_IOS_CLIENT_ID: $(GOOGLE_IOS_CLIENT_ID)
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - $(GOOGLE_REVERSED_CLIENT_ID)
+          - CFBundleURLSchemes:
+              - nima
+        REVENUECAT_API_KEY: $(REVENUECAT_API_KEY)
     entitlements:
-      path: Bubble/chungus.entitlements
+      path: Nima/chungus.entitlements
       properties:
+        com.apple.developer.applesignin:
+          - Default
         com.apple.developer.networking.networkextension:
           - packet-tunnel-provider
         com.apple.security.application-groups:
@@ -50,28 +76,30 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo
-        INFOPLIST_FILE: Bubble/Info.plist
-        DEVELOPMENT_TEAM: KSW886X5UX
+        INFOPLIST_FILE: Nima/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: SSTZYP6ZWB
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
         ENABLE_USER_SCRIPT_SANDBOXING: YES
 
-  BubbleTunnel:
+  NimaTunnel:
     type: app-extension
     platform: iOS
     sources:
-      - BubbleTunnel
+      - NimaTunnel
+      - Shared/TimeWindowCore.swift
     dependencies:
       - package: Tun2SocksKit
       - sdk: NetworkExtension.framework
     info:
-      path: BubbleTunnel/Info.plist
+      path: NimaTunnel/Info.plist
       properties:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
     entitlements:
-      path: BubbleTunnel/chungusTunnel.entitlements
+      path: NimaTunnel/chungusTunnel.entitlements
       properties:
         com.apple.developer.networking.networkextension:
           - packet-tunnel-provider
@@ -79,28 +107,49 @@ targets:
           - group.com.yamin.nimademo
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.BubbleTunnel
-        DEVELOPMENT_TEAM: KSW886X5UX
+        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.NimaTunnel
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: SSTZYP6ZWB
 
-  BubbleTunnelTests:
+  NimaTunnelTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - BubbleTunnelTests
-      - path: BubbleTunnel/BubbleConstants.swift
-      - path: BubbleTunnel/ReelsBlockFilter.swift
-      - path: BubbleTunnel/SOCKSProxyServer.swift
-      - path: BubbleTunnel/TrafficStats.swift
-      - path: BubbleTunnel/TunnelLogger.swift
-      - path: BubbleTunnel/UDPControlStreamDecoder.swift
+      - NimaTunnelTests
+      - path: NimaTunnel/NimaConstants.swift
+      - path: NimaTunnel/ReelsBlockFilter.swift
+      - path: NimaTunnel/SOCKSProxyServer.swift
+      - path: NimaTunnel/TrafficStats.swift
+      - path: NimaTunnel/TunnelLogger.swift
+      - path: NimaTunnel/UDPControlStreamDecoder.swift
+      - path: Shared/TimeWindowCore.swift
     dependencies:
       - package: Tun2SocksKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.BubbleTunnelTests
-        DEVELOPMENT_TEAM: KSW886X5UX
+        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.NimaTunnelTests
+        DEVELOPMENT_TEAM: SSTZYP6ZWB
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: ""
+        LD_RUNPATH_SEARCH_PATHS:
+          - $(inherited)
+          - "@executable_path/Frameworks"
+          - "@loader_path/Frameworks"
+
+  NimaTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - NimaTests
+    dependencies:
+      - target: Nima
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.NimaTests
+        DEVELOPMENT_TEAM: SSTZYP6ZWB
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Nima.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Nima"
+        BUNDLE_LOADER: "$(TEST_HOST)"
         LD_RUNPATH_SEARCH_PATHS:
           - $(inherited)
           - "@executable_path/Frameworks"
@@ -112,40 +161,42 @@ targets:
     sources:
       - TikTokVPNDropUITests
     dependencies:
-      - target: Bubble
+      - target: Nima
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.TikTokVPNDropUITests
-        DEVELOPMENT_TEAM: KSW886X5UX
+        DEVELOPMENT_TEAM: SSTZYP6ZWB
         GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: Bubble
+        TEST_TARGET_NAME: Nima
 
 schemes:
-  Bubble:
+  Nima:
     build:
       targets:
-        Bubble: all
-        BubbleTunnel: all
-        BubbleTunnelTests: [test]
+        Nima: all
+        NimaTunnel: all
+        NimaTests: [test]
+        NimaTunnelTests: [test]
     test:
       targets:
-        - BubbleTunnelTests
+        - NimaTests
+        - NimaTunnelTests
 
   TikTokVPNDropUITests:
     build:
       targets:
-        Bubble: all
+        Nima: all
         TikTokVPNDropUITests: [test]
     test:
       targets:
         - TikTokVPNDropUITests
 
-  BubbleTunnel:
+  NimaTunnel:
     build:
       targets:
-        Bubble: all
-        BubbleTunnel: all
-        BubbleTunnelTests: [test]
+        Nima: all
+        NimaTunnel: all
+        NimaTunnelTests: [test]
     test:
       targets:
-        - BubbleTunnelTests
+        - NimaTunnelTests

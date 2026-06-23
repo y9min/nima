@@ -1,5 +1,5 @@
 {
-  "name": "@bubble/ios",
+  "name": "@nima/ios",
   "version": "0.0.0",
   "private": true,
   "scripts": {
@@ -9,6 +9,6 @@
     "generate-project": "xcodegen generate --spec project.yml"
   },
   "dependencies": {
-    "@bubble/assets": "workspace:*"
+    "@nima/assets": "workspace:*"
   }
 }

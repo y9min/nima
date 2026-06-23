@@ -1,0 +1,37 @@
+{
+  "instagram": {
+    "appId": "instagram",
+    "options": [
+      {
+        "id": "strict_reels",
+        "label": "reels",
+        "isSelected": false
+      }
+    ]
+  },
+  "tiktok": {
+    "appId": "tiktok",
+    "options": [
+      {
+        "id": "video_block",
+        "label": "video_block",
+        "isSelected": false
+      }
+    ]
+  },
+  "x": {
+    "appId": "x",
+    "options": [
+      {
+        "id": "feed_block",
+        "label": "feed",
+        "isSelected": false
+      },
+      {
+        "id": "strict_feed_block",
+        "label": "strict",
+        "isSelected": false
+      }
+    ]
+  }
+}

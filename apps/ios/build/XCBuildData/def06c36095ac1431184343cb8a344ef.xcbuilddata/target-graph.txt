@@ -1,9 +1,0 @@
-Target dependency graph (4 targets)
-Target 'BubbleTunnel' in project 'Bubble'
-➜ Explicit dependency on target 'Tun2SocksKit' in project 'Tun2SocksKit'
-Target 'Tun2SocksKit' in project 'Tun2SocksKit'
-➜ Explicit dependency on target 'Tun2SocksKit' in project 'Tun2SocksKit'
-➜ Explicit dependency on target 'Tun2SocksKitC' in project 'Tun2SocksKit'
-Target 'Tun2SocksKit' in project 'Tun2SocksKit'
-➜ Explicit dependency on target 'Tun2SocksKitC' in project 'Tun2SocksKit'
-Target 'Tun2SocksKitC' in project 'Tun2SocksKit' (no dependencies)

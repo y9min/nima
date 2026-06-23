@@ -10,12 +10,23 @@ dist/
 # Swift / Xcode
 Secrets.xcconfig
 DerivedData/
+apps/ios/build/
 *.xcuserstate
 xcuserdata/
 .build/
 *.ipa
 *.dSYM.zip
 *.dSYM
+
+# Build caches
+apps/web/tsconfig.tsbuildinfo
+supabase/.temp/
+apps/ios/scripts/__pycache__/
+
+# Local QA/debug scratch output
+apps/ios/screenshots/
+apps/ios/artifacts/
+apps/ios/*.png
 
 # General
 .DS_Store

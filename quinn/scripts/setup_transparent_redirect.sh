@@ -20,7 +20,7 @@ PROXY_LISTEN_PORT="${PROXY_LISTEN_PORT:-8080}"
 # Subnet of VPN clients (WireGuard Address range). Must be set for redirect.
 VPN_SUBNET="${VPN_SUBNET:-}"
 
-TABLE_NAME="bubble_redirect"
+TABLE_NAME="nima_redirect"
 
 usage() {
   echo "Usage: $0 [enable|disable|status]" >&2

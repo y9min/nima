@@ -14,13 +14,13 @@ importers:
 
   apps/ios:
     dependencies:
-      '@bubble/assets':
+      '@nima/assets':
         specifier: workspace:*
         version: link:../../packages/assets
 
   apps/web:
     dependencies:
-      '@bubble/assets':
+      '@nima/assets':
         specifier: workspace:*
         version: link:../../packages/assets
       '@supabase/ssr':

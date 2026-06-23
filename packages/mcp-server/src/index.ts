@@ -2,7 +2,7 @@ import { FastMCP } from "fastmcp";
 import { registerTools } from "./tools.js";
 
 const server = new FastMCP({
-  name: "bubble",
+  name: "nima",
   version: "0.1.0",
   authenticate: async (request) => {
     const token = request.headers["authorization"];

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quick checks for bubble setup (both modes).
+# Quick checks for Nima setup (both modes).
 # Run on the server. No root needed for status checks.
 
 set -e
@@ -21,8 +21,8 @@ CONN_MAX_BYTES="${CONN_MAX_BYTES:-2000000}"
 # Detect which mode is active.
 HAS_CONNLIMIT=false
 HAS_REDIRECT=false
-sudo nft list table ip bubble_connlimit &>/dev/null 2>&1 && HAS_CONNLIMIT=true
-sudo nft list table ip bubble_redirect &>/dev/null 2>&1 && HAS_REDIRECT=true
+sudo nft list table ip nima_connlimit &>/dev/null 2>&1 && HAS_CONNLIMIT=true
+sudo nft list table ip nima_redirect &>/dev/null 2>&1 && HAS_REDIRECT=true
 
 echo "=== WireGuard interface: $WG_INTERFACE ==="
 if ip link show "$WG_INTERFACE" &>/dev/null; then
@@ -38,7 +38,7 @@ if $HAS_CONNLIMIT; then
   echo "  Mode: CONNBYTE FILTER (Option A — no CA cert needed)"
   echo ""
   echo "--- Connection byte limit rules ---"
-  sudo nft list table ip bubble_connlimit
+  sudo nft list table ip nima_connlimit
   echo ""
   echo "--- Counters show how many connections have been reset. ---"
 
@@ -62,7 +62,7 @@ elif $HAS_REDIRECT; then
   echo "  Mode: TRANSPARENT MITM PROXY (Option B — requires CA cert)"
   echo ""
   echo "--- Redirect rules ---"
-  sudo nft list table ip bubble_redirect
+  sudo nft list table ip nima_redirect
   echo ""
   echo "--- Proxy status ---"
   if ss -ltn 2>/dev/null | grep -q ":$PROXY_LISTEN_PORT "; then

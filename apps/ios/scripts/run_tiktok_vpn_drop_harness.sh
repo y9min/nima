@@ -9,9 +9,9 @@ DEVICE_UDID="${DEVICE_UDID:-$DEFAULT_DEVICE_UDID}"
 DURATION="600"
 ARTIFACT_DIR=""
 APP_GROUP_ID="${APP_GROUP_ID:-group.com.yamin.nimademo}"
-BUBBLE_BUNDLE_ID="${BUBBLE_BUNDLE_ID:-com.yamin.nimademo}"
+NIMA_BUNDLE_ID="${NIMA_BUNDLE_ID:-com.yamin.nimademo}"
 TIKTOK_BUNDLE_ID="${TIKTOK_BUNDLE_ID:-com.zhiliaoapp.musically}"
-BUBBLE_WARMUP_SECONDS="${BUBBLE_WARMUP_SECONDS:-8}"
+NIMA_WARMUP_SECONDS="${NIMA_WARMUP_SECONDS:-8}"
 TIKTOK_WARMUP_SECONDS="${TIKTOK_WARMUP_SECONDS:-6}"
 SWIPE_INTERVAL_SECONDS="${SWIPE_INTERVAL_SECONDS:-2.5}"
 SWIPE_MODE="${SWIPE_MODE:-combo}"
@@ -24,11 +24,11 @@ usage() {
   cat <<USAGE
 Usage: $(basename "$0") [--duration SECONDS] [--device UDID] [--artifact-dir DIR] [--swipe-interval SECONDS]
 
-Runs a physical-iPhone TikTok scroll harness against the Bubble VPN.
+Runs a physical-iPhone TikTok scroll harness against the Nima VPN.
 Duration must be at least 600 seconds.
 
 Environment overrides:
-  BUBBLE_BUNDLE_ID          default: $BUBBLE_BUNDLE_ID
+  NIMA_BUNDLE_ID          default: $NIMA_BUNDLE_ID
   TIKTOK_BUNDLE_ID          default: $TIKTOK_BUNDLE_ID
   APP_GROUP_ID              default: $APP_GROUP_ID
   SWIPE_START_X/Y           default: $SWIPE_START_X,$SWIPE_START_Y
@@ -49,9 +49,9 @@ fail() {
 Setup checklist:
 - Connect and trust iPhone 00008110-0009144E0212401E over USB.
 - Unlock the phone and leave it awake for the whole run.
-- Install/prepare Bubble, grant VPN permission, and enable the TikTok policy that starts the VPN.
+- Install/prepare Nima, grant VPN permission, and enable the TikTok policy that starts the VPN.
 - Install TikTok and complete any first-run login, age, notification, and network prompts.
-- Confirm this Mac can run Xcode UI tests on the phone with the Bubble development team/profile.
+- Confirm this Mac can run Xcode UI tests on the phone with the Nima development team/profile.
 SETUP
   exit 1
 }
@@ -141,7 +141,7 @@ log "device_udid=$DEVICE_UDID duration=${DURATION}s swipe_interval=${SWIPE_INTER
 
 DEVICE_JSON="$ARTIFACT_DIR/device.json"
 LOCK_JSON="$ARTIFACT_DIR/lock_state.json"
-BUBBLE_APP_JSON="$ARTIFACT_DIR/bubble_app.json"
+NIMA_APP_JSON="$ARTIFACT_DIR/nima_app.json"
 TIKTOK_APP_JSON="$ARTIFACT_DIR/tiktok_app.json"
 XCODEBUILD_LOG="$ARTIFACT_DIR/xcodebuild_tiktok_ui_test.log"
 
@@ -195,10 +195,10 @@ if result.get("unlockedSinceBoot") is False:
     raise SystemExit("Device has not been unlocked since boot. Unlock it before running the harness.")
 PY
 
-log "checking Bubble and TikTok installs"
-devicectl_json "$BUBBLE_APP_JSON" device info apps --device "$DEVICE_UDID" --include-all-apps --bundle-id "$BUBBLE_BUNDLE_ID"
+log "checking Nima and TikTok installs"
+devicectl_json "$NIMA_APP_JSON" device info apps --device "$DEVICE_UDID" --include-all-apps --bundle-id "$NIMA_BUNDLE_ID"
 devicectl_json "$TIKTOK_APP_JSON" device info apps --device "$DEVICE_UDID" --include-all-apps --bundle-id "$TIKTOK_BUNDLE_ID"
-python3 - "$BUBBLE_APP_JSON" "$BUBBLE_BUNDLE_ID" "$TIKTOK_APP_JSON" "$TIKTOK_BUNDLE_ID" <<'PY'
+python3 - "$NIMA_APP_JSON" "$NIMA_BUNDLE_ID" "$TIKTOK_APP_JSON" "$TIKTOK_BUNDLE_ID" <<'PY'
 import json
 import sys
 
@@ -223,12 +223,12 @@ if ! (
   TIKTOK_HARNESS_SWIPE_END_X="$SWIPE_END_X" \
   TIKTOK_HARNESS_SWIPE_END_Y="$SWIPE_END_Y" \
   TIKTOK_HARNESS_SWIPE_MODE="$SWIPE_MODE" \
-  TIKTOK_HARNESS_BUBBLE_WARMUP="$BUBBLE_WARMUP_SECONDS" \
+  TIKTOK_HARNESS_NIMA_WARMUP="$NIMA_WARMUP_SECONDS" \
   TIKTOK_HARNESS_TIKTOK_WARMUP="$TIKTOK_WARMUP_SECONDS" \
-  BUBBLE_BUNDLE_ID="$BUBBLE_BUNDLE_ID" \
+  NIMA_BUNDLE_ID="$NIMA_BUNDLE_ID" \
   TIKTOK_BUNDLE_ID="$TIKTOK_BUNDLE_ID" \
   xcodebuild test \
-    -project Bubble.xcodeproj \
+    -project Nima.xcodeproj \
     -scheme TikTokVPNDropUITests \
     -destination "platform=iOS,id=$DEVICE_UDID" \
     -allowProvisioningUpdates \
@@ -236,7 +236,7 @@ if ! (
     -only-testing:TikTokVPNDropUITests/TikTokVPNDropUITests/testTikTokVPNDropScroll
 ) >"$XCODEBUILD_LOG" 2>&1; then
   tail -80 "$XCODEBUILD_LOG" >&2 || true
-  fail "XCUITest TikTok swipe harness failed. Keep the phone unlocked, clear TikTok/Bubble prompts, and confirm the development profile can run UI tests on this device."
+  fail "XCUITest TikTok swipe harness failed. Keep the phone unlocked, clear TikTok/Nima prompts, and confirm the development profile can run UI tests on this device."
 fi
 
 END_EPOCH="$(date +%s)"
@@ -252,7 +252,7 @@ if ! devicectl_json "$ARTIFACT_DIR/copy_app_group.json" device copy from \
   --domain-identifier "$APP_GROUP_ID" \
   --source / \
   --destination "$APP_GROUP_DIR"; then
-  fail "Could not copy the Bubble app-group container. Confirm the app is installed with the $APP_GROUP_ID entitlement."
+  fail "Could not copy the Nima app-group container. Confirm the app is installed with the $APP_GROUP_ID entitlement."
 fi
 
 copy_if_present "$APP_GROUP_DIR/app_diagnostic_log.txt" "$ARTIFACT_DIR/app_diagnostic_log.txt"
@@ -289,8 +289,8 @@ mkdir -p "$CRASH_DIR"
 HOST_CRASH_ROOT="$HOME/Library/Logs/CrashReporter/MobileDevice"
 if [[ -d "$HOST_CRASH_ROOT" ]]; then
   find "$HOST_CRASH_ROOT" -type f \( \
-      -name 'Bubble*.ips' -o \
-      -name 'BubbleTunnel*.ips' -o \
+      -name 'Nima*.ips' -o \
+      -name 'NimaTunnel*.ips' -o \
       -name 'JetsamEvent*.ips' -o \
       -name '*networkextensiond*.ips' -o \
       -name '*neagent*.ips' -o \

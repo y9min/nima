@@ -1,0 +1,24 @@
+# Application-layer proxy (mitmproxy with VeilHeuristicBlocker).
+# Install: copy to /etc/systemd/system/, edit NIMA_ROOT below if not /opt/nima, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now nima-proxy
+# Create user: useradd -r -s /usr/sbin/nologin nima
+# Ensure /opt/nima (or NIMA_ROOT) has .env and is readable by nima.
+
+[Unit]
+Description=Nima VPN proxy (mitmproxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=NIMA_ROOT=/opt/nima
+EnvironmentFile=-/etc/default/nima
+ExecStart=/bin/sh -c 'exec "${NIMA_ROOT}/scripts/run_proxy.sh" dump'
+Restart=on-failure
+RestartSec=5
+User=nima
+Group=nima
+
+[Install]
+WantedBy=multi-user.target
