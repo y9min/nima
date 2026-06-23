@@ -301,7 +301,12 @@ struct NimaApp: App {
             onShowGuidedOnboarding: {
                 guidedOnboardingPresentationMode = .manualReplay
             },
-            guidedPracticeCardStep: guidedPracticeCardStep
+            guidedPracticeCardStep: guidedPracticeCardStep,
+            showsGuidedWindowsHomeCoachMark: guidedPracticePhase == .windowsHomeCoachMark,
+            onGuidedWindowsHomeAction: beginGuidedWindowsEditor,
+            guidedWindowsEditorStep: guidedWindowsEditorStep,
+            onGuidedWindowsEditorAdvance: advanceGuidedWindowsEditorStep,
+            onGuidedWindowsEditorFinished: showGuidedWindowsReadyModal
         )
     }
 
@@ -321,6 +326,7 @@ struct NimaApp: App {
     private var needsSubscriptionGate: Bool {
         onboardingStore.isCompleted
             && onboardingStore.hasCompletedGuidedPractice
+            && onboardingStore.hasCompletedGuidedWindowsOnboarding
     }
 
     private var shouldHoldPaywallForGuidedPracticeReturn: Bool {
@@ -329,7 +335,7 @@ struct NimaApp: App {
         }
 
         switch guidedPracticePhase {
-        case .success, .reviewPrompt, .troubleshooting:
+        case .success, .windowsHomeCoachMark, .windowsEditor, .windowsReady, .reviewPrompt, .troubleshooting:
             return true
         case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .openAppPrompt, .waitingForReturn, .completed:
             return false
@@ -364,10 +370,16 @@ struct NimaApp: App {
             .zIndex(11)
         case .success:
             GuidedPracticeSuccessModal(
-                onContinue: showGuidedPracticeReviewPrompt,
+                onContinue: continueGuidedPracticeSuccess,
                 onTroubleshoot: {
                     guidedPracticePhase = .troubleshooting
                 }
+            )
+            .transition(.opacity)
+            .zIndex(11)
+        case .windowsReady:
+            GuidedWindowsReadyModal(
+                onContinue: continueGuidedWindowsReady
             )
             .transition(.opacity)
             .zIndex(11)
@@ -387,7 +399,7 @@ struct NimaApp: App {
             )
             .transition(.opacity)
             .zIndex(11)
-        case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .waitingForReturn, .completed:
+        case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .waitingForReturn, .windowsHomeCoachMark, .windowsEditor, .completed:
             EmptyView()
         }
     }
@@ -398,16 +410,21 @@ struct NimaApp: App {
             return .ready
         case .dragTikTokCoachMark:
             return .dragTikTok
-        case .hidden, .introSlides, .openAppPrompt, .waitingForReturn, .success, .reviewPrompt, .troubleshooting, .completed:
+        case .hidden, .introSlides, .openAppPrompt, .waitingForReturn, .success, .windowsHomeCoachMark, .windowsEditor, .windowsReady, .reviewPrompt, .troubleshooting, .completed:
             return nil
         }
+    }
+
+    private var guidedWindowsEditorStep: GuidedWindowsEditorStep? {
+        guard case .windowsEditor(let step) = guidedPracticePhase else { return nil }
+        return step
     }
 
     private var shouldMountPiPInstructionHost: Bool {
         switch guidedPracticePhase {
         case .openAppPrompt, .waitingForReturn:
             return true
-        case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .success, .reviewPrompt, .troubleshooting, .completed:
+        case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .success, .windowsHomeCoachMark, .windowsEditor, .windowsReady, .reviewPrompt, .troubleshooting, .completed:
             return false
         }
     }
@@ -425,6 +442,14 @@ struct NimaApp: App {
             guidedOnboardingPresentationMode = nil
             hasHandledGuidedPracticeReviewRequest = false
             guidedPracticePhase = .success
+            return
+        }
+
+        if onboardingStore.hasCompletedGuidedPractice,
+           !onboardingStore.hasCompletedGuidedWindowsOnboarding,
+           guidedOnboardingPresentationMode == nil,
+           guidedPracticePhase == .hidden || guidedPracticePhase == .completed {
+            beginGuidedWindowsOnboarding()
             return
         }
 
@@ -505,6 +530,59 @@ struct NimaApp: App {
             guard !success else { return }
             openFirstAvailableURL(Array(urls.dropFirst()))
         }
+    }
+
+    private func continueGuidedPracticeSuccess() {
+        if onboardingStore.hasCompletedGuidedWindowsOnboarding {
+            onboardingStore.markGuidedPracticeCompleted()
+            onboardingStore.setGuidedPracticeReturnPending(false)
+            showGuidedPracticeReviewPrompt()
+        } else {
+            onboardingStore.markGuidedWindowsOnboardingPending()
+            onboardingStore.markGuidedPracticeCompleted()
+            onboardingStore.setGuidedPracticeReturnPending(false)
+            beginGuidedWindowsOnboarding()
+        }
+    }
+
+    private func beginGuidedWindowsOnboarding() {
+        path = NavigationPath()
+        guidedOnboardingPresentationMode = nil
+        hasHandledGuidedPracticeReviewRequest = false
+        guidedPracticePhase = .windowsHomeCoachMark
+    }
+
+    private func beginGuidedWindowsEditor() {
+        guard guidedPracticePhase == .windowsHomeCoachMark else { return }
+        guidedPracticePhase = .windowsEditor(.name)
+    }
+
+    private func advanceGuidedWindowsEditorStep() {
+        guard case .windowsEditor(let step) = guidedPracticePhase else { return }
+        switch step {
+        case .name:
+            guidedPracticePhase = .windowsEditor(.time)
+        case .time:
+            guidedPracticePhase = .windowsEditor(.apps)
+        case .apps:
+            guidedPracticePhase = .windowsEditor(.repeatDays)
+        case .repeatDays:
+            guidedPracticePhase = .windowsEditor(.icon)
+        case .icon:
+            guidedPracticePhase = .windowsEditor(.saveOrCancel)
+        case .saveOrCancel:
+            break
+        }
+    }
+
+    private func showGuidedWindowsReadyModal() {
+        guard case .windowsEditor = guidedPracticePhase else { return }
+        guidedPracticePhase = .windowsReady
+    }
+
+    private func continueGuidedWindowsReady() {
+        onboardingStore.markGuidedWindowsOnboardingCompleted()
+        showGuidedPracticeReviewPrompt()
     }
 
     private func showGuidedPracticeReviewPrompt() {

@@ -50,6 +50,7 @@ function isPublicPath(pathname: string) {
   return (
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth") ||
+    pathname === "/privacy-policy" ||
     pathname === "/android-waitlist" ||
     pathname === "/android-waitlist.js"
   );

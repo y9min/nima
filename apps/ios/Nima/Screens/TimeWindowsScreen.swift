@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct TimeWindowsScreen: View {
     @Environment(TimeWindowStore.self) private var store
@@ -9,6 +10,9 @@ struct TimeWindowsScreen: View {
     let onSettings: () -> Void
     var addWindowRequestID: UUID?
     var onAddWindowRequestHandled: (() -> Void)?
+    var guidedWindowsEditorStep: GuidedWindowsEditorStep?
+    var onGuidedWindowsEditorAdvance: () -> Void = {}
+    var onGuidedWindowsEditorFinished: () -> Void = {}
     var showsDock = true
 
     @State private var handledAddWindowRequestID: UUID?
@@ -49,7 +53,11 @@ struct TimeWindowsScreen: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(item: $editorPresentation) { presentation in
+        .sheet(item: $editorPresentation, onDismiss: {
+            if guidedWindowsEditorStep != nil {
+                onGuidedWindowsEditorFinished()
+            }
+        }) { presentation in
             TimeWindowEditorSheet(
                 window: presentation.window,
                 onSave: { window in
@@ -61,7 +69,10 @@ struct TimeWindowsScreen: View {
                 },
                 onDelete: { id in
                     store.deleteWindow(id: id)
-                }
+                },
+                guidedStep: guidedWindowsEditorStep,
+                onGuidedStepAdvance: onGuidedWindowsEditorAdvance,
+                onGuidedEditorFinished: onGuidedWindowsEditorFinished
             )
             .id(presentation.id)
             .presentationDetents([.large])
@@ -376,6 +387,9 @@ private struct TimeWindowEditorSheet: View {
     let window: TimeWindow?
     let onSave: (TimeWindow) -> Void
     let onDelete: (String) -> Void
+    let guidedStep: GuidedWindowsEditorStep?
+    let onGuidedStepAdvance: () -> Void
+    let onGuidedEditorFinished: () -> Void
 
     @State private var emoji: String
     @State private var name: String
@@ -388,10 +402,20 @@ private struct TimeWindowEditorSheet: View {
     @State private var isShowingRepeat = false
     @State private var isShowingDeleteConfirmation = false
 
-    init(window: TimeWindow?, onSave: @escaping (TimeWindow) -> Void, onDelete: @escaping (String) -> Void) {
+    init(
+        window: TimeWindow?,
+        onSave: @escaping (TimeWindow) -> Void,
+        onDelete: @escaping (String) -> Void,
+        guidedStep: GuidedWindowsEditorStep? = nil,
+        onGuidedStepAdvance: @escaping () -> Void = {},
+        onGuidedEditorFinished: @escaping () -> Void = {}
+    ) {
         self.window = window
         self.onSave = onSave
         self.onDelete = onDelete
+        self.guidedStep = guidedStep
+        self.onGuidedStepAdvance = onGuidedStepAdvance
+        self.onGuidedEditorFinished = onGuidedEditorFinished
 
         let draft = window ?? TimeWindow()
         _emoji = State(initialValue: draft.emoji)
@@ -413,6 +437,7 @@ private struct TimeWindowEditorSheet: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 22) {
                         emojiPicker
+                            .zIndex(guidedStep == .icon ? 100 : 0)
                         nameField
                         timePickers
                         appSelection
@@ -456,11 +481,29 @@ private struct TimeWindowEditorSheet: View {
         } message: {
             Text("This schedule will stop turning blockers on automatically.")
         }
+        .onChange(of: isShowingRepeat) { wasShowing, isShowing in
+            guard wasShowing, !isShowing else { return }
+            advanceGuidedStepIfNeeded(.repeatDays)
+        }
+        .onChange(of: isShowingEmojiPicker) { wasShowing, isShowing in
+            guard wasShowing, !isShowing else { return }
+            advanceGuidedStepIfNeeded(.icon)
+        }
+        .onChange(of: name) { _, _ in
+            advanceGuidedStepIfNeeded(.name)
+        }
+        .onChange(of: startDate) { _, _ in
+            advanceGuidedStepIfNeeded(.time)
+        }
+        .onChange(of: endDate) { _, _ in
+            advanceGuidedStepIfNeeded(.time)
+        }
     }
 
     private var sheetHeader: some View {
         HStack {
             Button {
+                finishGuidedEditorIfNeeded()
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
@@ -514,6 +557,13 @@ private struct TimeWindowEditorSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Icon")
+        .guidedWindowsCoachMark(
+            isPresented: guidedStep == .icon,
+            text: "Choose an icon so this window is\neasy to recognise",
+            pointer: .up,
+            offset: CGSize(width: 0, height: 55),
+            onTap: onGuidedStepAdvance
+        )
     }
 
     private var nameField: some View {
@@ -528,7 +578,17 @@ private struct TimeWindowEditorSheet: View {
                 .frame(height: 54)
                 .background(TimeWindowsPalette.card)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .onTapGesture {
+                    advanceGuidedStepIfNeeded(.name)
+                }
         }
+        .guidedWindowsCoachMark(
+            isPresented: guidedStep == .name,
+            content: guidedWindowsNameCoachText,
+            pointer: .down,
+            offset: CGSize(width: 0, height: -50),
+            onTap: onGuidedStepAdvance
+        )
     }
 
     private var timePickers: some View {
@@ -553,6 +613,13 @@ private struct TimeWindowEditorSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .guidedWindowsCoachMark(
+            isPresented: guidedStep == .time,
+            text: "Pick when your window should\nstart and end",
+            pointer: .down,
+            offset: CGSize(width: 0, height: -62),
+            onTap: onGuidedStepAdvance
+        )
     }
 
     private var appSelection: some View {
@@ -562,11 +629,19 @@ private struct TimeWindowEditorSheet: View {
             appRow(appID: "instagram", title: "Instagram")
             appRow(appID: "tiktok", title: "TikTok")
         }
+        .guidedWindowsCoachMark(
+            isPresented: guidedStep == .apps,
+            text: "Select the feeds you want Nima to\nblock during this window",
+            pointer: .up,
+            offset: CGSize(width: 0, height: 61),
+            onTap: onGuidedStepAdvance
+        )
     }
 
     private func appRow(appID: String, title: String) -> some View {
         Button {
             toggleApp(appID)
+            advanceGuidedStepIfNeeded(.apps)
         } label: {
             HStack(spacing: 12) {
                 SocialMediaIcon(platform: appID, size: 28)
@@ -609,6 +684,13 @@ private struct TimeWindowEditorSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
+        .guidedWindowsCoachMark(
+            isPresented: guidedStep == .repeatDays,
+            text: "Pick which days you want this\nwindow to run",
+            pointer: .up,
+            offset: CGSize(width: 0, height: 63),
+            onTap: onGuidedStepAdvance
+        )
     }
 
     private var deleteButton: some View {
@@ -666,7 +748,18 @@ private struct TimeWindowEditorSheet: View {
             updatedAt: now
         )
         onSave(savedWindow)
+        finishGuidedEditorIfNeeded()
         dismiss()
+    }
+
+    private func advanceGuidedStepIfNeeded(_ step: GuidedWindowsEditorStep) {
+        guard guidedStep == step else { return }
+        onGuidedStepAdvance()
+    }
+
+    private func finishGuidedEditorIfNeeded() {
+        guard guidedStep != nil else { return }
+        onGuidedEditorFinished()
     }
 
     private static func date(from time: String) -> Date {
@@ -679,6 +772,125 @@ private struct TimeWindowEditorSheet: View {
 
     private static func timeString(from date: Date) -> String {
         TimeWindowScheduleEvaluator.timeString(from: date)
+    }
+}
+
+private enum GuidedWindowsCoachPointer {
+    case up
+    case down
+}
+
+private var guidedWindowsNameCoachText: some View {
+    (
+        Text("Choose a name, like\n")
+            .font(.system(size: 18, weight: .semibold, design: .rounded))
+        + Text("Morning Focus")
+            .font(.system(size: 18, weight: .bold, design: .rounded))
+        + Text(" or ")
+            .font(.system(size: 18, weight: .semibold, design: .rounded))
+        + Text("After Work")
+            .font(.system(size: 18, weight: .bold, design: .rounded))
+    )
+}
+
+private extension View {
+    func guidedWindowsCoachMark(
+        isPresented: Bool,
+        text: String,
+        pointer: GuidedWindowsCoachPointer,
+        offset: CGSize,
+        onTap: @escaping () -> Void
+    ) -> some View {
+        guidedWindowsCoachMark(
+            isPresented: isPresented,
+            content: Text(text)
+                .font(.system(size: 18, weight: .bold, design: .rounded)),
+            pointer: pointer,
+            offset: offset,
+            onTap: onTap
+        )
+    }
+
+    func guidedWindowsCoachMark<CoachContent: View>(
+        isPresented: Bool,
+        content: CoachContent,
+        pointer: GuidedWindowsCoachPointer,
+        offset: CGSize,
+        onTap: @escaping () -> Void
+    ) -> some View {
+        overlay(alignment: .top) {
+            if isPresented {
+                Button(action: onTap) {
+                    GuidedWindowsCoachMark(pointer: pointer) {
+                        content
+                    }
+                    .frame(width: min(UIScreen.main.bounds.width - 40, 360))
+                }
+                .buttonStyle(.plain)
+                .offset(offset)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(20)
+            }
+        }
+    }
+}
+
+private struct GuidedWindowsCoachMark<Content: View>: View {
+    let pointer: GuidedWindowsCoachPointer
+    let content: Content
+
+    init(pointer: GuidedWindowsCoachPointer, @ViewBuilder content: () -> Content) {
+        self.pointer = pointer
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if pointer == .up {
+                GuidedWindowsCoachTriangle(pointsUp: true)
+                    .fill(.white)
+                    .frame(width: 24, height: 15)
+            }
+
+            content
+                .foregroundStyle(Color(red: 0.01, green: 0.12, blue: 0.08))
+                .multilineTextAlignment(.center)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white)
+                )
+
+            if pointer == .down {
+                GuidedWindowsCoachTriangle(pointsUp: false)
+                    .fill(.white)
+                    .frame(width: 24, height: 15)
+            }
+        }
+        .shadow(color: .black.opacity(0.32), radius: 10, y: 5)
+    }
+}
+
+private struct GuidedWindowsCoachTriangle: Shape {
+    let pointsUp: Bool
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        if pointsUp {
+            path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        } else {
+            path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        }
+        path.closeSubpath()
+        return path
     }
 }
 

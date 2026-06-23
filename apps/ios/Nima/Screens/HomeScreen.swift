@@ -19,6 +19,7 @@ struct HomeScreen: View {
     var onTrafficDashboard: (() -> Void)? = nil
     var onShowGuidedOnboarding: (() -> Void)? = nil
     var guidedPracticeCardStep: GuidedPracticeCardStep? = nil
+    var showsGuidedWindowsHomeCoachMark = false
     var showsDock = true
 
     var body: some View {
@@ -121,7 +122,11 @@ struct HomeScreen: View {
                 onShowGuidedOnboarding: {
                     onShowGuidedOnboarding?()
                 },
-                guidedPracticeStep: guidedPracticeCardStep
+                guidedPracticeStep: guidedPracticeCardStep,
+                showsGuidedWindowsHomeCoachMark: showsGuidedWindowsHomeCoachMark,
+                onGuidedWindowsHomeCoachMarkTap: {
+                    openAddTimeWindow()
+                }
             )
             .frame(width: layout.contentWidth, height: layout.blockerHeight)
 

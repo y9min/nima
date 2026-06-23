@@ -22,6 +22,9 @@ enum GuidedPracticePhase: Equatable {
     case openAppPrompt
     case waitingForReturn
     case success
+    case windowsHomeCoachMark
+    case windowsEditor(GuidedWindowsEditorStep)
+    case windowsReady
     case reviewPrompt
     case troubleshooting
     case completed
@@ -30,6 +33,15 @@ enum GuidedPracticePhase: Equatable {
 enum GuidedPracticeCardStep: Equatable {
     case ready
     case dragTikTok
+}
+
+enum GuidedWindowsEditorStep: Equatable {
+    case name
+    case time
+    case apps
+    case repeatDays
+    case icon
+    case saveOrCancel
 }
 
 enum GuidedPracticeLaunchApp: String, CaseIterable, Identifiable {

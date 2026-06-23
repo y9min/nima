@@ -2227,7 +2227,7 @@ private struct OnboardingPrivacySheet: View {
                 Spacer()
 
                 VStack(spacing: 18) {
-                    Text("Your data stays private")
+                    Text("Your privacy matters")
                         .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
@@ -2235,11 +2235,11 @@ private struct OnboardingPrivacySheet: View {
                         .lineLimit(1)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Nima does NOT see:")
+                        Text("Nima does not read:")
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(.white)
 
-                        ForEach(["Messages", "Passwords", "Photos", "Any personal content"], id: \.self) { item in
+                        ForEach(["Messages", "Passwords", "Photos", "Message content"], id: \.self) { item in
                             HStack(spacing: 10) {
                                 Circle()
                                     .fill(Color.white.opacity(0.14))
@@ -2255,12 +2255,12 @@ private struct OnboardingPrivacySheet: View {
                             }
                         }
 
-                        Text("Blocking happens on your phone using\nonly the network signals needed")
-                            .font(.system(size: 18, weight: .semibold))
+                        Text("Blocking uses network signals like domains, connection metadata, and block decisions. Some metadata may be logged for diagnostics, dashboards, subscriptions, and AI-powered insights.")
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.82)
+                            .lineLimit(5)
+                            .minimumScaleFactor(0.78)
                             .frame(maxWidth: .infinity)
                             .padding(.top, 12)
                     }

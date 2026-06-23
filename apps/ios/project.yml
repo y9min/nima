@@ -31,6 +31,8 @@ targets:
     sources:
       - path: Nima
       - path: Shared
+    resources:
+      - path: Nima/PrivacyInfo.xcprivacy
     dependencies:
       - package: Supabase
       - package: GoogleSignIn

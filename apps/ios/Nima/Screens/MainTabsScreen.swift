@@ -11,6 +11,11 @@ struct MainTabsScreen: View {
     let onTrafficDashboard: () -> Void
     let onShowGuidedOnboarding: () -> Void
     let guidedPracticeCardStep: GuidedPracticeCardStep?
+    var showsGuidedWindowsHomeCoachMark = false
+    var onGuidedWindowsHomeAction: () -> Void = {}
+    var guidedWindowsEditorStep: GuidedWindowsEditorStep?
+    var onGuidedWindowsEditorAdvance: () -> Void = {}
+    var onGuidedWindowsEditorFinished: () -> Void = {}
 
     var body: some View {
         GeometryReader { proxy in
@@ -32,6 +37,7 @@ struct MainTabsScreen: View {
                             onTrafficDashboard: onTrafficDashboard,
                             onShowGuidedOnboarding: onShowGuidedOnboarding,
                             guidedPracticeCardStep: guidedPracticeCardStep,
+                            showsGuidedWindowsHomeCoachMark: showsGuidedWindowsHomeCoachMark,
                             showsDock: false
                         )
                         .transition(.opacity)
@@ -43,6 +49,9 @@ struct MainTabsScreen: View {
                             onAddWindowRequestHandled: {
                                 pendingAddWindowRequestID = nil
                             },
+                            guidedWindowsEditorStep: guidedWindowsEditorStep,
+                            onGuidedWindowsEditorAdvance: onGuidedWindowsEditorAdvance,
+                            onGuidedWindowsEditorFinished: onGuidedWindowsEditorFinished,
                             showsDock: false
                         )
                         .transition(.opacity)
@@ -82,6 +91,9 @@ struct MainTabsScreen: View {
     }
 
     private func openAddTimeWindow() {
+        if showsGuidedWindowsHomeCoachMark {
+            onGuidedWindowsHomeAction()
+        }
         pendingAddWindowRequestID = UUID()
         selectedTab = .windows
     }

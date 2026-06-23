@@ -14,6 +14,7 @@ final class OnboardingStoreTests: XCTestCase {
         XCTAssertFalse(store.hasSeenGuidedOnboarding)
         XCTAssertFalse(store.hasCompletedGuidedPractice)
         XCTAssertFalse(store.hasGuidedPracticeReturnPending)
+        XCTAssertFalse(store.hasCompletedGuidedWindowsOnboarding)
     }
 
     func testSavingAnswersPersistsAndReloads() {
@@ -100,6 +101,47 @@ final class OnboardingStoreTests: XCTestCase {
         XCTAssertFalse(OnboardingStore(defaults: defaults).hasGuidedPracticeReturnPending)
     }
 
+    func testGuidedWindowsOnboardingCompletionPersists() {
+        let defaults = testDefaults()
+        let store = OnboardingStore(defaults: defaults)
+
+        store.markGuidedWindowsOnboardingCompleted()
+        let reloaded = OnboardingStore(defaults: defaults)
+
+        XCTAssertTrue(reloaded.hasCompletedGuidedWindowsOnboarding)
+    }
+
+    func testExistingGuidedPracticeUsersDefaultToGuidedWindowsComplete() {
+        let defaults = testDefaults()
+        defaults.set(true, forKey: NimaConstants.guidedPracticeCompletedKey)
+
+        let store = OnboardingStore(defaults: defaults)
+
+        XCTAssertTrue(store.hasCompletedGuidedWindowsOnboarding)
+        XCTAssertTrue(defaults.bool(forKey: NimaConstants.guidedWindowsOnboardingCompletedKey))
+    }
+
+    func testExplicitGuidedWindowsStateIsPreserved() {
+        let defaults = testDefaults()
+        defaults.set(true, forKey: NimaConstants.guidedPracticeCompletedKey)
+        defaults.set(false, forKey: NimaConstants.guidedWindowsOnboardingCompletedKey)
+
+        let store = OnboardingStore(defaults: defaults)
+
+        XCTAssertFalse(store.hasCompletedGuidedWindowsOnboarding)
+    }
+
+    func testPendingGuidedWindowsStatePreventsExistingUserMigration() {
+        let defaults = testDefaults()
+        let store = OnboardingStore(defaults: defaults)
+
+        store.markGuidedWindowsOnboardingPending()
+        store.markGuidedPracticeCompleted()
+        let reloaded = OnboardingStore(defaults: defaults)
+
+        XCTAssertFalse(reloaded.hasCompletedGuidedWindowsOnboarding)
+    }
+
     func testGuidedPracticeReviewPromptDefaultsToNotAttempted() {
         let store = GuidedPracticeReviewPromptStore(defaults: testDefaults())
 
@@ -148,6 +190,7 @@ final class OnboardingStoreTests: XCTestCase {
         store.markGuidedOnboardingSeen()
         store.markGuidedPracticeCompleted()
         store.setGuidedPracticeReturnPending(true)
+        store.markGuidedWindowsOnboardingCompleted()
 
         store.resetForOnboardingRestart()
         let reloaded = OnboardingStore(defaults: defaults)
@@ -156,6 +199,7 @@ final class OnboardingStoreTests: XCTestCase {
         XCTAssertFalse(reloaded.hasSeenGuidedOnboarding)
         XCTAssertFalse(reloaded.hasCompletedGuidedPractice)
         XCTAssertFalse(reloaded.hasGuidedPracticeReturnPending)
+        XCTAssertFalse(reloaded.hasCompletedGuidedWindowsOnboarding)
         XCTAssertNil(reloaded.phoneHours)
         XCTAssertNil(reloaded.age)
         XCTAssertTrue(reloaded.selectedHabits.isEmpty)

@@ -67,6 +67,7 @@ enum NimaConstants {
     static let guidedOnboardingSeenKey = "guidedOnboardingSeenV1"
     static let guidedPracticeCompletedKey = "guidedPracticeCompletedV1"
     static let guidedPracticeReturnPendingKey = "guidedPracticeReturnPendingV1"
+    static let guidedWindowsOnboardingCompletedKey = "guidedWindowsOnboardingCompletedV1"
     static let guidedPracticeReviewPromptedUserIDsKey = "guidedPracticeReviewPromptedUserIDsV1"
     static let timeWindowsKey = "timeWindowsV1"
     static let timeWindowsPauseAllKey = "timeWindows.pause_all"

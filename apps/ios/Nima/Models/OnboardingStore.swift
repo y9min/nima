@@ -29,6 +29,7 @@ final class OnboardingStore {
     var hasSeenGuidedOnboarding: Bool = false
     var hasCompletedGuidedPractice: Bool = false
     var hasGuidedPracticeReturnPending: Bool = false
+    var hasCompletedGuidedWindowsOnboarding: Bool = false
     var phoneHours: Int?
     var age: Int?
     var selectedHabits: Set<String> = []
@@ -87,11 +88,22 @@ final class OnboardingStore {
         defaults?.set(isPending, forKey: NimaConstants.guidedPracticeReturnPendingKey)
     }
 
+    func markGuidedWindowsOnboardingPending() {
+        hasCompletedGuidedWindowsOnboarding = false
+        defaults?.set(false, forKey: NimaConstants.guidedWindowsOnboardingCompletedKey)
+    }
+
+    func markGuidedWindowsOnboardingCompleted() {
+        hasCompletedGuidedWindowsOnboarding = true
+        defaults?.set(true, forKey: NimaConstants.guidedWindowsOnboardingCompletedKey)
+    }
+
     func resetForOnboardingRestart() {
         isCompleted = false
         hasSeenGuidedOnboarding = false
         hasCompletedGuidedPractice = false
         hasGuidedPracticeReturnPending = false
+        hasCompletedGuidedWindowsOnboarding = false
         phoneHours = nil
         age = nil
         selectedHabits = []
@@ -102,6 +114,7 @@ final class OnboardingStore {
         defaults?.set(false, forKey: NimaConstants.guidedOnboardingSeenKey)
         defaults?.set(false, forKey: NimaConstants.guidedPracticeCompletedKey)
         defaults?.set(false, forKey: NimaConstants.guidedPracticeReturnPendingKey)
+        defaults?.set(false, forKey: NimaConstants.guidedWindowsOnboardingCompletedKey)
         defaults?.removeObject(forKey: NimaConstants.onboardingStateKey)
     }
 
@@ -110,6 +123,13 @@ final class OnboardingStore {
         hasSeenGuidedOnboarding = defaults?.bool(forKey: NimaConstants.guidedOnboardingSeenKey) ?? false
         hasCompletedGuidedPractice = defaults?.bool(forKey: NimaConstants.guidedPracticeCompletedKey) ?? false
         hasGuidedPracticeReturnPending = defaults?.bool(forKey: NimaConstants.guidedPracticeReturnPendingKey) ?? false
+        if defaults?.object(forKey: NimaConstants.guidedWindowsOnboardingCompletedKey) == nil,
+           hasCompletedGuidedPractice {
+            hasCompletedGuidedWindowsOnboarding = true
+            defaults?.set(true, forKey: NimaConstants.guidedWindowsOnboardingCompletedKey)
+        } else {
+            hasCompletedGuidedWindowsOnboarding = defaults?.bool(forKey: NimaConstants.guidedWindowsOnboardingCompletedKey) ?? false
+        }
         guard let data = defaults?.data(forKey: NimaConstants.onboardingStateKey),
               let state = try? JSONDecoder().decode(OnboardingStateV1.self, from: data) else {
             return

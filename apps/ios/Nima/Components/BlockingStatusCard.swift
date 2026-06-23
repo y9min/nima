@@ -116,6 +116,8 @@ struct BlockingStatusCard: View {
     var onEndScheduledWindow: (String) -> Void = { _ in }
     var onShowGuidedOnboarding: () -> Void = {}
     var guidedPracticeStep: GuidedPracticeCardStep? = nil
+    var showsGuidedWindowsHomeCoachMark = false
+    var onGuidedWindowsHomeCoachMarkTap: () -> Void = {}
 
     @State private var draggingAppID: String?
     @State private var dragOffsets: [String: CGSize] = [:]
@@ -255,6 +257,20 @@ struct BlockingStatusCard: View {
                     .buttonStyle(.plain)
                     .position(layout.timePillCenter)
                     .transition(.opacity.combined(with: .scale(scale: 0.97)))
+
+                    if showsGuidedWindowsHomeCoachMark {
+                        Button(action: onGuidedWindowsHomeCoachMarkTap) {
+                            BlockingGuidedCoachNima(text: "Want to schedule when your feeds are blocked? Press here")
+                                .frame(width: min(layout.actualSize.width - 96, 352 * layout.visualScale))
+                        }
+                        .buttonStyle(.plain)
+                        .position(
+                            x: layout.actualSize.width / 2,
+                            y: max(54 * layout.visualScale, layout.timePillCenter.y - 70 * layout.visualScale)
+                        )
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .zIndex(32)
+                    }
                 }
 
                 if let guidedPracticeStep {

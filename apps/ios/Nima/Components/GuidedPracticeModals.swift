@@ -320,6 +320,103 @@ struct GuidedPracticeReviewModal: View {
     }
 }
 
+struct GuidedWindowsReadyModal: View {
+    var onContinue: () -> Void
+
+    var body: some View {
+        GuidedPracticeOverlay {
+            GeometryReader { proxy in
+                let scale = min(1, max(0.86, proxy.size.height / 690))
+                let graphicHeight = 224 * scale
+
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: 44 * scale)
+
+                    GuidedWindowsReadyGraphic()
+                        .frame(width: min(proxy.size.width - 44, 390 * scale), height: graphicHeight)
+                        .frame(maxWidth: .infinity)
+
+                    Spacer(minLength: 6 * scale)
+
+                    Text("Your window is ready!")
+                        .font(.system(size: 40 * scale, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .padding(.horizontal, 22)
+
+                    Text("When scheduled, Nima will send you a notification, simply tap the notification to activate")
+                        .font(.system(size: 24 * scale, weight: .regular, design: .rounded))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3 * scale)
+                        .lineLimit(4)
+                        .minimumScaleFactor(0.76)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 42)
+                        .padding(.top, 16 * scale)
+
+                    (
+                        Text("Important:")
+                            .font(.system(size: 16 * scale, weight: .bold, design: .rounded))
+                        + Text(" Due to device limitations, the window cannot begin without you opening the notification to activate")
+                            .font(.system(size: 16 * scale, weight: .regular, design: .rounded))
+                    )
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(1.5 * scale)
+                        .lineLimit(4)
+                        .minimumScaleFactor(0.78)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 42)
+                        .padding(.top, 28 * scale)
+
+                    Spacer(minLength: 34 * scale)
+
+                    Button(action: onContinue) {
+                        Text("Continue")
+                            .font(.system(size: 20, weight: .medium, design: .rounded))
+                            .foregroundStyle(.black)
+                            .frame(width: 238, height: 42)
+                            .background(GuidedPracticePalette.accent)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("guided_windows.ready_continue")
+
+                    Color.clear.frame(height: 42 * scale)
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+            }
+        }
+        .accessibilityIdentifier("guided_windows.ready")
+    }
+}
+
+private struct GuidedWindowsReadyGraphic: View {
+    var body: some View {
+        Group {
+            if let image = UIImage.homeDashboardResource(named: "guided_windows_ready", fileExtension: "png") {
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityHidden(true)
+            } else {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(.white.opacity(0.08))
+                    .overlay {
+                        Image(systemName: "bell.badge.fill")
+                            .font(.system(size: 70, weight: .regular))
+                            .foregroundStyle(GuidedPracticePalette.accent)
+                    }
+            }
+        }
+    }
+}
+
 struct GuidedPracticeTroubleshootingModal: View {
     var onBack: () -> Void
     var onOpenVPNSettings: () -> Void

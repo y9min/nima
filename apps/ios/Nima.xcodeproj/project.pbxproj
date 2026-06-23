@@ -78,11 +78,13 @@
 		93956780AD7713A8A080687E /* app_options.json in Resources */ = {isa = PBXBuildFile; fileRef = 4742AA24B2D7795D406B0595 /* app_options.json */; };
 		964126FA621A59A1D1BDFB3F /* TrafficStatsSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750E4B0AAE4B3F00014CB1C4 /* TrafficStatsSnapshotTests.swift */; };
 		980E2D72613FE35923D41C74 /* AppSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A12F62FF8F624CB4CB6FBA /* AppSettingsStoreTests.swift */; };
+		9954B147B11B9CF751AB2727 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6857448E98372373096907E3 /* PrivacyInfo.xcprivacy */; };
 		9AAF14548CBBF28BF87BE1C8 /* SOCKSProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A158D214EA24E433966260 /* SOCKSProxyServer.swift */; };
 		9AF74B78685A73BD2EE12F6D /* PaywallScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE3122BA921188A5F1441AC /* PaywallScreen.swift */; };
 		9D0458BC4421C10A6A28CAE6 /* background.png in Resources */ = {isa = PBXBuildFile; fileRef = 854FE8F9E4C2B9672F7677A4 /* background.png */; };
 		9D83563068CB4FE6618CDA5E /* NimaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E02A7E19DFE718D01409FF /* NimaButton.swift */; };
 		9F8738EB2D59742964326EC7 /* home_instagram_blocking_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = A7E55C179009A181FD30CB5F /* home_instagram_blocking_icon.png */; };
+		AB4600010000000000000001 /* guided_windows_ready.png in Resources */ = {isa = PBXBuildFile; fileRef = AB4600020000000000000002 /* guided_windows_ready.png */; };
 		A05EADCC2D163BB68A428000 /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DACE73396CB5F8C6560F142A /* VPNManager.swift */; };
 		A0F6F448A786A9FD5C2B8700 /* Tun2SocksKit in Frameworks */ = {isa = PBXBuildFile; productRef = E6E0A6D2822E63FBF423F24A /* Tun2SocksKit */; };
 		A19AC83B7F76BEBCF51A7CAE /* TunnelLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB171C4EB89D104C345EEF8 /* TunnelLogger.swift */; };
@@ -216,6 +218,7 @@
 		652463397DC31BD0E1553C1D /* Frame-2.mov */ = {isa = PBXFileReference; lastKnownFileType = video.quicktime; path = "Frame-2.mov"; sourceTree = "<group>"; };
 		67274BC2D6DAC1B2BFE82126 /* HARNESS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = HARNESS.md; sourceTree = "<group>"; };
 		67E335E8F0AC90F5B758F014 /* HomeDashboardLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeDashboardLayoutTests.swift; sourceTree = "<group>"; };
+		6857448E98372373096907E3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		6A14E31B3688700DC2E33F91 /* EmojiCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiCatalog.swift; sourceTree = "<group>"; };
 		6A337E7969CF08D8D6FE872F /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		6A92B8D6AB326782E3642BE3 /* TrafficStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficStats.swift; sourceTree = "<group>"; };
@@ -244,6 +247,7 @@
 		A7E55C179009A181FD30CB5F /* home_instagram_blocking_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_instagram_blocking_icon.png; sourceTree = "<group>"; };
 		A95C81B0AB038DCD16C765D8 /* home_streak_flame.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_streak_flame.png; sourceTree = "<group>"; };
 		AA4C8AB88931C3E196EA826A /* HarnessScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessScenarioTests.swift; sourceTree = "<group>"; };
+		AB4600020000000000000002 /* guided_windows_ready.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = guided_windows_ready.png; sourceTree = "<group>"; };
 		ABE6E21B68F0A7C9E658A7B9 /* GuidedPracticeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedPracticeModels.swift; sourceTree = "<group>"; };
 		AC23C93BD155E614ED46325D /* AppIconCircle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconCircle.swift; sourceTree = "<group>"; };
 		AC61AF93D5CDA279171EC746 /* NimaTunnel.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NimaTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -336,6 +340,7 @@
 				6A337E7969CF08D8D6FE872F /* LaunchScreen.storyboard */,
 				6C24720F4635D0D6E122B3BF /* NimaApp.swift */,
 				F47B517FE3D6ABE29BCD33A1 /* NimaConstants.swift */,
+				6857448E98372373096907E3 /* PrivacyInfo.xcprivacy */,
 				B49DCE607B1EBF1843C488FB /* TrafficMonitor.swift */,
 				6A92B8D6AB326782E3642BE3 /* TrafficStats.swift */,
 				DACE73396CB5F8C6560F142A /* VPNManager.swift */,
@@ -513,6 +518,7 @@
 				7F770521A57CAC66565F82C4 /* guided_onboarding_feed_placeholder.png */,
 				FABC854A718A3279AF2EDA81 /* guided_practice_instagram_icon.png */,
 				D18B86CED7F94FF7AF8C6737 /* guided_practice_tiktok_icon.png */,
+				AB4600020000000000000002 /* guided_windows_ready.png */,
 				A7E55C179009A181FD30CB5F /* home_instagram_blocking_icon.png */,
 				519B1668394058EF894B3F13 /* home_mountains.svg */,
 				A95C81B0AB038DCD16C765D8 /* home_streak_flame.png */,
@@ -758,6 +764,7 @@
 				5035D3A150FBBAF98581CFDE /* Frame-2.mov in Resources */,
 				E61C624FCF5C923E646EDEAF /* InterVariable.ttf in Resources */,
 				3BB3CE7FD7C7F525EC5D3C85 /* LaunchScreen.storyboard in Resources */,
+				9954B147B11B9CF751AB2727 /* PrivacyInfo.xcprivacy in Resources */,
 				685ADE5011FE81AD7C093A97 /* SK Pupok Solid 400.ttf in Resources */,
 				93956780AD7713A8A080687E /* app_options.json in Resources */,
 				9D0458BC4421C10A6A28CAE6 /* background.png in Resources */,
@@ -771,6 +778,7 @@
 				8CC607C520D178DB9553BF8D /* guided_onboarding_feed_placeholder.png in Resources */,
 				116977444AD2C733A0F1815F /* guided_practice_instagram_icon.png in Resources */,
 				1D167830C4FF6468869431BB /* guided_practice_tiktok_icon.png in Resources */,
+				AB4600010000000000000001 /* guided_windows_ready.png in Resources */,
 				9F8738EB2D59742964326EC7 /* home_instagram_blocking_icon.png in Resources */,
 				523910D4E2F41EB313B11B35 /* home_mountains.svg in Resources */,
 				D1BA414684DCAF555BD2F6D5 /* home_streak_flame.png in Resources */,

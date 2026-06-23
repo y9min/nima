@@ -10,10 +10,12 @@ Use this as the launch-readiness checklist for Nima before App Store submission.
 
 ## Privacy And Account
 
-- Complete App Privacy labels for account data, purchase data, diagnostics, and any analytics.
+- Complete App Privacy labels using `docs/app-store-privacy-submission.md` as the source of truth.
 - Verify sign in works for the configured providers.
 - Verify account deletion or cancellation flow is available and documented.
 - Confirm privacy policy and terms links are live in the app and App Store Connect.
+- Confirm `https://nima.so/privacy-policy` is public and does not redirect to login.
+- Run an archive/privacy report check and resolve any privacy manifest warnings before upload.
 
 ## Subscription
 
