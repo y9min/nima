@@ -5,15 +5,15 @@ export const metadata: Metadata = {
   description: "How Nima collects, uses, shares, and protects data.",
 };
 
-const lastUpdated = "June 21, 2026";
+const lastUpdated = "June 24, 2026";
 const contactEmail = "help@nima.so";
 
 const sections = [
   {
     title: "Who We Are",
     body: [
-      "Nima helps people reduce distracting app use with account features, subscriptions, a VPN-based filtering app, a web dashboard, and related backend services.",
-      "This policy covers the Nima iOS app, web dashboard, Android waitlist, VPN/filtering backend, account and subscription systems, and support flows.",
+      "Nima helps people reduce distracting app use with account features, subscriptions, VPN-based filtering, and related support services.",
+      "This policy covers the Nima iOS app, Android waitlist, filtering systems, account and subscription systems, and support flows.",
       `Questions or privacy requests can be sent to ${contactEmail}.`,
     ],
   },
@@ -22,53 +22,41 @@ const sections = [
     body: [
       "Account data: email address, Supabase user ID, authentication/session data, Apple Sign In data, and Google Sign-In data.",
       "Purchase data: subscription status, purchase history, entitlement state, RevenueCat app user ID, purchase, restore, and offering information.",
-      "VPN and filtering data: hostnames, SNI/domain names, ports, URL paths where server proxy logging is enabled, request method, status code, content type, bytes in/out, duration, block/allow decision, block reason, app category, VPN client IP, and user ID.",
-      "Usage analytics: app/category request counts, blocked/allowed counts, top domains, bandwidth, methods, content types, dashboard summaries, and generated insights.",
       "Cancellation feedback: selected reason and optional free-text details.",
       "Android waitlist data: email address and signup timestamp.",
-      "Diagnostics: app/tunnel logs, VPN lifecycle state, connection errors, performance counters, crash-like or stop diagnostics, local traffic dashboard files, and related troubleshooting data.",
+      "Support and diagnostics you choose to share: app/tunnel logs, VPN lifecycle state, connection errors, performance counters, crash-like or stop diagnostics, local traffic diagnostic files, and related troubleshooting details.",
       "Local-only app data: onboarding answers, age, phone-hours answer, selected habits/apps, display name, streaks, reminder settings, time windows, notification preferences, and CoreMotion data used for visual motion effects.",
+      "Local filtering signals: the Network Extension processes signals such as domains, SNI, ports, connection metadata, and block decisions to apply blocking rules. These signals are not retained for server analytics or sent to OpenAI.",
     ],
   },
   {
     title: "How We Use Data",
     body: [
       "Provide account login, session management, subscriptions, restore purchases, and customer support.",
-      "Operate the VPN and content blocking features, including detecting traffic categories and deciding whether a request should be allowed or blocked.",
-      "Show the traffic dashboard, app usage summaries, blocking history, bandwidth information, and insight cards.",
+      "Operate the VPN and content blocking features, including processing network signals to decide whether a connection should be allowed or blocked.",
+      "Show local blocking status and local diagnostics on your device.",
       "Send Android waitlist updates and service communications.",
-      "Handle cancellation feedback, account deletion, billing issues, abuse prevention, reliability debugging, and product improvement.",
+      "Handle cancellation feedback, account deletion, billing issues, abuse prevention, and reliability troubleshooting.",
     ],
   },
   {
     title: "Third-Party Processors",
     body: [
-      "Supabase provides authentication, sessions, database storage, waitlist storage, account deletion support, traffic events/summaries, feedback storage, and generated insight storage.",
+      "Supabase provides authentication, sessions, waitlist storage, account deletion support, profile/blocker-state storage, and cancellation feedback storage.",
       "RevenueCat processes subscription status, purchase history, entitlements, offerings, purchases, and restores.",
       "Google Sign-In processes Google authentication data. Google states its iOS sign-in SDK may process identifiers and IP addresses for authentication, security, and fraud prevention.",
       "Apple processes Sign in with Apple and App Store purchase information.",
-      "OpenAI is used to classify hostnames and generate aggregate usage insights.",
-      "Hosting and infrastructure providers may process server, web app, database, and VPN/filtering traffic needed to operate Nima.",
-    ],
-  },
-  {
-    title: "AI Processing",
-    body: [
-      "Nima may send hostnames to OpenAI so they can be categorized into app or content categories.",
-      "Nima may send aggregated request and block counts to OpenAI to generate short usage insights.",
-      "Nima does not intend to send full URL paths to OpenAI insight prompts. If this changes, this policy will be updated before the change is used.",
-      "OpenAI is used as a service provider for Nima functionality, not for advertising or cross-app tracking.",
+      "Hosting and infrastructure providers process the limited server, web app, database, and filtering traffic needed to operate Nima. Nima does not use those providers to retain ordinary browsing metadata for analytics.",
     ],
   },
   {
     title: "Retention",
     body: [
       "Account and authentication data is kept while your account exists.",
-      "Traffic events are kept by default for 30 days.",
-      "Aggregated summaries and generated insights are kept by default for 12 months.",
       "Cancellation feedback is kept while your account exists or as needed for support, business records, or legal obligations.",
       "Android waitlist emails are kept until Android launch communications are complete or you ask us to remove your email.",
       "Local diagnostic files and logs are kept on your device until rotated, cleared, or removed during account deletion/local reset.",
+      "Diagnostics you choose to share with support are kept only as long as needed to resolve the request or meet legal obligations.",
       "Purchase records are kept as required by Apple, RevenueCat, tax, fraud prevention, and subscription operations.",
     ],
   },
@@ -77,8 +65,10 @@ const sections = [
     body: [
       "Nima does not sell personal data.",
       "Nima does not use personal data for third-party advertising or cross-app tracking.",
+      "Nima does not sell, use, or disclose data derived from VPN use to third parties for any purpose.",
+      "Network signals processed to provide blocking are not retained for server analytics, advertising, profiling, or AI processing.",
       "Nima does not use the App Tracking Transparency prompt because Nima does not track users across apps or websites owned by other companies.",
-      "Service providers process data only to provide Nima functionality, security, support, billing, analytics, AI features, or legal compliance.",
+      "Service providers process data only to provide Nima functionality, security, support, billing, or legal compliance.",
     ],
   },
   {
@@ -93,7 +83,7 @@ const sections = [
     body: [
       `You can request access, correction, deletion, or Android waitlist removal by emailing ${contactEmail}.`,
       "Where available, you can delete your account in the app.",
-      "Account deletion removes linked backend account data, traffic events, traffic summaries, generated insights, cancellation feedback, profile/blocker state, and local app-group data where available.",
+      "Account deletion removes linked backend cancellation feedback, profile/blocker state, the authentication account, and local app-group data where available.",
       "You can also disable local notifications in iOS settings or in Nima settings where supported.",
     ],
   },
@@ -121,9 +111,11 @@ export default function PrivacyPolicyPage() {
 
       <section className="notice">
         <strong>Plain English summary:</strong> Nima uses account, purchase,
-        VPN traffic metadata, usage analytics, diagnostics, and support data to
-        run the app. Nima does not sell personal data and does not use it for
-        third-party advertising or cross-app tracking.
+        waitlist, cancellation feedback, and support data to run the
+        service. Network signals are processed for blocking and local
+        diagnostics; ordinary browsing metadata is not stored for server
+        analytics or sent to OpenAI. Nima does not sell personal data or use it
+        for third-party advertising or cross-app tracking.
       </section>
 
       <section className="content" aria-label="Privacy policy sections">

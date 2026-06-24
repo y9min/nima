@@ -7025,7 +7025,6 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
         tracker.sni = sni
         tracker.sniProbeAttempts += 1
         log.logConnection("TCP #\(tracker.id): SNI=\(sni) IP=\(tracker.host):\(tracker.port)")
-        TunnelLogger.connectionLog.log("[SNI] \(sni, privacy: .public)")
         let hintedClass = classifyEarly(host: sni, port: tracker.port)
         recordClassHint(host: tracker.host, trafficClass: hintedClass.trafficClass, confidence: hintedClass.confidence)
         recordClassHint(host: sni, trafficClass: hintedClass.trafficClass, confidence: hintedClass.confidence)
@@ -7206,7 +7205,7 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
                     tracker.bytesDown = projectedBytesDown
                     if streamDecision.action == .allow && tracker.bytesDown > 100_000 && !tracker.loggedUntracked {
                         tracker.loggedUntracked = true
-                        TunnelLogger.connectionLog.log("[UNTRACKED-LARGE] \((tracker.sni ?? tracker.host), privacy: .public) \(tracker.bytesDown, privacy: .public)B+ (no blocking rule)")
+                        self.log.logConnection("[UNTRACKED-LARGE] \(tracker.sni ?? tracker.host) \(tracker.bytesDown)B+ (no blocking rule)")
                     }
                 }
                 destination.send(content: data, completion: .contentProcessed { sendError in
