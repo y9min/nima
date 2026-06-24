@@ -43,7 +43,7 @@ Nima uses an iOS Network Extension to classify and block distracting traffic for
 
 Traffic details may appear in local diagnostic files on the device. Nima does not transmit ordinary browsing metadata to Supabase or OpenAI, does not provide a web traffic dashboard, and does not generate AI traffic insights. A user may choose to share a diagnostic report with support.
 
-Nima does not sell personal data, use personal data for third-party advertising, or track users across apps or websites owned by other companies.
+Nima does not sell, use, or disclose data derived from VPN use to third parties for any purpose. Nima does not use personal data for third-party advertising or track users across apps or websites owned by other companies.
 
 ## Verification Checklist
 

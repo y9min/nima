@@ -65,6 +65,8 @@ const sections = [
     body: [
       "Nima does not sell personal data.",
       "Nima does not use personal data for third-party advertising or cross-app tracking.",
+      "Nima does not sell, use, or disclose data derived from VPN use to third parties for any purpose.",
+      "Network signals processed to provide blocking are not retained for server analytics, advertising, profiling, or AI processing.",
       "Nima does not use the App Tracking Transparency prompt because Nima does not track users across apps or websites owned by other companies.",
       "Service providers process data only to provide Nima functionality, security, support, billing, or legal compliance.",
     ],
