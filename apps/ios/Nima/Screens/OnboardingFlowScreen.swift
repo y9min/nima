@@ -2255,7 +2255,7 @@ private struct OnboardingPrivacySheet: View {
                             }
                         }
 
-                        Text("Blocking uses network signals like domains, connection metadata, and block decisions. Some metadata may be logged for diagnostics, dashboards, subscriptions, and AI-powered insights.")
+                        Text("Nima processes network signals like domains, connection metadata, and block decisions to apply your blocking rules. Traffic details stay in local diagnostics unless you choose to share them for support.")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)

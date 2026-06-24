@@ -11,6 +11,7 @@ Use this as the launch-readiness checklist for Nima before App Store submission.
 ## Privacy And Account
 
 - Complete App Privacy labels using `docs/app-store-privacy-submission.md` as the source of truth.
+- Remove Browsing History and analytics-purpose disclosures after verifying the collection-free release is deployed.
 - Verify sign in works for the configured providers.
 - Verify account deletion or cancellation flow is available and documented.
 - Confirm privacy policy and terms links are live in the app and App Store Connect.
@@ -33,6 +34,10 @@ Use this as the launch-readiness checklist for Nima before App Store submission.
 
 ## Final QA
 
+- Deploy the collection-free proxy and web app before applying the legacy analytics cleanup migration.
+- Export the legacy analytics tables as a temporary rollback backup, verify the export, then apply the cleanup migration.
+- Remove `SUPABASE_SERVICE_ROLE_KEY` and `OPENAI_API_KEY` from the web deployment, and remove legacy analytics secrets from the proxy host.
+- Confirm no Supabase scheduled job references the removed traffic rollup or cleanup routines.
 - Run web typecheck on Node 22 with the pinned pnpm version.
 - Run the iOS regression gate before TestFlight upload.
 - Verify onboarding, blocking setup, subscription gating, restore purchases, settings, and logs on a physical device.

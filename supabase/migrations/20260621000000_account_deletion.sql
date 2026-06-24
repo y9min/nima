@@ -9,18 +9,6 @@ begin
     delete from public.blocker_state where user_id = target_user_id;
   end if;
 
-  if to_regclass('public.llm_insights') is not null then
-    delete from public.llm_insights where user_id = target_user_id;
-  end if;
-
-  if to_regclass('public.traffic_summaries') is not null then
-    delete from public.traffic_summaries where user_id = target_user_id;
-  end if;
-
-  if to_regclass('public.traffic_events') is not null then
-    delete from public.traffic_events where user_id = target_user_id;
-  end if;
-
   if to_regclass('public.subscription_cancellation_feedback') is not null then
     delete from public.subscription_cancellation_feedback where user_id = target_user_id;
   end if;
