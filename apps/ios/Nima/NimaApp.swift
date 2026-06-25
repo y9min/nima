@@ -348,7 +348,7 @@ struct NimaApp: App {
         if authStore.isDemo, AuthStore.isAnnualDemoAccount(email: authStore.userEmail) {
             subscriptionStore.activateDemoAnnualPlan()
         } else {
-            subscriptionStore.identify(appUserID: authStore.userEmail)
+            subscriptionStore.identify(appUserID: AuthStore.normalizedEmail(authStore.userEmail))
             subscriptionStore.loadOfferings()
         }
     }
@@ -667,6 +667,7 @@ struct NimaApp: App {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         switch newPhase {
         case .active:
+            subscriptionStore.reconcilePendingPurchaseAfterForeground()
             if onboardingStore.isCompleted {
                 timeWindowStore.evaluateSchedules(source: "app.scene.active", forceApply: true)
                 store.syncVPNState(source: "app.scene.active")

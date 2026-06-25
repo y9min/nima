@@ -101,7 +101,7 @@ struct PaywallScreen: View {
 
                     Button(action: continueTapped) {
                         ZStack {
-                            Text(subscriptionStore.isPurchasing ? "Please wait" : "Continue")
+                            Text(subscriptionStore.hasPendingPurchase ? "Purchase Pending" : "Continue")
                                 .font(.system(size: 24 * scale, weight: .regular, design: .rounded))
                                 .foregroundStyle(.black)
 
@@ -117,7 +117,11 @@ struct PaywallScreen: View {
                         .background(PaywallPalette.accent)
                         .clipShape(Capsule())
                     }
-                    .disabled(selectedPackage == nil || subscriptionStore.isPurchasing || subscriptionStore.isRestoring)
+                    .disabled(
+                        selectedPackage == nil
+                            || subscriptionStore.hasPendingPurchase
+                            || subscriptionStore.isRestoring
+                    )
                     .opacity(selectedPackage == nil ? 0.6 : 1)
                     .padding(.top, 14 * scale)
 
@@ -126,7 +130,7 @@ struct PaywallScreen: View {
                             .font(.system(size: 14 * scale, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white.opacity(0.82))
                     }
-                    .disabled(subscriptionStore.isRestoring || subscriptionStore.isPurchasing)
+                    .disabled(subscriptionStore.isRestoring || subscriptionStore.hasPendingPurchase)
                     .padding(.top, 9 * scale)
 
                     statusLine(scale: scale)
@@ -243,12 +247,23 @@ struct PaywallScreen: View {
             }
 
             if let errorMessage = subscriptionStore.purchaseErrorMessage {
-                Text(errorMessage)
-                    .font(.system(size: 12 * scale, weight: .regular, design: .rounded))
-                    .foregroundStyle(.red.opacity(0.9))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.78)
+                HStack(spacing: 8 * scale) {
+                    Text(errorMessage)
+                        .font(.system(size: 12 * scale, weight: .regular, design: .rounded))
+                        .foregroundStyle(.red.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+
+                    if subscriptionStore.hasPendingPurchase {
+                        Button("Check Again") {
+                            subscriptionStore.retryPurchaseConfirmation()
+                        }
+                        .font(.system(size: 12 * scale, weight: .bold, design: .rounded))
+                        .foregroundStyle(PaywallPalette.accent)
+                        .fixedSize()
+                    }
+                }
             }
 
             if let errorMessage = subscriptionStore.restoreErrorMessage {

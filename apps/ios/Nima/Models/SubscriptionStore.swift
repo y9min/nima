@@ -31,7 +31,7 @@ struct RevenueCatClient {
     typealias OfferingsCompletion = (RevenueCat.Offerings?, Error?) -> Void
     typealias PurchaseCompletion = (SubscriptionCustomerStatus?, Error?, Bool) -> Void
 
-    let getCustomerInfo: (@escaping CustomerStatusCompletion) -> Void
+    let getCustomerInfo: (Bool, @escaping CustomerStatusCompletion) -> Void
     let getOfferings: (@escaping OfferingsCompletion) -> Void
     let purchase: (RevenueCat.Package, @escaping PurchaseCompletion) -> Void
     let restorePurchases: (@escaping CustomerStatusCompletion) -> Void
@@ -39,8 +39,9 @@ struct RevenueCatClient {
     let logOut: (@escaping CustomerStatusCompletion) -> Void
 
     static let live = RevenueCatClient(
-        getCustomerInfo: { completion in
-            Purchases.shared.getCustomerInfo { customerInfo, error in
+        getCustomerInfo: { forceRefresh, completion in
+            let fetchPolicy: CacheFetchPolicy = forceRefresh ? .fetchCurrent : .default
+            Purchases.shared.getCustomerInfo(fetchPolicy: fetchPolicy) { customerInfo, error in
                 completion(customerInfo.map(SubscriptionCustomerStatus.init), error)
             }
         },
@@ -95,6 +96,10 @@ final class SubscriptionStore {
     var purchaseErrorMessage: String?
     var restoreErrorMessage: String?
 
+    var hasPendingPurchase: Bool {
+        purchaseRequestID != nil
+    }
+
     var isLoadingOfferings: Bool {
         offeringsState == .loading
     }
@@ -113,11 +118,16 @@ final class SubscriptionStore {
     private var offeringsRequestID: UUID?
     private var purchaseRequestID: UUID?
     private var restoreRequestID: UUID?
+    private var restoreTimedOutRequestID: UUID?
 
     private var customerInfoTimeoutTask: Task<Void, Never>?
     private var offeringsTimeoutTask: Task<Void, Never>?
-    private var purchaseTimeoutTask: Task<Void, Never>?
     private var restoreTimeoutTask: Task<Void, Never>?
+    private var customerInfoCompletion: ((Bool?) -> Void)?
+    private var customerInfoRequestUpdatesVerificationState = true
+    private var intendedAppUserID: String?
+    private var hasConfirmedIdentity = false
+    private var isReconcilingPurchase = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -134,7 +144,6 @@ final class SubscriptionStore {
     deinit {
         customerInfoTimeoutTask?.cancel()
         offeringsTimeoutTask?.cancel()
-        purchaseTimeoutTask?.cancel()
         restoreTimeoutTask?.cancel()
     }
 
@@ -169,30 +178,37 @@ final class SubscriptionStore {
         loadOfferings()
     }
 
+    func reconcilePendingPurchaseAfterForeground() {
+        guard hasPendingPurchase, !isReconcilingPurchase else { return }
+        reconcilePendingPurchase()
+    }
+
+    func retryPurchaseConfirmation() {
+        guard hasPendingPurchase, !isReconcilingPurchase else { return }
+        isPurchasing = true
+        purchaseErrorMessage = nil
+        reconcilePendingPurchase()
+    }
+
     func retryOfferings() {
         loadOfferings()
     }
 
     func identify(appUserID: String) {
-        guard isConfigured, !appUserID.isEmpty else { return }
-        let requestID = beginCustomerInfoRequest()
+        guard isConfigured else { return }
+        let normalizedID = Self.normalizedAppUserID(appUserID)
+        guard !normalizedID.isEmpty else { return }
 
-        client.logIn(appUserID) { [weak self] status, error in
-            Task { @MainActor in
-                guard let self, self.customerInfoRequestID == requestID else { return }
-                self.finishCustomerInfoRequest()
-
-                if let error {
-                    self.verificationState = .failed(error.localizedDescription)
-                    return
-                }
-                self.apply(status)
-            }
+        if intendedAppUserID != normalizedID {
+            cancelAllRequests()
+            intendedAppUserID = normalizedID
+            hasConfirmedIdentity = false
         }
+        refreshCustomerInfo()
     }
 
     func activateDemoAnnualPlan() {
-        finishCustomerInfoRequest()
+        finishCustomerInfoRequest(result: nil)
         verificationState = .verified
         purchaseErrorMessage = nil
         restoreErrorMessage = nil
@@ -202,37 +218,74 @@ final class SubscriptionStore {
     func logOut() {
         cancelAllRequests()
         clearLocalAccess()
+        intendedAppUserID = nil
+        hasConfirmedIdentity = false
         guard isConfigured else { return }
 
+        let requestID = beginCustomerInfoRequest()
         client.logOut { [weak self] status, error in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.customerInfoRequestID == requestID else { return }
                 if let error {
                     self.verificationState = .failed(error.localizedDescription)
+                    self.finishCustomerInfoRequest(result: nil)
                     return
                 }
-                self.apply(status)
+                let access = self.apply(status)
+                self.finishCustomerInfoRequest(result: access)
             }
         }
     }
 
-    func refreshCustomerInfo() {
+    func refreshCustomerInfo(
+        forceRefresh: Bool = false,
+        updatesVerificationState: Bool = true,
+        completion: ((Bool?) -> Void)? = nil
+    ) {
         guard isConfigured else {
-            verificationState = .failed("Subscriptions are unavailable right now.")
+            if updatesVerificationState {
+                verificationState = .failed("Subscriptions are unavailable right now.")
+            }
+            completion?(nil)
             return
         }
-        let requestID = beginCustomerInfoRequest()
+        let requestID = beginCustomerInfoRequest(
+            updatesVerificationState: updatesVerificationState,
+            completion: completion
+        )
 
-        client.getCustomerInfo { [weak self] status, error in
+        if let appUserID = intendedAppUserID, !hasConfirmedIdentity {
+            client.logIn(appUserID) { [weak self] status, error in
+                Task { @MainActor in
+                    guard let self,
+                          self.customerInfoRequestID == requestID,
+                          self.intendedAppUserID == appUserID else { return }
+
+                    if let error {
+                        self.markVerificationFailedIfNeeded(error.localizedDescription)
+                        self.finishCustomerInfoRequest(result: nil)
+                        return
+                    }
+
+                    self.hasConfirmedIdentity = true
+                    let access = self.apply(status)
+                    self.finishCustomerInfoRequest(result: access)
+                }
+            }
+            return
+        }
+
+        client.getCustomerInfo(forceRefresh) { [weak self] status, error in
             Task { @MainActor in
                 guard let self, self.customerInfoRequestID == requestID else { return }
-                self.finishCustomerInfoRequest()
 
                 if let error {
-                    self.verificationState = .failed(error.localizedDescription)
+                    self.markVerificationFailedIfNeeded(error.localizedDescription)
+                    self.finishCustomerInfoRequest(result: nil)
                     return
                 }
-                self.apply(status)
+                let access = self.apply(status)
+                self.finishCustomerInfoRequest(result: access)
             }
         }
     }
@@ -286,19 +339,11 @@ final class SubscriptionStore {
             return
         }
 
+        guard purchaseRequestID == nil else { return }
         let requestID = UUID()
         purchaseRequestID = requestID
-        purchaseTimeoutTask?.cancel()
         isPurchasing = true
         purchaseErrorMessage = nil
-
-        purchaseTimeoutTask = timeoutTask { [weak self] in
-            guard let self, self.purchaseRequestID == requestID else { return }
-            self.purchaseRequestID = nil
-            self.purchaseTimeoutTask = nil
-            self.isPurchasing = false
-            self.purchaseErrorMessage = "The purchase is taking too long. Please try again."
-        }
 
         client.purchase(package) { [weak self] status, error, userCancelled in
             Task { @MainActor in
@@ -311,7 +356,8 @@ final class SubscriptionStore {
                     return
                 }
 
-                self.apply(status)
+                self.purchaseErrorMessage = nil
+                _ = self.apply(status)
                 if self.hasPremium {
                     onUnlocked()
                 }
@@ -327,14 +373,15 @@ final class SubscriptionStore {
 
         let requestID = UUID()
         restoreRequestID = requestID
+        restoreTimedOutRequestID = nil
         restoreTimeoutTask?.cancel()
         isRestoring = true
         restoreErrorMessage = nil
 
         restoreTimeoutTask = timeoutTask { [weak self] in
             guard let self, self.restoreRequestID == requestID else { return }
-            self.restoreRequestID = nil
             self.restoreTimeoutTask = nil
+            self.restoreTimedOutRequestID = requestID
             self.isRestoring = false
             self.restoreErrorMessage = "Restore is taking too long. Please try again."
         }
@@ -342,17 +389,23 @@ final class SubscriptionStore {
         client.restorePurchases { [weak self] status, error in
             Task { @MainActor in
                 guard let self, self.restoreRequestID == requestID else { return }
+                let didTimeOut = self.restoreTimedOutRequestID == requestID
                 self.finishRestoreRequest()
 
                 if let error {
-                    self.restoreErrorMessage = error.localizedDescription
+                    if !didTimeOut {
+                        self.restoreErrorMessage = error.localizedDescription
+                    }
                     return
                 }
 
-                self.apply(status)
-                if self.hasPremium {
+                let access = Self.premiumAccess(from: status)
+                if access == true {
+                    self.restoreErrorMessage = nil
+                    _ = self.apply(status)
                     onUnlocked()
-                } else {
+                } else if !didTimeOut {
+                    _ = self.apply(status)
                     self.restoreErrorMessage = "No active subscription was found."
                 }
             }
@@ -368,25 +421,40 @@ final class SubscriptionStore {
         return trimmed
     }
 
-    private func beginCustomerInfoRequest() -> UUID {
+    private func beginCustomerInfoRequest(
+        updatesVerificationState: Bool = true,
+        completion: ((Bool?) -> Void)? = nil
+    ) -> UUID {
         let requestID = UUID()
+        customerInfoCompletion?(nil)
         customerInfoRequestID = requestID
+        customerInfoCompletion = completion
+        customerInfoRequestUpdatesVerificationState = updatesVerificationState
         customerInfoTimeoutTask?.cancel()
-        verificationState = .loading
+        if updatesVerificationState {
+            verificationState = .loading
+        }
 
         customerInfoTimeoutTask = timeoutTask { [weak self] in
             guard let self, self.customerInfoRequestID == requestID else { return }
             self.customerInfoRequestID = nil
             self.customerInfoTimeoutTask = nil
-            self.verificationState = .failed("We couldn’t check your subscription. Please try again.")
+            self.markVerificationFailedIfNeeded("We couldn’t check your subscription. Please try again.")
+            let completion = self.customerInfoCompletion
+            self.customerInfoCompletion = nil
+            completion?(nil)
         }
         return requestID
     }
 
-    private func finishCustomerInfoRequest() {
+    private func finishCustomerInfoRequest(result: Bool?) {
         customerInfoRequestID = nil
         customerInfoTimeoutTask?.cancel()
         customerInfoTimeoutTask = nil
+        customerInfoRequestUpdatesVerificationState = true
+        let completion = customerInfoCompletion
+        customerInfoCompletion = nil
+        completion?(result)
     }
 
     private func finishOfferingsRequest() {
@@ -397,13 +465,13 @@ final class SubscriptionStore {
 
     private func finishPurchaseRequest() {
         purchaseRequestID = nil
-        purchaseTimeoutTask?.cancel()
-        purchaseTimeoutTask = nil
         isPurchasing = false
+        isReconcilingPurchase = false
     }
 
     private func finishRestoreRequest() {
         restoreRequestID = nil
+        restoreTimedOutRequestID = nil
         restoreTimeoutTask?.cancel()
         restoreTimeoutTask = nil
         isRestoring = false
@@ -421,24 +489,51 @@ final class SubscriptionStore {
         }
     }
 
-    private func apply(_ status: SubscriptionCustomerStatus?) {
-        guard let status else {
+    @discardableResult
+    private func apply(_ status: SubscriptionCustomerStatus?) -> Bool? {
+        guard let access = Self.premiumAccess(from: status) else {
             verificationState = .failed("We couldn’t check your subscription. Please try again.")
-            return
+            return nil
         }
 
         verificationState = .verified
-        setPremiumAccess(Self.resolvesPremiumAccess(
-            activeEntitlementIDs: status.activeEntitlementIDs,
-            activeSubscriptionIDs: status.activeSubscriptionIDs
-        ))
+        setPremiumAccess(access)
+        return access
     }
 
     private func cancelAllRequests() {
-        finishCustomerInfoRequest()
+        finishCustomerInfoRequest(result: nil)
         finishOfferingsRequest()
         finishPurchaseRequest()
         finishRestoreRequest()
+    }
+
+    private func reconcilePendingPurchase() {
+        isReconcilingPurchase = true
+        refreshCustomerInfo(
+            forceRefresh: true,
+            updatesVerificationState: false
+        ) { [weak self] access in
+            guard let self, self.hasPendingPurchase else { return }
+            self.isReconcilingPurchase = false
+            self.isPurchasing = false
+
+            switch access {
+            case true:
+                self.finishPurchaseRequest()
+                self.purchaseErrorMessage = nil
+            case false:
+                self.purchaseErrorMessage = "Purchase could not be confirmed. Try checking again."
+            case nil:
+                self.purchaseErrorMessage = "We couldn’t confirm your purchase. Try checking again."
+            }
+        }
+    }
+
+    private func markVerificationFailedIfNeeded(_ message: String) {
+        if customerInfoRequestUpdatesVerificationState {
+            verificationState = .failed(message)
+        }
     }
 
     private func clearLocalAccess() {
@@ -455,6 +550,18 @@ final class SubscriptionStore {
     private func setPremiumAccess(_ hasAccess: Bool) {
         hasPremium = hasAccess
         defaults.set(hasAccess, forKey: Self.cachedPremiumKey)
+    }
+
+    private static func premiumAccess(from status: SubscriptionCustomerStatus?) -> Bool? {
+        guard let status else { return nil }
+        return resolvesPremiumAccess(
+            activeEntitlementIDs: status.activeEntitlementIDs,
+            activeSubscriptionIDs: status.activeSubscriptionIDs
+        )
+    }
+
+    private static func normalizedAppUserID(_ appUserID: String) -> String {
+        appUserID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     static func resolvesPremiumAccess(
