@@ -313,14 +313,15 @@ struct NimaApp: App {
     private var shouldShowPaywall: Bool {
         needsSubscriptionGate
             && !shouldHoldPaywallForGuidedPracticeReturn
-            && subscriptionStore.isReadyForPaywallDecision
+            && subscriptionStore.verificationState == .verified
             && !subscriptionStore.hasPremium
     }
 
     private var shouldWaitForSubscriptionStatus: Bool {
         needsSubscriptionGate
             && !shouldHoldPaywallForGuidedPracticeReturn
-            && !subscriptionStore.isReadyForPaywallDecision
+            && !subscriptionStore.hasPremium
+            && subscriptionStore.verificationState != .verified
     }
 
     private var needsSubscriptionGate: Bool {
@@ -347,7 +348,7 @@ struct NimaApp: App {
         if authStore.isDemo, AuthStore.isAnnualDemoAccount(email: authStore.userEmail) {
             subscriptionStore.activateDemoAnnualPlan()
         } else {
-            subscriptionStore.identify(appUserID: authStore.userEmail)
+            subscriptionStore.identify(appUserID: AuthStore.normalizedEmail(authStore.userEmail))
             subscriptionStore.loadOfferings()
         }
     }
@@ -666,6 +667,7 @@ struct NimaApp: App {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         switch newPhase {
         case .active:
+            subscriptionStore.reconcilePendingPurchaseAfterForeground()
             if onboardingStore.isCompleted {
                 timeWindowStore.evaluateSchedules(source: "app.scene.active", forceApply: true)
                 store.syncVPNState(source: "app.scene.active")
@@ -725,6 +727,8 @@ struct NimaApp: App {
 }
 
 private struct SubscriptionStatusLoadingScreen: View {
+    @Environment(SubscriptionStore.self) private var subscriptionStore
+
     var body: some View {
         ZStack {
             Color(red: 0.0, green: 0.12, blue: 0.07)
@@ -742,8 +746,38 @@ private struct SubscriptionStatusLoadingScreen: View {
                         .foregroundStyle(.white)
                 }
 
-                ProgressView()
-                    .tint(Color(red: 0.73, green: 0.93, blue: 0.09))
+                switch subscriptionStore.verificationState {
+                case .idle, .loading:
+                    ProgressView()
+                        .tint(Color(red: 0.73, green: 0.93, blue: 0.09))
+
+                case .failed:
+                    VStack(spacing: 16) {
+                        Text("We couldn’t check your subscription")
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+
+                        Text("Check your connection and try again.")
+                            .font(.system(size: 16, weight: .regular, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.72))
+                            .multilineTextAlignment(.center)
+
+                        Button("Try Again") {
+                            subscriptionStore.retrySubscriptionCheck()
+                        }
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 28)
+                        .frame(height: 48)
+                        .background(Color(red: 0.73, green: 0.93, blue: 0.09))
+                        .clipShape(Capsule())
+                    }
+                    .padding(.horizontal, 32)
+
+                case .verified:
+                    EmptyView()
+                }
             }
         }
         .navigationBarBackButtonHidden(true)

@@ -101,7 +101,7 @@ struct PaywallScreen: View {
 
                     Button(action: continueTapped) {
                         ZStack {
-                            Text(subscriptionStore.isPurchasing ? "Please wait" : "Continue")
+                            Text(subscriptionStore.hasPendingPurchase ? "Purchase Pending" : "Continue")
                                 .font(.system(size: 24 * scale, weight: .regular, design: .rounded))
                                 .foregroundStyle(.black)
 
@@ -117,7 +117,11 @@ struct PaywallScreen: View {
                         .background(PaywallPalette.accent)
                         .clipShape(Capsule())
                     }
-                    .disabled(selectedPackage == nil || subscriptionStore.isPurchasing)
+                    .disabled(
+                        selectedPackage == nil
+                            || subscriptionStore.hasPendingPurchase
+                            || subscriptionStore.isRestoring
+                    )
                     .opacity(selectedPackage == nil ? 0.6 : 1)
                     .padding(.top, 14 * scale)
 
@@ -126,11 +130,11 @@ struct PaywallScreen: View {
                             .font(.system(size: 14 * scale, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white.opacity(0.82))
                     }
-                    .disabled(subscriptionStore.isRestoring)
+                    .disabled(subscriptionStore.isRestoring || subscriptionStore.hasPendingPurchase)
                     .padding(.top, 9 * scale)
 
                     statusLine(scale: scale)
-                        .frame(height: 28 * scale)
+                        .frame(minHeight: 28 * scale)
                         .padding(.top, 4 * scale)
                 }
                 .frame(width: width - (horizontalPadding * 2))
@@ -141,8 +145,9 @@ struct PaywallScreen: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .task {
-            subscriptionStore.refreshCustomerInfo()
-            subscriptionStore.loadOfferings()
+            if subscriptionStore.offeringsState == .idle {
+                subscriptionStore.loadOfferings()
+            }
         }
         .onChange(of: subscriptionStore.hasPremium) { _, hasPremium in
             if hasPremium {
@@ -176,11 +181,17 @@ struct PaywallScreen: View {
     }
 
     private var yearlyPrice: String {
-        subscriptionStore.yearlyPackage.map { "\($0.storeProduct.localizedPriceString)/YR" } ?? "Loading price"
+        subscriptionStore.yearlyPackage.map { "\($0.storeProduct.localizedPriceString)/YR" }
+            ?? unavailableOrLoadingPrice
     }
 
     private var monthlyPrice: String {
-        subscriptionStore.monthlyPackage.map { "\($0.storeProduct.localizedPriceString)/MO" } ?? "Loading price"
+        subscriptionStore.monthlyPackage.map { "\($0.storeProduct.localizedPriceString)/MO" }
+            ?? unavailableOrLoadingPrice
+    }
+
+    private var unavailableOrLoadingPrice: String {
+        subscriptionStore.offeringsErrorMessage == nil ? "Loading price" : "Unavailable"
     }
 
     private var yearlyComparisonPrice: String? {
@@ -213,20 +224,56 @@ struct PaywallScreen: View {
         subscriptionStore.restore(onUnlocked: onUnlocked)
     }
 
-    @ViewBuilder
     private func statusLine(scale: CGFloat) -> some View {
-        if let errorMessage = subscriptionStore.errorMessage {
-            Text(errorMessage)
-                .font(.system(size: 12 * scale, weight: .regular, design: .rounded))
-                .foregroundStyle(.red.opacity(0.9))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.78)
-        } else if subscriptionStore.isLoadingOfferings {
-            ProgressView()
-                .tint(PaywallPalette.accent)
-        } else {
-            Color.clear
+        VStack(spacing: 4 * scale) {
+            if let errorMessage = subscriptionStore.offeringsErrorMessage {
+                HStack(spacing: 8 * scale) {
+                    Text(errorMessage)
+                        .font(.system(size: 12 * scale, weight: .regular, design: .rounded))
+                        .foregroundStyle(.red.opacity(0.9))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+
+                    Button("Try Again") {
+                        subscriptionStore.retryOfferings()
+                    }
+                    .font(.system(size: 12 * scale, weight: .bold, design: .rounded))
+                    .foregroundStyle(PaywallPalette.accent)
+                    .fixedSize()
+                }
+            } else if subscriptionStore.isLoadingOfferings {
+                ProgressView()
+                    .tint(PaywallPalette.accent)
+            }
+
+            if let errorMessage = subscriptionStore.purchaseErrorMessage {
+                HStack(spacing: 8 * scale) {
+                    Text(errorMessage)
+                        .font(.system(size: 12 * scale, weight: .regular, design: .rounded))
+                        .foregroundStyle(.red.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+
+                    if subscriptionStore.hasPendingPurchase {
+                        Button("Check Again") {
+                            subscriptionStore.retryPurchaseConfirmation()
+                        }
+                        .font(.system(size: 12 * scale, weight: .bold, design: .rounded))
+                        .foregroundStyle(PaywallPalette.accent)
+                        .fixedSize()
+                    }
+                }
+            }
+
+            if let errorMessage = subscriptionStore.restoreErrorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 12 * scale, weight: .regular, design: .rounded))
+                    .foregroundStyle(.red.opacity(0.9))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
+            }
         }
     }
 }
