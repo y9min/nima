@@ -1,8 +1,8 @@
 name: Nima
 options:
-  bundleIdPrefix: com.yamin.nimademo
+  bundleIdPrefix: so.nima.app
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "16.0"
   xcodeVersion: "16.0"
 
 configFiles:
@@ -39,6 +39,8 @@ targets:
         product: GoogleSignIn
       - package: RevenueCat
         product: RevenueCat
+      - package: RevenueCat
+        product: RevenueCatUI
       - target: NimaTunnel
       - sdk: NetworkExtension.framework
     info:
@@ -72,10 +74,10 @@ targets:
         com.apple.developer.networking.networkextension:
           - packet-tunnel-provider
         com.apple.security.application-groups:
-          - group.com.yamin.nimademo
+          - group.so.nima.app
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo
+        PRODUCT_BUNDLE_IDENTIFIER: so.nima.app
         INFOPLIST_FILE: Nima/Info.plist
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SSTZYP6ZWB
@@ -104,10 +106,10 @@ targets:
         com.apple.developer.networking.networkextension:
           - packet-tunnel-provider
         com.apple.security.application-groups:
-          - group.com.yamin.nimademo
+          - group.so.nima.app
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.NimaTunnel
+        PRODUCT_BUNDLE_IDENTIFIER: so.nima.app.NimaTunnel
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SSTZYP6ZWB
 
@@ -127,7 +129,7 @@ targets:
       - package: Tun2SocksKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.NimaTunnelTests
+        PRODUCT_BUNDLE_IDENTIFIER: so.nima.app.NimaTunnelTests
         DEVELOPMENT_TEAM: SSTZYP6ZWB
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: ""
@@ -145,7 +147,7 @@ targets:
       - target: Nima
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.NimaTests
+        PRODUCT_BUNDLE_IDENTIFIER: so.nima.app.NimaTests
         DEVELOPMENT_TEAM: SSTZYP6ZWB
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Nima.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Nima"
@@ -164,7 +166,7 @@ targets:
       - target: Nima
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.yamin.nimademo.TikTokVPNDropUITests
+        PRODUCT_BUNDLE_IDENTIFIER: so.nima.app.TikTokVPNDropUITests
         DEVELOPMENT_TEAM: SSTZYP6ZWB
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: Nima

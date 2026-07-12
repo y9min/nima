@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct TimeWindowsScreen: View {
-    @Environment(TimeWindowStore.self) private var store
+    @EnvironmentObject private var store: TimeWindowStore
     @Environment(\.sizeCategory) private var contentSizeCategory
     @State private var editorPresentation: TimeWindowEditorPresentation?
 
@@ -36,7 +36,7 @@ struct TimeWindowsScreen: View {
                         .padding(.top, layout.contentTopInset)
                         .padding(.bottom, layout.dockReservedHeight + 18 * layout.scale)
                 }
-                .scrollBounceBehavior(.basedOnSize)
+                .nimaScrollBounceBasedOnSize()
 
                 if showsDock {
                     AppBottomDock(
@@ -81,7 +81,7 @@ struct TimeWindowsScreen: View {
         .onAppear {
             handleAddWindowRequestIfNeeded()
         }
-        .onChange(of: addWindowRequestID) { _, _ in
+        .onChange(of: addWindowRequestID) { _ in
             handleAddWindowRequestIfNeeded()
         }
     }
@@ -481,21 +481,21 @@ private struct TimeWindowEditorSheet: View {
         } message: {
             Text("This schedule will stop turning blockers on automatically.")
         }
-        .onChange(of: isShowingRepeat) { wasShowing, isShowing in
-            guard wasShowing, !isShowing else { return }
+        .onChange(of: isShowingRepeat) { isShowing in
+            guard !isShowing else { return }
             advanceGuidedStepIfNeeded(.repeatDays)
         }
-        .onChange(of: isShowingEmojiPicker) { wasShowing, isShowing in
-            guard wasShowing, !isShowing else { return }
+        .onChange(of: isShowingEmojiPicker) { isShowing in
+            guard !isShowing else { return }
             advanceGuidedStepIfNeeded(.icon)
         }
-        .onChange(of: name) { _, _ in
+        .onChange(of: name) { _ in
             advanceGuidedStepIfNeeded(.name)
         }
-        .onChange(of: startDate) { _, _ in
+        .onChange(of: startDate) { _ in
             advanceGuidedStepIfNeeded(.time)
         }
-        .onChange(of: endDate) { _, _ in
+        .onChange(of: endDate) { _ in
             advanceGuidedStepIfNeeded(.time)
         }
     }
@@ -1131,6 +1131,6 @@ private enum TimeWindowsPalette {
 
 #Preview {
     TimeWindowsScreen(onHome: {}, onSettings: {})
-        .environment(TimeWindowStore())
+        .environmentObject(TimeWindowStore())
         .preferredColorScheme(.dark)
 }

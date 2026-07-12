@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+import Combine
 import UserNotifications
 
 protocol StreakReminderScheduling {
@@ -90,8 +90,7 @@ struct StreakReminderScheduler: StreakReminderScheduling {
     }
 }
 
-@Observable
-final class AppSettingsStore {
+final class AppSettingsStore: ObservableObject {
     static let allowedPauseIntervals = [5, 10, 15, 20, 25, 30]
     static let defaultPauseIntervalMinutes = 5
     static let defaultStreakRemindersEnabled = true
@@ -99,16 +98,16 @@ final class AppSettingsStore {
     static let defaultStreakReminderMinute = 0
     static let scheduledStreakReminderDayCount = 14
 
-    var displayName: String = ""
-    var windowsNotificationsEnabled: Bool = true
-    var streakRemindersEnabled: Bool = defaultStreakRemindersEnabled
-    var streakReminderHour: Int = defaultStreakReminderHour
-    var streakReminderMinute: Int = defaultStreakReminderMinute
-    var pauseIntervalMinutes: Int = defaultPauseIntervalMinutes
+    @Published var displayName: String = ""
+    @Published var windowsNotificationsEnabled: Bool = true
+    @Published var streakRemindersEnabled: Bool = defaultStreakRemindersEnabled
+    @Published var streakReminderHour: Int = defaultStreakReminderHour
+    @Published var streakReminderMinute: Int = defaultStreakReminderMinute
+    @Published var pauseIntervalMinutes: Int = defaultPauseIntervalMinutes
 
-    @ObservationIgnored private let defaults: UserDefaults?
-    @ObservationIgnored private let streakReminderScheduler: any StreakReminderScheduling
-    @ObservationIgnored private var hasEarnedStreakToday = false
+    private let defaults: UserDefaults?
+    private let streakReminderScheduler: any StreakReminderScheduling
+    private var hasEarnedStreakToday = false
 
     init(
         defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID),

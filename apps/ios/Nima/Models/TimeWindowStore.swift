@@ -1,25 +1,24 @@
 import Foundation
-import Observation
+import Combine
 import UIKit
 
-@Observable
-final class TimeWindowStore {
-    var windows: [TimeWindow] = []
-    var pauseAll = false
-    var pauseExpiresAt: Date?
-    var homeFocusRequestID: UUID?
-    private(set) var activeWindowIDs: Set<String> = []
-    private(set) var scheduledAppIDs: Set<String> = []
-    private(set) var endedWindowUntilByID: [String: Date] = [:]
+final class TimeWindowStore: ObservableObject {
+    @Published var windows: [TimeWindow] = []
+    @Published var pauseAll = false
+    @Published var pauseExpiresAt: Date?
+    @Published var homeFocusRequestID: UUID?
+    @Published private(set) var activeWindowIDs: Set<String> = []
+    @Published private(set) var scheduledAppIDs: Set<String> = []
+    @Published private(set) var endedWindowUntilByID: [String: Date] = [:]
 
-    @ObservationIgnored private let defaults: UserDefaults?
-    @ObservationIgnored private let notificationScheduler: any TimeWindowNotificationScheduling
-    @ObservationIgnored private var applyScheduledApps: ((Set<String>, String) -> Void)?
-    @ObservationIgnored private var startProtection: ((String) -> Void)?
-    @ObservationIgnored private var requestHomeFocus: (() -> Void)?
-    @ObservationIgnored private var lifecycleObservers: [NSObjectProtocol] = []
-    @ObservationIgnored private var scheduleTimer: Timer?
-    @ObservationIgnored private var lastAppliedScheduledAppIDs: Set<String>?
+    private let defaults: UserDefaults?
+    private let notificationScheduler: any TimeWindowNotificationScheduling
+    private var applyScheduledApps: ((Set<String>, String) -> Void)?
+    private var startProtection: ((String) -> Void)?
+    private var requestHomeFocus: (() -> Void)?
+    private var lifecycleObservers: [NSObjectProtocol] = []
+    private var scheduleTimer: Timer?
+    private var lastAppliedScheduledAppIDs: Set<String>?
 
     init(
         defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID),

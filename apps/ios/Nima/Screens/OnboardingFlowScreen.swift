@@ -4,9 +4,9 @@ import Combine
 import UserNotifications
 
 struct OnboardingFlowScreen: View {
-    @Environment(AuthStore.self) private var authStore
-    @Environment(OnboardingStore.self) private var onboardingStore
-    @Environment(AppSettingsStore.self) private var appSettingsStore
+    @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var onboardingStore: OnboardingStore
+    @EnvironmentObject private var appSettingsStore: AppSettingsStore
     @EnvironmentObject private var vpnManager: VPNManager
 
     @State private var step: OnboardingStep = .splash
@@ -124,7 +124,7 @@ struct OnboardingFlowScreen: View {
 
                 VStack(spacing: 0) {
                     TextField("", text: $displayName, prompt: Text("Let us know what to call you...")
-                        .foregroundStyle(OnboardingPalette.placeholder))
+                        .foregroundColor(OnboardingPalette.placeholder))
                         .font(.system(size: OnboardingMetrics.inputFont, weight: .regular))
                         .foregroundStyle(.black)
                         .textInputAutocapitalization(.words)
@@ -320,7 +320,7 @@ struct OnboardingFlowScreen: View {
                     .pickerStyle(.wheel)
                     .frame(height: 166)
                     .clipped()
-                    .onChange(of: age) { _, _ in
+                    .onChange(of: age) { _ in
                         didProvideAge = true
                     }
                     .simultaneousGesture(
@@ -546,7 +546,7 @@ struct OnboardingFlowScreen: View {
                         .foregroundStyle(OnboardingPalette.darkGreen)
 
                     TextField("", text: $emailAuthAddress, prompt: Text("you@example.com")
-                        .foregroundStyle(OnboardingPalette.placeholder))
+                        .foregroundColor(OnboardingPalette.placeholder))
                         .font(.system(size: 22, weight: .regular))
                         .foregroundStyle(.black)
                         .textInputAutocapitalization(.never)
@@ -2343,7 +2343,8 @@ private struct OnboardingAuthButton: View {
 
 #Preview {
     OnboardingFlowScreen()
-        .environment(OnboardingStore(defaults: nil))
-        .environment(AppSettingsStore(defaults: nil))
+        .environmentObject(AuthStore())
+        .environmentObject(OnboardingStore(defaults: nil))
+        .environmentObject(AppSettingsStore(defaults: nil))
         .environmentObject(VPNManager())
 }

@@ -1,29 +1,29 @@
 import SwiftUI
 import CoreMotion
+import Combine
 import Foundation
 
 // MARK: - Physics Engine
 
-@Observable
-final class ClusterPhysicsEngine {
+final class ClusterPhysicsEngine: ObservableObject {
     // Observed state (drives view updates)
-    var positions: [CGPoint] = []
-    var assignedPositions: [CGPoint] = []
-    var draggingIndex: Int? = nil
-    var longPressIndex: Int? = nil
-    var containerSize: CGSize = .zero
-    var originalCenter: CGPoint = .zero
+    @Published var positions: [CGPoint] = []
+    @Published var assignedPositions: [CGPoint] = []
+    @Published var draggingIndex: Int? = nil
+    @Published var longPressIndex: Int? = nil
+    @Published var containerSize: CGSize = .zero
+    @Published var originalCenter: CGPoint = .zero
 
     // Internal state (not observed by SwiftUI)
-    @ObservationIgnored var velocities: [CGPoint] = []
-    @ObservationIgnored var lastDragPosition: CGPoint? = nil
-    @ObservationIgnored var lastDragTime: Date? = nil
-    @ObservationIgnored var dragStartTime: Date? = nil
-    @ObservationIgnored var rearrangementStartTime: Date? = nil
-    @ObservationIgnored var plusIconOffset: CGPoint = .zero
-    @ObservationIgnored private(set) var appCount: Int = 0
-    @ObservationIgnored private var motionManager = CMMotionManager()
-    @ObservationIgnored private var motionUpdateTimer: Timer?
+    var velocities: [CGPoint] = []
+    var lastDragPosition: CGPoint? = nil
+    var lastDragTime: Date? = nil
+    var dragStartTime: Date? = nil
+    var rearrangementStartTime: Date? = nil
+    var plusIconOffset: CGPoint = .zero
+    private(set) var appCount: Int = 0
+    private var motionManager = CMMotionManager()
+    private var motionUpdateTimer: Timer?
 
     let centerSize: CGFloat = 96
     let mediumSize: CGFloat = 76
@@ -521,13 +521,14 @@ struct AppCluster: View {
     var onTapAdd: () -> Void = {}
     var showAddButton: Bool = true
 
-    @Environment(AppStore.self) private var store
-    @Environment(GridPositionStore.self) private var positionStore
-    @State private var engine = ClusterPhysicsEngine()
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var positionStore: GridPositionStore
+    @StateObject private var engine = ClusterPhysicsEngine()
     @State private var selectedApp: BlockedApp? = nil
     @State private var isEditMode = false
     @State private var hoveredHexSlot: HexCoordinate? = nil
     @State private var lastToggledOptionId: String? = nil
+    @State private var previousGeometrySize: CGSize = .zero
 
     private let layoutManager = HexGridLayoutManager()
 
@@ -915,19 +916,22 @@ struct AppCluster: View {
             .onAppear {
                 engine.containerSize = geometry.size
                 engine.originalCenter = center
+                previousGeometrySize = geometry.size
                 initializeWithHexPositions(center: center, containerSize: geometry.size)
                 if selectedApp == nil {
                     engine.startMotionUpdates()
                 }
             }
-            .onChange(of: selectedApp) { oldValue, newValue in
+            .onChange(of: selectedApp) { newValue in
                 if newValue == nil {
                     engine.startMotionUpdates()
                 } else {
                     engine.stopMotionUpdates()
                 }
             }
-            .onChange(of: geometry.size) { oldSize, newSize in
+            .onChange(of: geometry.size) { newSize in
+                let oldSize = previousGeometrySize
+                previousGeometrySize = newSize
                 engine.containerSize = newSize
                 if abs(newSize.width - oldSize.width) > 10 || abs(newSize.height - oldSize.height) > 10 {
                     let newCenter = CGPoint(x: newSize.width / 2, y: newSize.height / 2)
@@ -1152,6 +1156,7 @@ struct CenterIconWithDrag: View {
             apps: AppStore().apps,
             onTapApp: { _ in }
         )
-        .environment(GridPositionStore())
+        .environmentObject(AppStore())
+        .environmentObject(GridPositionStore())
     }
 }

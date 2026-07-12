@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct BlockingOptionsScreen: View {
-    @Environment(AppStore.self) private var store
+    @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     let appId: String
 
@@ -63,6 +63,6 @@ struct BlockingOptionsScreen: View {
 #Preview {
     NavigationStack {
         BlockingOptionsScreen(appId: "instagram")
-            .environment(AppStore())
+            .environmentObject(AppStore())
     }
 }

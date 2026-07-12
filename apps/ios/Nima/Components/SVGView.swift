@@ -3,9 +3,10 @@ import WebKit
 
 struct SVGView: View {
     let svgName: String
+    @ObservedObject private var cache = SVGCache.shared
 
     var body: some View {
-        if let image = SVGCache.shared.images[svgName] {
+        if let image = cache.images[svgName] {
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)

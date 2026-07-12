@@ -398,7 +398,7 @@ final class SOCKSProxyServer: TikTokIPHintReporting {
 
     private var listener: NWListener?
     private let filter: ConnectionFilter
-    private let queue = DispatchQueue(label: "com.yamin.nimademo.socks5", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "so.nima.app.socks5", qos: .userInitiated)
     private let queueSpecificKey = DispatchSpecificKey<Bool>()
     private let log = TunnelLogger.shared
     private var connectionCount = 0      // total connections ever (used as ID)

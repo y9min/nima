@@ -24,7 +24,7 @@ final class TikTokVPNDropUITests: XCTestCase {
         let swipeMode = environment["TIKTOK_HARNESS_SWIPE_MODE"] ?? "combo"
         let nimaWarmup = environment.doubleValue(for: "TIKTOK_HARNESS_NIMA_WARMUP", defaultValue: 8)
         let tiktokWarmup = environment.doubleValue(for: "TIKTOK_HARNESS_TIKTOK_WARMUP", defaultValue: 6)
-        let nimaBundleID = environment["NIMA_BUNDLE_ID"] ?? "com.yamin.nimademo"
+        let nimaBundleID = environment["NIMA_BUNDLE_ID"] ?? "so.nima.app"
         let tiktokBundleID = environment["TIKTOK_BUNDLE_ID"] ?? "com.zhiliaoapp.musically"
         let startX = environment.doubleValue(for: "TIKTOK_HARNESS_SWIPE_START_X", defaultValue: 0.50)
         let startY = environment.doubleValue(for: "TIKTOK_HARNESS_SWIPE_START_Y", defaultValue: 0.78)

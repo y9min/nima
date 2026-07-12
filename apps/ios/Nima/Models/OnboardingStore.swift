@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+import Combine
 
 struct OnboardingStateV1: Codable, Equatable {
     var phoneHours: Int?
@@ -23,20 +23,19 @@ struct OnboardingStateV1: Codable, Equatable {
     }
 }
 
-@Observable
-final class OnboardingStore {
-    var isCompleted: Bool = false
-    var hasSeenGuidedOnboarding: Bool = false
-    var hasCompletedGuidedPractice: Bool = false
-    var hasGuidedPracticeReturnPending: Bool = false
-    var hasCompletedGuidedWindowsOnboarding: Bool = false
-    var phoneHours: Int?
-    var age: Int?
-    var selectedHabits: Set<String> = []
-    var selectedApps: Set<String> = []
-    var vpnPermissionRequested: Bool = false
+final class OnboardingStore: ObservableObject {
+    @Published var isCompleted: Bool = false
+    @Published var hasSeenGuidedOnboarding: Bool = false
+    @Published var hasCompletedGuidedPractice: Bool = false
+    @Published var hasGuidedPracticeReturnPending: Bool = false
+    @Published var hasCompletedGuidedWindowsOnboarding: Bool = false
+    @Published var phoneHours: Int?
+    @Published var age: Int?
+    @Published var selectedHabits: Set<String> = []
+    @Published var selectedApps: Set<String> = []
+    @Published var vpnPermissionRequested: Bool = false
 
-    @ObservationIgnored private let defaults: UserDefaults?
+    private let defaults: UserDefaults?
 
     init(defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID)) {
         self.defaults = defaults

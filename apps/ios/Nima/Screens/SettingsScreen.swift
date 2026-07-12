@@ -5,13 +5,13 @@ import UIKit
 
 struct SettingsScreen: View {
     @Environment(\.sizeCategory) private var contentSizeCategory
-    @Environment(AppStore.self) private var appStore
-    @Environment(AppSettingsStore.self) private var appSettingsStore
-    @Environment(AuthStore.self) private var authStore
-    @Environment(GridPositionStore.self) private var gridPositionStore
-    @Environment(OnboardingStore.self) private var onboardingStore
-    @Environment(StreakStore.self) private var streakStore
-    @Environment(TimeWindowStore.self) private var timeWindowStore
+    @EnvironmentObject private var appStore: AppStore
+    @EnvironmentObject private var appSettingsStore: AppSettingsStore
+    @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var gridPositionStore: GridPositionStore
+    @EnvironmentObject private var onboardingStore: OnboardingStore
+    @EnvironmentObject private var streakStore: StreakStore
+    @EnvironmentObject private var timeWindowStore: TimeWindowStore
     @EnvironmentObject private var vpnManager: VPNManager
 
     @State private var destination: SettingsDestination?
@@ -236,7 +236,7 @@ struct SettingsScreen: View {
             .padding(.top, layout.settingsTopInset)
             .padding(.bottom, layout.dockReservedHeight + 22 * layout.settingsScale)
         }
-        .scrollBounceBehavior(.basedOnSize)
+        .nimaScrollBounceBasedOnSize()
     }
 
     private var appVersion: String {
@@ -336,7 +336,7 @@ private struct SettingsPageScaffold<Content: View>: View {
             .padding(.top, layout.settingsTopInset)
             .padding(.bottom, layout.dockReservedHeight + 22 * layout.settingsScale)
         }
-        .scrollBounceBehavior(.basedOnSize)
+        .nimaScrollBounceBasedOnSize()
     }
 }
 
@@ -500,8 +500,8 @@ private struct SettingsInlineDivider: View {
 }
 
 private struct AccountSettingsPage: View {
-    @Environment(AuthStore.self) private var authStore
-    @Environment(AppSettingsStore.self) private var appSettingsStore
+    @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var appSettingsStore: AppSettingsStore
     @State private var draftName = ""
     @State private var isShowingDeleteAccountSheet = false
 
@@ -529,7 +529,7 @@ private struct AccountSettingsPage: View {
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .stroke(AppChromePalette.border.opacity(0.8), lineWidth: 1)
                         )
-                        .onChange(of: draftName) { _, newValue in
+                        .onChange(of: draftName) { newValue in
                             appSettingsStore.setDisplayName(newValue)
                         }
                 }
@@ -585,9 +585,9 @@ private struct AccountSettingsPage: View {
 }
 
 private struct NotificationSettingsPage: View {
-    @Environment(AppSettingsStore.self) private var appSettingsStore
-    @Environment(StreakStore.self) private var streakStore
-    @Environment(TimeWindowStore.self) private var timeWindowStore
+    @EnvironmentObject private var appSettingsStore: AppSettingsStore
+    @EnvironmentObject private var streakStore: StreakStore
+    @EnvironmentObject private var timeWindowStore: TimeWindowStore
 
     var body: some View {
         SettingsFormPanel {
@@ -667,8 +667,8 @@ private struct NotificationSettingsPage: View {
 }
 
 private struct WindowsSettingsPage: View {
-    @Environment(AppSettingsStore.self) private var appSettingsStore
-    @Environment(TimeWindowStore.self) private var timeWindowStore
+    @EnvironmentObject private var appSettingsStore: AppSettingsStore
+    @EnvironmentObject private var timeWindowStore: TimeWindowStore
 
     var body: some View {
         SettingsFormPanel {
@@ -714,7 +714,7 @@ private struct WindowsSettingsPage: View {
 }
 
 private struct SubscriptionSettingsPage: View {
-    @Environment(SubscriptionStore.self) private var subscriptionStore
+    @EnvironmentObject private var subscriptionStore: SubscriptionStore
 
     @State private var isShowingCancellationFeedback = false
     @State private var selectedCancellationReason: SubscriptionCancellationReason = .tooExpensive
@@ -948,7 +948,7 @@ private struct CancellationFeedbackSheet: View {
 
 private struct DeleteAccountSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(AuthStore.self) private var authStore
+    @EnvironmentObject private var authStore: AuthStore
 
     @State private var isShowingFinalConfirmation = false
     @State private var isDeleting = false
@@ -1349,7 +1349,7 @@ private struct SettingsActionRow: View {
 }
 
 private struct AdvancedSettingsPage: View {
-    @Environment(AppSettingsStore.self) private var appSettingsStore
+    @EnvironmentObject private var appSettingsStore: AppSettingsStore
     @State private var isShowingResetConfirmation = false
 
     @AppStorage(NimaConstants.udpSelectiveSafeModeEnabledKey,

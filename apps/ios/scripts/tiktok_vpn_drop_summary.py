@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ended-at", type=float, required=True)
     parser.add_argument("--device-udid", required=True)
     parser.add_argument("--tiktok-bundle-id", required=True)
-    parser.add_argument("--app-group-id", default="group.com.yamin.nimademo")
+    parser.add_argument("--app-group-id", default="group.so.nima.app")
     return parser.parse_args()
 
 

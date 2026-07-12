@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+import Combine
 import RevenueCat
 
 enum SubscriptionVerificationState: Equatable {
@@ -80,21 +80,21 @@ private extension SubscriptionCustomerStatus {
     }
 }
 
-@Observable
-final class SubscriptionStore {
+final class SubscriptionStore: ObservableObject {
     static let premiumEntitlementID = "nima Pro"
     static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
     private static let cachedPremiumKey = "subscription.hasPremium"
 
-    var hasPremium: Bool
-    var verificationState: SubscriptionVerificationState = .idle
-    var offeringsState: OfferingsLoadState = .idle
-    var isPurchasing: Bool = false
-    var isRestoring: Bool = false
-    var monthlyPackage: RevenueCat.Package?
-    var yearlyPackage: RevenueCat.Package?
-    var purchaseErrorMessage: String?
-    var restoreErrorMessage: String?
+    @Published var hasPremium: Bool
+    @Published var verificationState: SubscriptionVerificationState = .idle
+    @Published var offeringsState: OfferingsLoadState = .idle
+    @Published var isPurchasing: Bool = false
+    @Published var isRestoring: Bool = false
+    @Published var currentOffering: RevenueCat.Offering?
+    @Published var monthlyPackage: RevenueCat.Package?
+    @Published var yearlyPackage: RevenueCat.Package?
+    @Published var purchaseErrorMessage: String?
+    @Published var restoreErrorMessage: String?
 
     var hasPendingPurchase: Bool {
         purchaseRequestID != nil
@@ -116,7 +116,7 @@ final class SubscriptionStore {
 
     private var customerInfoRequestID: UUID?
     private var offeringsRequestID: UUID?
-    private var purchaseRequestID: UUID?
+    @Published private var purchaseRequestID: UUID?
     private var restoreRequestID: UUID?
     private var restoreTimedOutRequestID: UUID?
 
@@ -299,6 +299,7 @@ final class SubscriptionStore {
         let requestID = UUID()
         offeringsRequestID = requestID
         offeringsTimeoutTask?.cancel()
+        currentOffering = nil
         monthlyPackage = nil
         yearlyPackage = nil
         offeringsState = .loading
@@ -321,6 +322,7 @@ final class SubscriptionStore {
                 }
 
                 let current = offerings?.current
+                self.currentOffering = current
                 self.monthlyPackage = current?.monthly ?? current?.availablePackages.first
                 self.yearlyPackage = current?.annual ?? current?.availablePackages.last
 
@@ -363,6 +365,10 @@ final class SubscriptionStore {
                 }
             }
         }
+    }
+
+    func handlePaywallCustomerInfo(_ customerInfo: CustomerInfo) {
+        _ = apply(SubscriptionCustomerStatus(customerInfo))
     }
 
     func restore(onUnlocked: @escaping () -> Void) {
@@ -540,6 +546,7 @@ final class SubscriptionStore {
         hasPremium = false
         verificationState = .idle
         offeringsState = .idle
+        currentOffering = nil
         monthlyPackage = nil
         yearlyPackage = nil
         purchaseErrorMessage = nil

@@ -10,14 +10,14 @@ struct NimaApp: App {
 
     @StateObject private var vpnManager = VPNManager()
     @State private var path = NavigationPath()
-    @State private var store = AppStore()
-    @State private var streakStore = StreakStore()
-    @State private var timeWindowStore = TimeWindowStore()
-    @State private var gridPositionStore = GridPositionStore()
-    @State private var authStore = AuthStore()
-    @State private var appSettingsStore = AppSettingsStore()
-    @State private var onboardingStore = OnboardingStore()
-    @State private var subscriptionStore = SubscriptionStore()
+    @StateObject private var store = AppStore()
+    @StateObject private var streakStore = StreakStore()
+    @StateObject private var timeWindowStore = TimeWindowStore()
+    @StateObject private var gridPositionStore = GridPositionStore()
+    @StateObject private var authStore = AuthStore()
+    @StateObject private var appSettingsStore = AppSettingsStore()
+    @StateObject private var onboardingStore = OnboardingStore()
+    @StateObject private var subscriptionStore = SubscriptionStore()
     @State private var didConfigureProtection = false
     @State private var guidedOnboardingPresentationMode: GuidedOnboardingPresentationMode?
     @State private var guidedPracticePhase: GuidedPracticePhase = .hidden
@@ -119,14 +119,14 @@ struct NimaApp: App {
                         }
                     }
                 }
-                .environment(store)
-                .environment(streakStore)
-                .environment(timeWindowStore)
-                .environment(gridPositionStore)
-                .environment(authStore)
-                .environment(appSettingsStore)
-                .environment(onboardingStore)
-                .environment(subscriptionStore)
+                .environmentObject(store)
+                .environmentObject(streakStore)
+                .environmentObject(timeWindowStore)
+                .environmentObject(gridPositionStore)
+                .environmentObject(authStore)
+                .environmentObject(appSettingsStore)
+                .environmentObject(onboardingStore)
+                .environmentObject(subscriptionStore)
                 .environmentObject(vpnManager)
                 .statusBarHidden(!onboardingStore.isCompleted)
                 .preferredColorScheme(.dark)
@@ -139,7 +139,7 @@ struct NimaApp: App {
                 .onAppear {
                     // Keep the first SwiftUI frame lightweight so iOS can leave the launch screen.
                 }
-                .onChange(of: onboardingStore.isCompleted) { _, isCompleted in
+                .onChange(of: onboardingStore.isCompleted) { isCompleted in
                     guard isCompleted else {
                         path = NavigationPath()
                         didConfigureProtection = false
@@ -156,7 +156,7 @@ struct NimaApp: App {
                     markStreakIfEligible(source: "onboarding.completed")
                     presentGuidedOnboardingIfNeeded()
                 }
-                .onChange(of: authStore.isLoggedIn) { _, isLoggedIn in
+                .onChange(of: authStore.isLoggedIn) { isLoggedIn in
                     if isLoggedIn {
                         path = NavigationPath()
                         guidedOnboardingPresentationMode = nil
@@ -169,20 +169,20 @@ struct NimaApp: App {
                     }
                     presentGuidedOnboardingIfNeeded()
                 }
-                .onChange(of: subscriptionStore.hasPremium) { _, hasPremium in
+                .onChange(of: subscriptionStore.hasPremium) { hasPremium in
                     if hasPremium {
                         presentGuidedOnboardingIfNeeded()
                     }
                 }
-                .onChange(of: scenePhase) { _, newPhase in
+                .onChange(of: scenePhase) { newPhase in
                     handleScenePhaseChange(newPhase)
                 }
-                .onChange(of: activeGuidedPracticeBlockedApps) { _, activeApps in
+                .onChange(of: activeGuidedPracticeBlockedApps) { activeApps in
                     guard !activeApps.isEmpty, guidedPracticePhase == .dragTikTokCoachMark else { return }
                     guidedPracticeActiveApps = activeApps
                     guidedPracticePhase = .openAppPrompt
                 }
-                .onChange(of: vpnManager.vpnStatus) { _, _ in
+                .onChange(of: vpnManager.vpnStatus) { _ in
                     if onboardingStore.isCompleted {
                         store.syncVPNState(source: "vpn.status")
                         markStreakIfEligible(source: "vpn.status")
@@ -727,7 +727,7 @@ struct NimaApp: App {
 }
 
 private struct SubscriptionStatusLoadingScreen: View {
-    @Environment(SubscriptionStore.self) private var subscriptionStore
+    @EnvironmentObject private var subscriptionStore: SubscriptionStore
 
     var body: some View {
         ZStack {

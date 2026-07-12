@@ -1,5 +1,4 @@
 import Foundation
-import Observation
 
 struct FeaturePolicyV1: Codable {
     let version: Int
@@ -163,7 +162,6 @@ struct AppOptionsResponse: Codable {
     }
 }
 
-@Observable
 final class AppOptionsService {
     static let shared = AppOptionsService()
 

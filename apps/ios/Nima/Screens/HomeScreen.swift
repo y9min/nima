@@ -3,11 +3,11 @@ import NetworkExtension
 import UIKit
 
 struct HomeScreen: View {
-    @Environment(AppStore.self) private var store
-    @Environment(StreakStore.self) private var streakStore
-    @Environment(TimeWindowStore.self) private var timeWindowStore
-    @Environment(AuthStore.self) private var authStore
-    @Environment(AppSettingsStore.self) private var appSettingsStore
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var streakStore: StreakStore
+    @EnvironmentObject private var timeWindowStore: TimeWindowStore
+    @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var appSettingsStore: AppSettingsStore
     @Environment(\.sizeCategory) private var contentSizeCategory
     @EnvironmentObject private var vpnManager: VPNManager
     @State private var appIDPendingWindowEnd: String?
@@ -43,7 +43,7 @@ struct HomeScreen: View {
                                 .padding(.top, layout.contentTopInset)
                                 .padding(.bottom, layout.dockReservedHeight)
                         }
-                        .scrollBounceBehavior(.basedOnSize)
+                        .nimaScrollBounceBasedOnSize()
                     } else {
                         homeContent(layout: layout)
                             .frame(width: layout.contentWidth)
@@ -705,10 +705,11 @@ private struct HomeDashboardDebugOverlay: View {
 
 #Preview {
     HomeScreen(onSelectApp: { _ in })
-        .environment(AppStore())
-        .environment(StreakStore(defaults: nil))
-        .environment(TimeWindowStore())
-        .environment(GridPositionStore())
-        .environment(AuthStore())
+        .environmentObject(AppStore())
+        .environmentObject(StreakStore(defaults: nil))
+        .environmentObject(TimeWindowStore())
+        .environmentObject(GridPositionStore())
+        .environmentObject(AuthStore())
+        .environmentObject(AppSettingsStore(defaults: nil))
         .environmentObject(VPNManager())
 }

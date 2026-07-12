@@ -2,8 +2,8 @@ import Foundation
 
 enum NimaConstants {
     // MARK: - Identifiers
-    static let appGroupID = "group.com.yamin.nimademo"
-    static let tunnelBundleID = "com.yamin.nimademo.NimaTunnel"
+    static let appGroupID = "group.so.nima.app"
+    static let tunnelBundleID = "so.nima.app.NimaTunnel"
 
     // MARK: - Network Settings
     static let tunnelRemoteAddress = "198.18.0.1"
@@ -105,7 +105,7 @@ enum NimaConstants {
     static let logFileName = "tunnel_log.txt"
     static let maxLogSizeBytes = 512 * 1024
     static let maxStatusLogEntries = 200
-    static let logSubsystem = "com.yamin.nimademo.NimaTunnel"
+    static let logSubsystem = "so.nima.app.NimaTunnel"
     static let statsFileName = "traffic_stats.json"
 
     // MARK: - Stream Blocking

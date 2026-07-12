@@ -1,10 +1,9 @@
 import Foundation
-import Observation
+import Combine
 import NetworkExtension
 
-@Observable
-final class AppStore {
-    var apps: [BlockedApp] = [
+final class AppStore: ObservableObject {
+    @Published var apps: [BlockedApp] = [
         BlockedApp(
             id: "instagram",
             name: "INSTAGRAM",
@@ -26,14 +25,14 @@ final class AppStore {
     ]
 
     private let optionsService = AppOptionsService.shared
-    @ObservationIgnored private var vpnStartHandler: (() -> Void)?
-    @ObservationIgnored private var vpnStopHandler: (() -> Void)?
-    @ObservationIgnored private var vpnStatusProvider: (() -> NEVPNStatus)?
-    @ObservationIgnored private var streakEligibilityHandler: ((String) -> Void)?
-    @ObservationIgnored private var vpnStartInFlight = false
-    @ObservationIgnored private var vpnStopInFlight = false
-    @ObservationIgnored private var pendingVPNSyncTask: Task<Void, Never>?
-    @ObservationIgnored private let sharedDefaults = UserDefaults(suiteName: NimaConstants.appGroupID)
+    private var vpnStartHandler: (() -> Void)?
+    private var vpnStopHandler: (() -> Void)?
+    private var vpnStatusProvider: (() -> NEVPNStatus)?
+    private var streakEligibilityHandler: ((String) -> Void)?
+    private var vpnStartInFlight = false
+    private var vpnStopInFlight = false
+    private var pendingVPNSyncTask: Task<Void, Never>?
+    private let sharedDefaults = UserDefaults(suiteName: NimaConstants.appGroupID)
 
     init() {
         refreshFromOptionsService()
@@ -99,10 +98,13 @@ final class AppStore {
         pendingVPNSyncTask?.cancel()
         pendingVPNSyncTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000)
-            await MainActor.run {
-                self?.reconcileVPNState(triggerSource: triggerSource)
-            }
+            await self?.reconcileVPNStateOnMainActor(triggerSource: triggerSource)
         }
+    }
+
+    @MainActor
+    private func reconcileVPNStateOnMainActor(triggerSource: String) {
+        reconcileVPNState(triggerSource: triggerSource)
     }
 
     private func reconcileVPNState(triggerSource: String) {

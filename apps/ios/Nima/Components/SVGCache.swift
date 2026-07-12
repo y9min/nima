@@ -1,12 +1,13 @@
 import Foundation
+import Combine
 import UIKit
 import WebKit
 
-@MainActor @Observable
-final class SVGCache {
+@MainActor
+final class SVGCache: ObservableObject {
     static let shared = SVGCache()
 
-    private(set) var images: [String: UIImage] = [:]
+    @Published private(set) var images: [String: UIImage] = [:]
     private var svgStrings: [String: String] = [:]
 
     private init() {}

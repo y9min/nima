@@ -639,7 +639,7 @@ private struct GuidedPracticeOpenAppButton: View {
                 isPulsing = true
             }
         }
-        .onChange(of: isSuggested) { _, suggested in
+        .onChange(of: isSuggested) { suggested in
             if suggested {
                 withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                     isPulsing = true

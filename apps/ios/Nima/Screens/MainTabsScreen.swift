@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MainTabsScreen: View {
-    @Environment(TimeWindowStore.self) private var timeWindowStore
+    @EnvironmentObject private var timeWindowStore: TimeWindowStore
     @Environment(\.sizeCategory) private var contentSizeCategory
     @State private var selectedTab: AppDockDestination = .home
     @State private var pendingAddWindowRequestID: UUID?
@@ -83,7 +83,7 @@ struct MainTabsScreen: View {
                 selectedTab = .home
             }
         }
-        .onChange(of: timeWindowStore.homeFocusRequestID) { _, newValue in
+        .onChange(of: timeWindowStore.homeFocusRequestID) { newValue in
             if newValue != nil {
                 selectedTab = .home
             }

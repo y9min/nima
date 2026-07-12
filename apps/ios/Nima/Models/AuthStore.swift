@@ -1,19 +1,18 @@
 import Foundation
-import Observation
+import Combine
 import Supabase
 
-@Observable
-final class AuthStore {
+final class AuthStore: ObservableObject {
     static let emailAuthRedirectURL = URL(string: "nima://auth-callback")!
     private static let annualDemoAccountEmails: Set<String> = [
         "ya@nima.so",
         "review@nima.so",
     ]
 
-    var isLoggedIn: Bool = false
-    var isDemo: Bool = false
-    var userID: UUID?
-    var userEmail: String = ""
+    @Published var isLoggedIn: Bool = false
+    @Published var isDemo: Bool = false
+    @Published var userID: UUID?
+    @Published var userEmail: String = ""
 
     func login(email: String, demo: Bool = false) {
         isLoggedIn = true

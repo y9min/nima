@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+import Combine
 
 struct StreakDayRecord: Codable, Equatable, Identifiable {
     var id: String { date }
@@ -28,12 +28,11 @@ struct StreakWeekDayState: Equatable, Identifiable {
     let isToday: Bool
 }
 
-@Observable
-final class StreakStore {
-    private(set) var records: [StreakDayRecord] = []
+final class StreakStore: ObservableObject {
+    @Published private(set) var records: [StreakDayRecord] = []
 
-    @ObservationIgnored private let defaults: UserDefaults?
-    @ObservationIgnored private let storageKey: String
+    private let defaults: UserDefaults?
+    private let storageKey: String
 
     init(
         defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID),

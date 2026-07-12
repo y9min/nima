@@ -1,11 +1,10 @@
 import Foundation
-import Observation
+import Combine
 
-@Observable
-final class GridPositionStore {
+final class GridPositionStore: ObservableObject {
     static let userDefaultsKey = "hexGridPositions"
 
-    private(set) var positions: [String: HexCoordinate] = [:]
+    @Published private(set) var positions: [String: HexCoordinate] = [:]
 
     init() {
         load()
