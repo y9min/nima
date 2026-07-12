@@ -39,6 +39,8 @@ targets:
         product: GoogleSignIn
       - package: RevenueCat
         product: RevenueCat
+      - package: RevenueCat
+        product: RevenueCatUI
       - target: NimaTunnel
       - sdk: NetworkExtension.framework
     info:

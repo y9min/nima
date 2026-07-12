@@ -91,6 +91,7 @@ final class SubscriptionStore {
     var offeringsState: OfferingsLoadState = .idle
     var isPurchasing: Bool = false
     var isRestoring: Bool = false
+    var currentOffering: RevenueCat.Offering?
     var monthlyPackage: RevenueCat.Package?
     var yearlyPackage: RevenueCat.Package?
     var purchaseErrorMessage: String?
@@ -299,6 +300,7 @@ final class SubscriptionStore {
         let requestID = UUID()
         offeringsRequestID = requestID
         offeringsTimeoutTask?.cancel()
+        currentOffering = nil
         monthlyPackage = nil
         yearlyPackage = nil
         offeringsState = .loading
@@ -321,6 +323,7 @@ final class SubscriptionStore {
                 }
 
                 let current = offerings?.current
+                self.currentOffering = current
                 self.monthlyPackage = current?.monthly ?? current?.availablePackages.first
                 self.yearlyPackage = current?.annual ?? current?.availablePackages.last
 
@@ -363,6 +366,10 @@ final class SubscriptionStore {
                 }
             }
         }
+    }
+
+    func handlePaywallCustomerInfo(_ customerInfo: CustomerInfo) {
+        _ = apply(SubscriptionCustomerStatus(customerInfo))
     }
 
     func restore(onUnlocked: @escaping () -> Void) {
@@ -540,6 +547,7 @@ final class SubscriptionStore {
         hasPremium = false
         verificationState = .idle
         offeringsState = .idle
+        currentOffering = nil
         monthlyPackage = nil
         yearlyPackage = nil
         purchaseErrorMessage = nil

@@ -53,6 +53,7 @@
 		5518CB9E60E1E0F4989E8631 /* NativeAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D07A6936AD4E39EA6F74B19 /* NativeAuthService.swift */; };
 		5638FFC9E1A1E0632F86E64E /* AppOptionsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5347A4D3B752D4E5B8F8834 /* AppOptionsService.swift */; };
 		58B5DC2AF59FBBB0DE78DF0D /* SubscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC29480A7095EDCA32349C2 /* SubscriptionStore.swift */; };
+		5A011E68B110970A34888CF5 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = 324DD16958586EBB08ADB9BB /* RevenueCatUI */; };
 		5ABD34C79BC2A7CD5E7F0605 /* HeaderBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDEA02BCAA6A129EBFDAF647 /* HeaderBar.swift */; };
 		5FDA109CB31227F09291B170 /* NimaConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = F47B517FE3D6ABE29BCD33A1 /* NimaConstants.swift */; };
 		615BAAFE945B5E341324628D /* ReelsBlockFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0926A86CF539EEFD8F9E80D8 /* ReelsBlockFilter.swift */; };
@@ -84,13 +85,13 @@
 		9D0458BC4421C10A6A28CAE6 /* background.png in Resources */ = {isa = PBXBuildFile; fileRef = 854FE8F9E4C2B9672F7677A4 /* background.png */; };
 		9D83563068CB4FE6618CDA5E /* NimaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E02A7E19DFE718D01409FF /* NimaButton.swift */; };
 		9F8738EB2D59742964326EC7 /* home_instagram_blocking_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = A7E55C179009A181FD30CB5F /* home_instagram_blocking_icon.png */; };
-		AB4600010000000000000001 /* guided_windows_ready.png in Resources */ = {isa = PBXBuildFile; fileRef = AB4600020000000000000002 /* guided_windows_ready.png */; };
 		A05EADCC2D163BB68A428000 /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DACE73396CB5F8C6560F142A /* VPNManager.swift */; };
 		A0F6F448A786A9FD5C2B8700 /* Tun2SocksKit in Frameworks */ = {isa = PBXBuildFile; productRef = E6E0A6D2822E63FBF423F24A /* Tun2SocksKit */; };
 		A19AC83B7F76BEBCF51A7CAE /* TunnelLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB171C4EB89D104C345EEF8 /* TunnelLogger.swift */; };
 		A1D2D1EF449B222B8D4B08C5 /* NimaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C24720F4635D0D6E122B3BF /* NimaApp.swift */; };
 		A3B4F783CA1862435BFABE11 /* UDPControlStreamDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 572F72616968EC95681D51F8 /* UDPControlStreamDecoder.swift */; };
 		A6AF4B2BEAD4C1ADA39CA417 /* OnboardingStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D507CB42186B41E6A2F49704 /* OnboardingStoreTests.swift */; };
+		B0B69629EFFD4DF1E72CFDAD /* guided_windows_ready.png in Resources */ = {isa = PBXBuildFile; fileRef = 48811CA34E5F213978A961EA /* guided_windows_ready.png */; };
 		B2EFD908DBE09CA03F6EA4B5 /* BlockingStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A7BAA7AC550DD523574615 /* BlockingStatusCard.swift */; };
 		B2F585632E047B25D030CF38 /* LandingPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3EEDF577C258F2334F7C3AB /* LandingPage.swift */; };
 		B509D06BEFACD0609277934A /* PiPInstructionVideoController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92A3DE8837AED24F6FDC5D7 /* PiPInstructionVideoController.swift */; };
@@ -199,6 +200,7 @@
 		4742AA24B2D7795D406B0595 /* app_options.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = app_options.json; sourceTree = "<group>"; };
 		47545C93357327545B171412 /* BlockedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockedApp.swift; sourceTree = "<group>"; };
 		484A36A2127B0F0ACBC3F552 /* DiagnosticContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticContractTests.swift; sourceTree = "<group>"; };
+		48811CA34E5F213978A961EA /* guided_windows_ready.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = guided_windows_ready.png; sourceTree = "<group>"; };
 		4F093A3121DAF773D1933C0D /* NimaColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NimaColors.swift; sourceTree = "<group>"; };
 		4F46D9861C2DCFBE773115AA /* clouds_continous.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = clouds_continous.png; sourceTree = "<group>"; };
 		50B33AA9B7B092B9BA9F30E7 /* SubscriptionCancellationFeedbackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionCancellationFeedbackService.swift; sourceTree = "<group>"; };
@@ -247,7 +249,6 @@
 		A7E55C179009A181FD30CB5F /* home_instagram_blocking_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_instagram_blocking_icon.png; sourceTree = "<group>"; };
 		A95C81B0AB038DCD16C765D8 /* home_streak_flame.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_streak_flame.png; sourceTree = "<group>"; };
 		AA4C8AB88931C3E196EA826A /* HarnessScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessScenarioTests.swift; sourceTree = "<group>"; };
-		AB4600020000000000000002 /* guided_windows_ready.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = guided_windows_ready.png; sourceTree = "<group>"; };
 		ABE6E21B68F0A7C9E658A7B9 /* GuidedPracticeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedPracticeModels.swift; sourceTree = "<group>"; };
 		AC23C93BD155E614ED46325D /* AppIconCircle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconCircle.swift; sourceTree = "<group>"; };
 		AC61AF93D5CDA279171EC746 /* NimaTunnel.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NimaTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -313,6 +314,7 @@
 				C120F5247941B346AF1FF23F /* Supabase in Frameworks */,
 				243AF29AE06AA5104F2BFC4A /* GoogleSignIn in Frameworks */,
 				18C9CC88050D26EE2F4AA7F1 /* RevenueCat in Frameworks */,
+				5A011E68B110970A34888CF5 /* RevenueCatUI in Frameworks */,
 				88FA3084942CACD24AD6FB28 /* NetworkExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -518,7 +520,7 @@
 				7F770521A57CAC66565F82C4 /* guided_onboarding_feed_placeholder.png */,
 				FABC854A718A3279AF2EDA81 /* guided_practice_instagram_icon.png */,
 				D18B86CED7F94FF7AF8C6737 /* guided_practice_tiktok_icon.png */,
-				AB4600020000000000000002 /* guided_windows_ready.png */,
+				48811CA34E5F213978A961EA /* guided_windows_ready.png */,
 				A7E55C179009A181FD30CB5F /* home_instagram_blocking_icon.png */,
 				519B1668394058EF894B3F13 /* home_mountains.svg */,
 				A95C81B0AB038DCD16C765D8 /* home_streak_flame.png */,
@@ -690,6 +692,7 @@
 				B435AD87518D22EAD9AB1B69 /* Supabase */,
 				C10F7670F1F7F8F9E669C17E /* GoogleSignIn */,
 				DAAB4498D69DB3BBCA0E4372 /* RevenueCat */,
+				324DD16958586EBB08ADB9BB /* RevenueCatUI */,
 			);
 			productName = Nima;
 			productReference = FCD531BF32F67820A1BA7524 /* Nima.app */;
@@ -778,7 +781,7 @@
 				8CC607C520D178DB9553BF8D /* guided_onboarding_feed_placeholder.png in Resources */,
 				116977444AD2C733A0F1815F /* guided_practice_instagram_icon.png in Resources */,
 				1D167830C4FF6468869431BB /* guided_practice_tiktok_icon.png in Resources */,
-				AB4600010000000000000001 /* guided_windows_ready.png in Resources */,
+				B0B69629EFFD4DF1E72CFDAD /* guided_windows_ready.png in Resources */,
 				9F8738EB2D59742964326EC7 /* home_instagram_blocking_icon.png in Resources */,
 				523910D4E2F41EB313B11B35 /* home_mountains.svg in Resources */,
 				D1BA414684DCAF555BD2F6D5 /* home_streak_flame.png in Resources */,
@@ -1347,6 +1350,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		324DD16958586EBB08ADB9BB /* RevenueCatUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 031A2FF6EA17FB11BDA4A1E9 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCatUI;
+		};
 		B435AD87518D22EAD9AB1B69 /* Supabase */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = E2241AD5785C79842930BD57 /* XCRemoteSwiftPackageReference "supabase-swift" */;
