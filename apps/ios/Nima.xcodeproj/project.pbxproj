@@ -959,9 +959,9 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yamin.nimademo.NimaTests;
+				PRODUCT_BUNDLE_IDENTIFIER = so.nima.app.NimaTests;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nima.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Nima";
 			};
 			name = Debug;
@@ -977,9 +977,9 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yamin.nimademo.NimaTunnelTests;
+				PRODUCT_BUNDLE_IDENTIFIER = so.nima.app.NimaTunnelTests;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "";
 			};
 			name = Release;
@@ -999,9 +999,9 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yamin.nimademo;
+				PRODUCT_BUNDLE_IDENTIFIER = so.nima.app;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -1073,9 +1073,9 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yamin.nimademo.NimaTests;
+				PRODUCT_BUNDLE_IDENTIFIER = so.nima.app.NimaTests;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nima.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Nima";
 			};
 			name = Release;
@@ -1095,9 +1095,9 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yamin.nimademo;
+				PRODUCT_BUNDLE_IDENTIFIER = so.nima.app;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -1112,9 +1112,9 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yamin.nimademo.NimaTunnelTests;
+				PRODUCT_BUNDLE_IDENTIFIER = so.nima.app.NimaTunnelTests;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "";
 			};
 			name = Debug;
@@ -1130,9 +1130,9 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yamin.nimademo.TikTokVPNDropUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = so.nima.app.TikTokVPNDropUITests;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				TEST_TARGET_NAME = Nima;
 			};
 			name = Debug;
@@ -1148,9 +1148,9 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yamin.nimademo.TikTokVPNDropUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = so.nima.app.TikTokVPNDropUITests;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				TEST_TARGET_NAME = Nima;
 			};
 			name = Release;
@@ -1231,9 +1231,9 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yamin.nimademo.NimaTunnel;
+				PRODUCT_BUNDLE_IDENTIFIER = so.nima.app.NimaTunnel;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -1249,9 +1249,9 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yamin.nimademo.NimaTunnel;
+				PRODUCT_BUNDLE_IDENTIFIER = so.nima.app.NimaTunnel;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};

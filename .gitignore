@@ -27,6 +27,7 @@ apps/ios/scripts/__pycache__/
 apps/ios/screenshots/
 apps/ios/artifacts/
 apps/ios/*.png
+gallery-dl/
 
 # General
 .DS_Store
