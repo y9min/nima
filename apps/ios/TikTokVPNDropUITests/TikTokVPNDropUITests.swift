@@ -24,7 +24,7 @@ final class TikTokVPNDropUITests: XCTestCase {
         let swipeMode = environment["TIKTOK_HARNESS_SWIPE_MODE"] ?? "combo"
         let nimaWarmup = environment.doubleValue(for: "TIKTOK_HARNESS_NIMA_WARMUP", defaultValue: 8)
         let tiktokWarmup = environment.doubleValue(for: "TIKTOK_HARNESS_TIKTOK_WARMUP", defaultValue: 6)
-        let nimaBundleID = environment["NIMA_BUNDLE_ID"] ?? "com.yamin.nimademo"
+        let nimaBundleID = environment["NIMA_BUNDLE_ID"] ?? "so.nima.app"
         let tiktokBundleID = environment["TIKTOK_BUNDLE_ID"] ?? "com.zhiliaoapp.musically"
         let startX = environment.doubleValue(for: "TIKTOK_HARNESS_SWIPE_START_X", defaultValue: 0.50)
         let startY = environment.doubleValue(for: "TIKTOK_HARNESS_SWIPE_START_Y", defaultValue: 0.78)
@@ -185,6 +185,89 @@ final class TikTokVPNDropUITests: XCTestCase {
     private func sleep(seconds: TimeInterval) {
         guard seconds > 0 else { return }
         Thread.sleep(forTimeInterval: seconds)
+    }
+}
+
+final class NimaAdaptiveLayoutUITests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    func testCompactOnboardingContentRemainsReachable() throws {
+        let app = XCUIApplication(bundleIdentifier: "so.nima.app")
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_GB"]
+        app.launch()
+
+        let start = app.buttons["onboarding.splash.start"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 15), "The onboarding start button is not visible.")
+        assertInsideScreen(start, app: app)
+        attachScreenshot(named: "01-splash", app: app)
+        start.tap()
+
+        let nameField = app.textFields["onboarding.name.input"].firstMatch
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5), "The name field is not visible.")
+        nameField.tap()
+        nameField.typeText("Layout Test")
+
+        let nameContinue = app.buttons["onboarding.name.continue"].firstMatch
+        makeReachable(nameContinue, in: app)
+        XCTAssertTrue(nameContinue.isHittable, "The name Continue button cannot be reached.")
+        nameContinue.tap()
+
+        let habit = app.buttons["Ignoring people around me"].firstMatch
+        XCTAssertTrue(habit.waitForExistence(timeout: 5), "The first habit row is not visible.")
+        habit.tap()
+
+        let habitsContinue = app.buttons["onboarding.habits.continue"].firstMatch
+        makeReachable(habitsContinue, in: app)
+        XCTAssertTrue(habitsContinue.isHittable, "The habits Continue button cannot be reached on a compact screen.")
+        assertInsideScreen(habitsContinue, app: app)
+        attachScreenshot(named: "02-habits-bottom", app: app)
+        habitsContinue.tap()
+
+        let agePicker = app.pickerWheels.firstMatch
+        XCTAssertTrue(agePicker.waitForExistence(timeout: 5), "The age picker is not visible.")
+        agePicker.adjust(toPickerWheelValue: "19")
+
+        let ageContinue = app.buttons["onboarding.age.continue"].firstMatch
+        makeReachable(ageContinue, in: app)
+        XCTAssertTrue(ageContinue.isHittable, "The age Continue button cannot be reached.")
+        ageContinue.tap()
+
+        let appChoice = app.buttons["Instagram"].firstMatch
+        XCTAssertTrue(appChoice.waitForExistence(timeout: 5), "The app selection rows are not visible.")
+        appChoice.tap()
+
+        let appsContinue = app.buttons["onboarding.apps.continue"].firstMatch
+        makeReachable(appsContinue, in: app)
+        XCTAssertTrue(appsContinue.isHittable, "The app selection Continue button cannot be reached on a compact screen.")
+        assertInsideScreen(appsContinue, app: app)
+        attachScreenshot(named: "03-apps-bottom", app: app)
+    }
+
+    private func makeReachable(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<8 {
+            if element.isHittable, app.frame.insetBy(dx: -1, dy: -1).contains(element.frame) {
+                return
+            }
+            app.swipeUp()
+        }
+    }
+
+    private func assertInsideScreen(_ element: XCUIElement, app: XCUIApplication) {
+        let screen = app.frame
+        let frame = element.frame
+        XCTAssertGreaterThanOrEqual(frame.minX, screen.minX - 1)
+        XCTAssertGreaterThanOrEqual(frame.minY, screen.minY - 1)
+        XCTAssertLessThanOrEqual(frame.maxX, screen.maxX + 1)
+        XCTAssertLessThanOrEqual(frame.maxY, screen.maxY + 1)
+    }
+
+    private func attachScreenshot(named name: String, app: XCUIApplication) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }
 

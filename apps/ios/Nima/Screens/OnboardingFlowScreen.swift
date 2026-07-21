@@ -422,8 +422,6 @@ struct OnboardingFlowScreen: View {
                     .font(.system(size: 20, weight: .regular))
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
-                    .lineLimit(3)
-                    .minimumScaleFactor(0.78)
                     .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(OnboardingPalette.secondaryText)
 
@@ -452,8 +450,6 @@ struct OnboardingFlowScreen: View {
                     .font(.system(size: 20, weight: .regular))
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
-                    .lineLimit(3)
-                    .minimumScaleFactor(0.78)
                     .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(OnboardingPalette.secondaryText)
 
@@ -584,8 +580,7 @@ struct OnboardingFlowScreen: View {
                     .font(.system(size: 16, weight: .regular))
                     .foregroundStyle(OnboardingPalette.secondaryText)
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.82)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         } bottom: {
             OnboardingPrimaryButton(
@@ -609,8 +604,7 @@ struct OnboardingFlowScreen: View {
                     .font(.system(size: 16, weight: .regular))
                     .foregroundStyle(OnboardingPalette.secondaryText)
                     .multilineTextAlignment(.center)
-                    .lineLimit(4)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if isAuthenticating {
                     ProgressView()
@@ -1657,24 +1651,29 @@ private struct OnboardingWhitePage<Content: View, Bottom: View>: View {
                 Color.white
                     .ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    Color.clear
-                        .frame(height: max(10, proxy.safeAreaInsets.top - 6))
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Color.clear
+                            .frame(height: max(10, proxy.safeAreaInsets.top - 6))
 
-                    OnboardingLogo(assetName: "nima_logo_green", fallbackColor: OnboardingPalette.green)
-                        .frame(width: topLogoWidth, height: topLogoWidth * 0.38)
+                        OnboardingLogo(assetName: "nima_logo_green", fallbackColor: OnboardingPalette.green)
+                            .frame(width: topLogoWidth, height: topLogoWidth * 0.38)
 
-                    content
+                        content
 
-                    Spacer(minLength: 10)
+                        Spacer(minLength: 10)
 
-                    bottom
-                        .padding(.horizontal, 40)
-                        .padding(.bottom, bottomInset)
+                        bottom
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 40)
+                            .padding(.bottom, bottomInset)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: proxy.size.height, alignment: .top)
+                    .padding(.horizontal, OnboardingMetrics.horizontalPadding)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: proxy.size.height)
-                .padding(.horizontal, OnboardingMetrics.horizontalPadding)
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollDismissesKeyboard(.interactively)
 
                 if showsSkip {
                     Group {
@@ -1690,7 +1689,6 @@ private struct OnboardingWhitePage<Content: View, Bottom: View>: View {
                     .padding(.trailing, 36)
                 }
 
-                #if DEBUG
                 if let onBack {
                     HStack {
                         OnboardingBackButton(action: onBack)
@@ -1699,7 +1697,6 @@ private struct OnboardingWhitePage<Content: View, Bottom: View>: View {
                     .padding(.top, max(8, proxy.safeAreaInsets.top - 4))
                     .padding(.leading, 18)
                 }
-                #endif
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
@@ -1826,7 +1823,6 @@ private struct OnboardingSkipButton: View {
     }
 }
 
-#if DEBUG
 private struct OnboardingBackButton: View {
     let action: () -> Void
 
@@ -1840,10 +1836,9 @@ private struct OnboardingBackButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Back")
-        .accessibilityIdentifier("onboarding.debug.back")
+        .accessibilityIdentifier("onboarding.back")
     }
 }
-#endif
 
 private struct OnboardingSelectableRow: View {
     let title: String
@@ -2226,13 +2221,13 @@ private struct OnboardingPrivacySheet: View {
             VStack {
                 Spacer()
 
-                VStack(spacing: 18) {
-                    Text("Your privacy matters")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .minimumScaleFactor(0.68)
-                        .lineLimit(1)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        Text("Your privacy matters")
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Nima does not read:")
@@ -2255,29 +2250,31 @@ private struct OnboardingPrivacySheet: View {
                             }
                         }
 
-                        Text("Nima processes network signals like domains, connection metadata, and block decisions to apply your blocking rules. Traffic details stay in local diagnostics unless you choose to share them for support.")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(5)
-                            .minimumScaleFactor(0.78)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 12)
-                    }
-                    .padding(.horizontal, 26)
-                    .padding(.vertical, 24)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(OnboardingPalette.privacyCard)
-                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                            Text("Nima processes network signals like domains, connection metadata, and block decisions to apply your blocking rules. Traffic details stay in local diagnostics unless you choose to share them for support.")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 12)
+                        }
+                        .padding(.horizontal, 26)
+                        .padding(.vertical, 24)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OnboardingPalette.privacyCard)
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
 
-                    OnboardingPrimaryButton(title: "Continue", action: onContinue)
-                        .padding(.horizontal, 40)
-                        .accessibilityIdentifier("onboarding.privacy.continue")
+                        OnboardingPrimaryButton(title: "Continue", action: onContinue)
+                            .padding(.horizontal, 40)
+                            .accessibilityIdentifier("onboarding.privacy.continue")
+                    }
+                    .padding(.horizontal, 30)
+                    .padding(.top, 34)
+                    .padding(.bottom, max(42, proxy.safeAreaInsets.bottom + 30))
                 }
-                .padding(.horizontal, 30)
-                .padding(.top, 34)
-                .padding(.bottom, max(42, proxy.safeAreaInsets.bottom + 30))
+                .scrollBounceBehavior(.basedOnSize)
                 .frame(maxWidth: .infinity)
+                .frame(maxHeight: max(420, proxy.size.height - max(12, proxy.safeAreaInsets.top)))
                 .background(OnboardingPalette.privacySheet)
                 .clipShape(TopRoundedRectangle(radius: 40))
             }

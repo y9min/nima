@@ -11,22 +11,22 @@ struct GuidedPracticeOpenAppPromptModal: View {
     var body: some View {
         GuidedPracticeOverlay {
             GeometryReader { proxy in
-                let scale = min(1, max(0.88, proxy.size.height / 700))
+                let scale = min(1, max(0.68, min(proxy.size.width / 390, proxy.size.height / 760)))
                 let videoWidth = 196 * scale
                 let videoHeight = 384 * scale
                 let iconSize = 48 * scale
 
-                VStack(spacing: 0) {
-                    Text("Perfect! now open the app like normal and attempt to scroll or send a dm")
-                        .font(.system(size: 21 * scale, weight: .regular, design: .rounded))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3 * scale)
-                        .lineLimit(3)
-                        .minimumScaleFactor(0.78)
-                        .padding(.horizontal, 30)
-                        .padding(.top, 24 * scale)
-                        .frame(height: 122 * scale, alignment: .center)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Text("Perfect! now open the app like normal and attempt to scroll or send a dm")
+                            .font(.system(size: 21 * scale, weight: .regular, design: .rounded))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(3 * scale)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 30)
+                            .padding(.vertical, 24 * scale)
+                            .frame(minHeight: 122 * scale, alignment: .center)
 
                     Color.clear.frame(height: 14 * scale)
 
@@ -58,28 +58,31 @@ struct GuidedPracticeOpenAppPromptModal: View {
 
                     Color.clear.frame(height: 4 * scale)
 
-                    Text("Short form videos are blocked. Posts or stories may also be interrupted")
-                        .font(.system(size: 16.5 * scale, weight: .regular, design: .rounded))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(1.5 * scale)
-                        .lineLimit(3)
-                        .minimumScaleFactor(0.78)
-                        .padding(.horizontal, 44)
-                        .frame(height: 68 * scale)
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.system(size: 14 * scale, weight: .medium, design: .rounded))
-                            .foregroundStyle(GuidedPracticePalette.accent)
+                        Text("Short form videos are blocked. Posts or stories may also be interrupted")
+                            .font(.system(size: 16.5 * scale, weight: .regular, design: .rounded))
+                            .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 28)
-                            .frame(height: 34 * scale)
-                    } else {
-                        Color.clear.frame(height: 34 * scale)
+                            .lineSpacing(1.5 * scale)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 44)
+                            .frame(minHeight: 68 * scale)
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.system(size: 14 * scale, weight: .medium, design: .rounded))
+                                .foregroundStyle(GuidedPracticePalette.accent)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 28)
+                                .frame(minHeight: 34 * scale)
+                        } else {
+                            Color.clear.frame(height: 34 * scale)
+                        }
                     }
+                    .frame(width: proxy.size.width)
+                    .frame(minHeight: proxy.size.height, alignment: .top)
                 }
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+                .scrollBounceBehavior(.basedOnSize)
             }
         }
         .accessibilityIdentifier("guided_practice.open_app_prompt")
@@ -205,58 +208,17 @@ struct GuidedPracticeSuccessModal: View {
 
     var body: some View {
         GuidedPracticeOverlay {
-            VStack(spacing: 0) {
-                Spacer(minLength: 48)
-
-                ZStack {
-                    Circle()
-                        .fill(GuidedPracticePalette.accent)
-                        .frame(width: 176, height: 176)
-
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 88, weight: .regular))
-                        .foregroundStyle(.white)
-                }
-
-                Text("Doomscrolling\nblocked!")
-                    .font(.system(size: 40, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .padding(.top, 28)
-
-                Text("Nima kept the feed out of reach while leaving the useful parts of your app open")
-                    .font(.system(size: 24, weight: .regular, design: .rounded))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(3)
-                    .padding(.horizontal, 42)
-                    .padding(.top, 22)
-
-                Spacer(minLength: 42)
-
-                Button(action: onContinue) {
-                    Text("Continue")
-                        .font(.system(size: 20, weight: .medium, design: .rounded))
-                        .foregroundStyle(.black)
-                        .frame(width: 238, height: 42)
-                        .background(GuidedPracticePalette.accent)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("guided_practice.success_continue")
-
-                Button(action: onTroubleshoot) {
-                    Text("Something didn't work")
-                        .font(.system(size: 14, weight: .regular, design: .rounded))
-                        .foregroundStyle(.white)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("guided_practice.troubleshoot")
-
-                Color.clear.frame(height: 42)
-            }
+            GuidedPracticeFeedbackModal(
+                symbol: "checkmark",
+                symbolSize: 88,
+                title: "Doomscrolling\nblocked!",
+                message: "Nima kept the feed out of reach while leaving the useful parts of your app open",
+                primaryAccessibilityIdentifier: "guided_practice.success_continue",
+                onContinue: onContinue,
+                secondaryTitle: "Something didn't work",
+                secondaryAccessibilityIdentifier: "guided_practice.troubleshoot",
+                onSecondary: onTroubleshoot
+            )
         }
         .accessibilityIdentifier("guided_practice.success")
     }
@@ -267,56 +229,99 @@ struct GuidedPracticeReviewModal: View {
 
     var body: some View {
         GuidedPracticeOverlay {
-            VStack(spacing: 0) {
-                Spacer(minLength: 48)
-
-                ZStack {
-                    Circle()
-                        .fill(GuidedPracticePalette.accent)
-                        .frame(width: 176, height: 176)
-
-                    Image(systemName: "hand.thumbsup")
-                        .font(.system(size: 76, weight: .regular))
-                        .foregroundStyle(.white)
-                }
-
-                Text("Enjoying Nima?")
-                    .font(.system(size: 40, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .padding(.horizontal, 22)
-                    .padding(.top, 28)
-
-                Text("If Nima helped block the scroll, a quick rating helps us keep improving it")
-                    .font(.system(size: 24, weight: .regular, design: .rounded))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(3)
-                    .lineLimit(4)
-                    .minimumScaleFactor(0.78)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 42)
-                    .padding(.top, 22)
-
-                Spacer(minLength: 42)
-
-                Button(action: onContinue) {
-                    Text("Continue")
-                        .font(.system(size: 20, weight: .medium, design: .rounded))
-                        .foregroundStyle(.black)
-                        .frame(width: 238, height: 42)
-                        .background(GuidedPracticePalette.accent)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("guided_practice.review_continue")
-
-                Color.clear.frame(height: 42)
-            }
+            GuidedPracticeFeedbackModal(
+                symbol: "hand.thumbsup",
+                symbolSize: 76,
+                title: "Enjoying Nima?",
+                message: "If Nima helped block the scroll, a quick rating helps us keep improving it",
+                primaryAccessibilityIdentifier: "guided_practice.review_continue",
+                onContinue: onContinue
+            )
         }
         .accessibilityIdentifier("guided_practice.review")
+    }
+}
+
+private struct GuidedPracticeFeedbackModal: View {
+    let symbol: String
+    let symbolSize: CGFloat
+    let title: String
+    let message: String
+    let primaryAccessibilityIdentifier: String
+    var onContinue: () -> Void
+    var secondaryTitle: String?
+    var secondaryAccessibilityIdentifier: String?
+    var onSecondary: (() -> Void)?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let scale = min(1, max(0.72, min(proxy.size.width / 390, proxy.size.height / 700)))
+            let horizontalPadding = max(24, 42 * scale)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: 48 * scale)
+
+                    ZStack {
+                        Circle()
+                            .fill(GuidedPracticePalette.accent)
+                            .frame(width: 176 * scale, height: 176 * scale)
+
+                        Image(systemName: symbol)
+                            .font(.system(size: symbolSize * scale, weight: .regular))
+                            .foregroundStyle(.white)
+                    }
+
+                    Text(title)
+                        .font(.system(size: 40 * scale, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4 * scale)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 22)
+                        .padding(.top, 28 * scale)
+
+                    Text(message)
+                        .font(.system(size: 24 * scale, weight: .regular, design: .rounded))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3 * scale)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, horizontalPadding)
+                        .padding(.top, 22 * scale)
+
+                    Spacer(minLength: 34 * scale)
+
+                    Button(action: onContinue) {
+                        Text("Continue")
+                            .font(.system(size: 20 * scale, weight: .medium, design: .rounded))
+                            .foregroundStyle(.black)
+                            .frame(width: 238 * scale, height: max(42, 42 * scale))
+                            .background(GuidedPracticePalette.accent)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(primaryAccessibilityIdentifier)
+
+                    if let secondaryTitle, let onSecondary {
+                        Button(action: onSecondary) {
+                            Text(secondaryTitle)
+                                .font(.system(size: 14 * scale, weight: .regular, design: .rounded))
+                                .foregroundStyle(.white)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.vertical, 12 * scale)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier(secondaryAccessibilityIdentifier ?? "")
+                    }
+
+                    Color.clear.frame(height: 36 * scale)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: proxy.size.height, alignment: .top)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
     }
 }
 
@@ -326,11 +331,12 @@ struct GuidedWindowsReadyModal: View {
     var body: some View {
         GuidedPracticeOverlay {
             GeometryReader { proxy in
-                let scale = min(1, max(0.86, proxy.size.height / 690))
+                let scale = min(1, max(0.7, min(proxy.size.width / 390, proxy.size.height / 760)))
                 let graphicHeight = 224 * scale
 
-                VStack(spacing: 0) {
-                    Color.clear.frame(height: 44 * scale)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: 44 * scale)
 
                     GuidedWindowsReadyGraphic()
                         .frame(width: min(proxy.size.width - 44, 390 * scale), height: graphicHeight)
@@ -346,31 +352,27 @@ struct GuidedWindowsReadyModal: View {
                         .minimumScaleFactor(0.72)
                         .padding(.horizontal, 22)
 
-                    Text("When scheduled, Nima will send you a notification, simply tap the notification to activate")
+                        Text("When scheduled, Nima will send you a notification, simply tap the notification to activate")
                         .font(.system(size: 24 * scale, weight: .regular, design: .rounded))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .lineSpacing(3 * scale)
-                        .lineLimit(4)
-                        .minimumScaleFactor(0.76)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 42)
                         .padding(.top, 16 * scale)
 
-                    (
-                        Text("Important:")
-                            .font(.system(size: 16 * scale, weight: .bold, design: .rounded))
-                        + Text(" Due to device limitations, the window cannot begin without you opening the notification to activate")
-                            .font(.system(size: 16 * scale, weight: .regular, design: .rounded))
-                    )
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(1.5 * scale)
-                        .lineLimit(4)
-                        .minimumScaleFactor(0.78)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 42)
-                        .padding(.top, 28 * scale)
+                        (
+                            Text("Important:")
+                                .font(.system(size: 16 * scale, weight: .bold, design: .rounded))
+                            + Text(" Due to device limitations, the window cannot begin without you opening the notification to activate")
+                                .font(.system(size: 16 * scale, weight: .regular, design: .rounded))
+                        )
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(1.5 * scale)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 42)
+                            .padding(.top, 28 * scale)
 
                     Spacer(minLength: 34 * scale)
 
@@ -385,9 +387,12 @@ struct GuidedWindowsReadyModal: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("guided_windows.ready_continue")
 
-                    Color.clear.frame(height: 42 * scale)
+                        Color.clear.frame(height: 42 * scale)
+                    }
+                    .frame(width: proxy.size.width)
+                    .frame(minHeight: proxy.size.height, alignment: .top)
                 }
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+                .scrollBounceBehavior(.basedOnSize)
             }
         }
         .accessibilityIdentifier("guided_windows.ready")
@@ -425,11 +430,12 @@ struct GuidedPracticeTroubleshootingModal: View {
     var body: some View {
         GuidedPracticeOverlay {
             GeometryReader { proxy in
-                let scale = min(1, max(0.84, proxy.size.height / 820))
+                let scale = min(1, max(0.68, min(proxy.size.width / 390, proxy.size.height / 820)))
                 let horizontalPadding = max(38, 52 * scale)
 
-                VStack(spacing: 0) {
-                    ZStack {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        ZStack {
                         Text("Lets get Nima working")
                             .font(.system(size: 34 * scale, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white)
@@ -451,9 +457,9 @@ struct GuidedPracticeTroubleshootingModal: View {
                             Spacer()
                         }
                         .padding(.leading, 28)
-                    }
-                    .frame(height: 78 * scale)
-                    .padding(.top, 12 * scale)
+                        }
+                        .frame(height: 78 * scale)
+                        .padding(.top, 12 * scale)
 
                     VStack(alignment: .leading, spacing: 18 * scale) {
                         GuidedPracticeTroubleshootingStep(
@@ -503,25 +509,28 @@ struct GuidedPracticeTroubleshootingModal: View {
                             detail: "Some apps cache content. Give Nima a moment, then try opening the feed again",
                             scale: scale
                         )
-                    }
-                    .padding(.horizontal, horizontalPadding)
-                    .padding(.top, 28 * scale)
+                        }
+                        .padding(.horizontal, horizontalPadding)
+                        .padding(.top, 28 * scale)
 
-                    Spacer(minLength: 10 * scale)
+                        Spacer(minLength: 10 * scale)
 
-                    Button(action: onTryAgain) {
-                        Text("Try again")
-                            .font(.system(size: 18 * scale, weight: .medium, design: .rounded))
-                            .foregroundStyle(.black)
-                            .frame(width: 238 * scale, height: 40 * scale)
-                            .background(GuidedPracticePalette.accent)
-                            .clipShape(Capsule())
+                        Button(action: onTryAgain) {
+                            Text("Try again")
+                                .font(.system(size: 18 * scale, weight: .medium, design: .rounded))
+                                .foregroundStyle(.black)
+                                .frame(width: 238 * scale, height: 40 * scale)
+                                .background(GuidedPracticePalette.accent)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, 28 * scale)
+                        .accessibilityIdentifier("guided_practice.try_again")
                     }
-                    .buttonStyle(.plain)
-                    .padding(.bottom, 28 * scale)
-                    .accessibilityIdentifier("guided_practice.try_again")
+                    .frame(width: proxy.size.width)
+                    .frame(minHeight: proxy.size.height)
                 }
-                .frame(width: proxy.size.width, height: proxy.size.height)
+                .scrollBounceBehavior(.basedOnSize)
             }
         }
         .accessibilityIdentifier("guided_practice.troubleshooting")
@@ -539,15 +548,12 @@ private struct GuidedPracticeTroubleshootingStep: View {
             Text("\(number). \(title)")
                 .font(.system(size: 22 * scale, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
+                .fixedSize(horizontal: false, vertical: true)
 
             Text(detail)
                 .font(.system(size: 22 * scale, weight: .regular, design: .rounded))
                 .foregroundStyle(.white)
                 .lineSpacing(1.5 * scale)
-                .lineLimit(2)
-                .minimumScaleFactor(0.78)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -562,15 +568,18 @@ private struct GuidedPracticeOverlay<Content: View>: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let width = min(430, max(300, proxy.size.width - 28))
-            let height = min(max(560, proxy.size.height - 72), proxy.size.height - 34)
+            let metrics = AdaptiveScreenMetrics(
+                screenSize: proxy.size,
+                safeAreaInsets: proxy.safeAreaInsets
+            )
+            let cardSize = metrics.cardSize()
 
             ZStack {
                 Color.black.opacity(0.58)
                     .ignoresSafeArea()
 
                 content
-                    .frame(width: width, height: height)
+                    .frame(width: cardSize.width, height: cardSize.height)
                     .background(
                         RoundedRectangle(cornerRadius: 32, style: .continuous)
                             .fill(GuidedPracticePalette.card)

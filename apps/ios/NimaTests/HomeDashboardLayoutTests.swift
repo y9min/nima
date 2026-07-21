@@ -61,6 +61,58 @@ final class HomeDashboardLayoutTests: XCTestCase {
     }
 }
 
+final class AdaptiveScreenMetricsTests: XCTestCase {
+    func testSEUsesCompactHeightAndKeepsCardInsideSafeArea() {
+        let metrics = AdaptiveScreenMetrics(
+            screenSize: CGSize(width: 375, height: 667),
+            safeAreaInsets: EdgeInsets(top: 20, leading: 0, bottom: 0, trailing: 0)
+        )
+
+        let card = metrics.cardSize()
+
+        XCTAssertTrue(metrics.isCompactHeight)
+        XCTAssertLessThanOrEqual(card.width, 347)
+        XCTAssertLessThanOrEqual(card.height, metrics.safeContentHeight - 24)
+        XCTAssertLessThan(metrics.scale(referenceHeight: 760), 0.9)
+    }
+
+    func testMiniUsesBothWidthAndSafeHeight() {
+        let metrics = AdaptiveScreenMetrics(
+            screenSize: CGSize(width: 375, height: 812),
+            safeAreaInsets: EdgeInsets(top: 44, leading: 0, bottom: 34, trailing: 0)
+        )
+
+        XCTAssertFalse(metrics.isCompactHeight)
+        XCTAssertEqual(metrics.scale(referenceHeight: 760), 375.0 / 390.0, accuracy: 0.001)
+    }
+
+    func testStandardAndMaxPhonesNeverScalePastOne() {
+        let standard = AdaptiveScreenMetrics(
+            screenSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0)
+        )
+        let max = AdaptiveScreenMetrics(
+            screenSize: CGSize(width: 440, height: 956),
+            safeAreaInsets: EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0)
+        )
+
+        XCTAssertLessThanOrEqual(standard.scale(referenceHeight: 760), 1)
+        XCTAssertEqual(max.scale(referenceHeight: 760), 1)
+        XCTAssertLessThanOrEqual(max.cardSize().width, 430)
+        XCTAssertLessThanOrEqual(max.cardSize().height, 780)
+    }
+
+    func testLargeDynamicTypeStillForcesHomeScroll() {
+        let layout = HomeDashboardLayout(
+            screenSize: CGSize(width: 375, height: 812),
+            safeAreaInsets: EdgeInsets(top: 44, leading: 0, bottom: 34, trailing: 0),
+            contentSizeCategory: .accessibilityExtraExtraExtraLarge
+        )
+
+        XCTAssertTrue(layout.requiresScroll)
+    }
+}
+
 final class BlockingRingStateTests: XCTestCase {
     func testNoBlockedAppsShowsEmptyRingAndBlockCopy() {
         let state = BlockingRingState(blockedAppIDs: [])

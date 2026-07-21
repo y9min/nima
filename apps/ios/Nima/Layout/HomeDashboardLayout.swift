@@ -1,5 +1,47 @@
 import SwiftUI
 
+/// Shared sizing rules for full-screen cards and onboarding surfaces.
+///
+/// Width alone is not enough to identify a compact iPhone: an iPhone SE and
+/// an iPhone 13 mini are both narrow, but the SE has substantially less
+/// vertical room. Keeping this calculation in one place prevents each screen
+/// from inventing a different lower bound that can still overflow.
+struct AdaptiveScreenMetrics: Equatable {
+    let screenSize: CGSize
+    let safeAreaInsets: EdgeInsets
+
+    var safeContentHeight: CGFloat {
+        max(0, screenSize.height - safeAreaInsets.top - safeAreaInsets.bottom)
+    }
+
+    var isCompactHeight: Bool {
+        safeContentHeight < 720
+    }
+
+    func scale(
+        referenceWidth: CGFloat = 390,
+        referenceHeight: CGFloat,
+        minimum: CGFloat = 0.68,
+        maximum: CGFloat = 1
+    ) -> CGFloat {
+        let widthScale = screenSize.width / referenceWidth
+        let heightScale = safeContentHeight / referenceHeight
+        return min(maximum, max(minimum, min(widthScale, heightScale)))
+    }
+
+    func cardSize(
+        maximumWidth: CGFloat = 430,
+        maximumHeight: CGFloat = 780,
+        horizontalMargin: CGFloat = 14,
+        verticalMargin: CGFloat = 12
+    ) -> CGSize {
+        CGSize(
+            width: min(maximumWidth, max(280, screenSize.width - horizontalMargin * 2)),
+            height: min(maximumHeight, max(420, safeContentHeight - verticalMargin * 2))
+        )
+    }
+}
+
 struct ScaledDesignSpace {
     let designSize: CGSize
     let actualSize: CGSize

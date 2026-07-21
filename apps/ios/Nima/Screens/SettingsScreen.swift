@@ -394,8 +394,7 @@ private struct SettingsNavigationRow: View {
                 Text(title)
                     .font(.system(size: 23, weight: .regular, design: .rounded))
                     .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.74)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Spacer()
 
@@ -403,7 +402,7 @@ private struct SettingsNavigationRow: View {
                     .font(.system(size: 23, weight: .regular))
                     .foregroundStyle(.white)
             }
-            .frame(height: 31)
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -469,15 +468,13 @@ private struct SettingsToggleRow: View {
                 Text(title)
                     .font(.system(size: 19, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let subtitle {
                     Text(subtitle)
                         .font(.system(size: 13.5, weight: .regular, design: .rounded))
                         .foregroundStyle(AppChromePalette.muted.opacity(0.92))
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.78)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 

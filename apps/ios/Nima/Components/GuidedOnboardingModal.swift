@@ -11,7 +11,10 @@ struct GuidedOnboardingModal: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let layout = GuidedOnboardingModalLayout(screenSize: proxy.size)
+            let layout = GuidedOnboardingModalLayout(
+                screenSize: proxy.size,
+                safeAreaInsets: proxy.safeAreaInsets
+            )
 
             ZStack {
                 Color.black.opacity(0.58)
@@ -40,24 +43,24 @@ private struct GuidedOnboardingCard: View {
     var onDone: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 0) {
             Text("How it works")
                 .font(.system(size: layout.titleFontSize, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.74)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 24)
                 .padding(.top, layout.topPadding)
 
             Text(slides[currentPage].subtitle)
                 .font(.system(size: layout.supportingTextFontSize, weight: .regular, design: .rounded))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.82)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
-                .frame(height: layout.subtitleHeight, alignment: .center)
+                .frame(minHeight: layout.subtitleHeight, alignment: .center)
 
             ZStack {
                 TabView(selection: $currentPage) {
@@ -101,10 +104,9 @@ private struct GuidedOnboardingCard: View {
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
-                .lineLimit(3)
-                .minimumScaleFactor(0.72)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 26)
-                .frame(height: layout.bodyHeight)
+                .frame(minHeight: layout.bodyHeight)
                 .padding(.top, layout.bodyTopPadding)
                 .offset(y: currentPage == slides.count - 1 ? -8 : 0)
 
@@ -133,7 +135,10 @@ private struct GuidedOnboardingCard: View {
             GuidedOnboardingDots(total: slides.count, current: currentPage)
                 .padding(.top, layout.dotsTopPadding)
                 .padding(.bottom, layout.bottomPadding)
+            }
+            .frame(maxWidth: .infinity)
         }
+        .scrollBounceBehavior(.basedOnSize)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: layout.cornerRadius, style: .continuous)
@@ -230,6 +235,7 @@ private struct GuidedOnboardingDots: View {
 
 private struct GuidedOnboardingModalLayout {
     let screenSize: CGSize
+    let safeAreaInsets: EdgeInsets
 
     static let dotDiameter: CGFloat = 13
     static let dotSpacing: CGFloat = 13
@@ -239,8 +245,12 @@ private struct GuidedOnboardingModalLayout {
     }
 
     var cardHeight: CGFloat {
-        let maxHeight = max(420, screenSize.height - 54)
-        return min(maxHeight, max(560, cardWidth * 2.0))
+        metrics.cardSize(
+            maximumWidth: 420,
+            maximumHeight: max(560, cardWidth * 2.0),
+            horizontalMargin: 14,
+            verticalMargin: 12
+        ).height
     }
 
     var cornerRadius: CGFloat {
@@ -248,11 +258,11 @@ private struct GuidedOnboardingModalLayout {
     }
 
     var topPadding: CGFloat {
-        cardHeight < 470 ? 22 : 30
+        (cardHeight < 620 ? 22 : 30) * scale
     }
 
     var bottomPadding: CGFloat {
-        cardHeight < 620 ? 22 : 38
+        (cardHeight < 620 ? 18 : 38) * scale
     }
 
     var mediaHeight: CGFloat {
@@ -266,35 +276,35 @@ private struct GuidedOnboardingModalLayout {
             + dotsTopPadding
             + Self.dotDiameter
             + bottomPadding
-        return max(240, cardHeight - reservedHeight)
+        return max(140, cardHeight - reservedHeight)
     }
 
     var mediaTopPadding: CGFloat {
-        cardHeight < 620 ? 4 : 14
+        (cardHeight < 620 ? 4 : 14) * scale
     }
 
     var subtitleHeight: CGFloat {
-        cardHeight < 620 ? 54 : 62
+        (cardHeight < 620 ? 54 : 62) * scale
     }
 
     var bodyHeight: CGFloat {
-        cardHeight < 620 ? 58 : 76
+        (cardHeight < 620 ? 66 : 76) * scale
     }
 
     var bodyTopPadding: CGFloat {
-        cardHeight < 620 ? 6 : 14
+        (cardHeight < 620 ? 6 : 14) * scale
     }
 
     var doneAreaHeight: CGFloat {
-        cardHeight < 620 ? 42 : 50
+        (cardHeight < 620 ? 42 : 50) * scale
     }
 
     var dotsTopPadding: CGFloat {
-        cardHeight < 620 ? 0 : 4
+        (cardHeight < 620 ? 0 : 4) * scale
     }
 
     var phoneHeight: CGFloat {
-        min(cardHeight < 620 ? 360 : 430, max(250, mediaHeight - 36))
+        min((cardHeight < 620 ? 360 : 430) * scale, max(130, mediaHeight - 20 * scale))
     }
 
     var chevronPadding: CGFloat {
@@ -302,7 +312,7 @@ private struct GuidedOnboardingModalLayout {
     }
 
     var titleFontSize: CGFloat {
-        35
+        35 * scale
     }
 
     var titleLineHeight: CGFloat {
@@ -310,7 +320,15 @@ private struct GuidedOnboardingModalLayout {
     }
 
     var supportingTextFontSize: CGFloat {
-        22
+        22 * scale
+    }
+
+    private var metrics: AdaptiveScreenMetrics {
+        AdaptiveScreenMetrics(screenSize: screenSize, safeAreaInsets: safeAreaInsets)
+    }
+
+    private var scale: CGFloat {
+        metrics.scale(referenceHeight: 780, minimum: 0.72)
     }
 }
 
