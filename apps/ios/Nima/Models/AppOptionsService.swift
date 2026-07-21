@@ -64,6 +64,13 @@ struct FeaturePolicyV1: Codable {
         appToggles[appId]?[optionId] = isEnabled
     }
 
+    mutating func disableAllAppToggles() {
+        appToggles = appToggles.mapValues { options in
+            options.mapValues { _ in false }
+        }
+        mergeDefaults()
+    }
+
     mutating func mergeDefaults() {
         for (appId, defaults) in Self.defaultToggles {
             if appToggles[appId] == nil {
@@ -289,6 +296,17 @@ final class AppOptionsService {
         let effectivePolicy = persistEffectivePolicy(updatedBy: source)
         AppDiagnosticsLogger.log(
             "OPTION_RESET effective_revision=\(effectivePolicy.revision) source=\(source)"
+        )
+    }
+
+    func disableAllManualOptions(source: String) {
+        manualPolicy.disableAllAppToggles()
+        manualPolicy.bumpRevision(updatedBy: source)
+        persistManualPolicy()
+        let effectivePolicy = persistEffectivePolicy(updatedBy: source)
+        AppDiagnosticsLogger.log(
+            "MANUAL_BLOCKERS_DISABLED effective_revision=\(effectivePolicy.revision) " +
+                "scheduled_apps=\(scheduledAppIDs.sorted()) source=\(source)"
         )
     }
 

@@ -85,6 +85,12 @@ final class AppStore {
         scheduleVPNReconciliation(triggerSource: source)
     }
 
+    func disableAllManualBlockingOptions(source: String) {
+        optionsService.disableAllManualOptions(source: source)
+        refreshFromOptionsService()
+        scheduleVPNReconciliation(triggerSource: source)
+    }
+
     private func refreshFromOptionsService() {
         for appIndex in apps.indices {
             let appId = apps[appIndex].id

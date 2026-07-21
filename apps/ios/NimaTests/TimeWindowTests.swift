@@ -1,6 +1,31 @@
 import XCTest
 @testable import Nima
 
+final class FeaturePolicyBlockerResetTests: XCTestCase {
+    func testDisablingManualTogglesPreservesPolicySettingsAndUnknownOptions() {
+        var policy = FeaturePolicyV1(
+            profile: "custom-profile",
+            shadowModeEnabled: true,
+            transportStabilityMode: false,
+            appToggles: [
+                "instagram": ["strict_reels": true],
+                "tiktok": ["video_block": true],
+                "future_app": ["future_blocker": true]
+            ],
+            appStrategies: ["future_app": "future-strategy"]
+        )
+
+        policy.disableAllAppToggles()
+
+        XCTAssertTrue(policy.appToggles.values.flatMap(\.values).allSatisfy { !$0 })
+        XCTAssertEqual(policy.profile, "custom-profile")
+        XCTAssertTrue(policy.shadowModeEnabled)
+        XCTAssertFalse(policy.transportStabilityMode)
+        XCTAssertEqual(policy.appStrategies["future_app"], "future-strategy")
+        XCTAssertEqual(policy.appToggles["future_app"]?["future_blocker"], false)
+    }
+}
+
 final class TimeWindowScheduleTests: XCTestCase {
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)

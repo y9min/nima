@@ -587,10 +587,18 @@ struct NimaApp: App {
     }
 
     private func showGuidedPracticeReviewPrompt() {
+        deactivateBlockersBeforeGuidedPracticeReview()
         onboardingStore.markGuidedPracticeCompleted()
         onboardingStore.setGuidedPracticeReturnPending(false)
         hasHandledGuidedPracticeReviewRequest = false
         guidedPracticePhase = .reviewPrompt
+    }
+
+    private func deactivateBlockersBeforeGuidedPracticeReview() {
+        for app in GuidedPracticeLaunchApp.allCases {
+            timeWindowStore.endActiveWindow(for: app.rawValue)
+        }
+        store.disableAllManualBlockingOptions(source: "guided_practice.before_review")
     }
 
     private func continueGuidedPracticeReviewPrompt() {
