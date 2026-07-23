@@ -30,15 +30,31 @@ struct RevenueCatClient {
     typealias CustomerStatusCompletion = (SubscriptionCustomerStatus?, Error?) -> Void
     typealias OfferingsCompletion = (RevenueCat.Offerings?, Error?) -> Void
     typealias PurchaseCompletion = (SubscriptionCustomerStatus?, Error?, Bool) -> Void
+    typealias CustomerStatusUpdate = (SubscriptionCustomerStatus) -> Void
 
+    let configure: (String, String, @escaping CustomerStatusUpdate) -> Void
+    let currentAppUserID: () -> String?
     let getCustomerInfo: (Bool, @escaping CustomerStatusCompletion) -> Void
     let getOfferings: (@escaping OfferingsCompletion) -> Void
     let purchase: (RevenueCat.Package, @escaping PurchaseCompletion) -> Void
     let restorePurchases: (@escaping CustomerStatusCompletion) -> Void
+    let syncPurchases: (@escaping CustomerStatusCompletion) -> Void
     let logIn: (String, @escaping CustomerStatusCompletion) -> Void
-    let logOut: (@escaping CustomerStatusCompletion) -> Void
 
     static let live = RevenueCatClient(
+        configure: { apiKey, appUserID, customerStatusUpdate in
+            #if DEBUG
+            Purchases.logLevel = .debug
+            #else
+            Purchases.logLevel = .warn
+            #endif
+            Purchases.configure(withAPIKey: apiKey, appUserID: appUserID)
+            RevenueCatRuntime.delegate.onUpdate = customerStatusUpdate
+            Purchases.shared.delegate = RevenueCatRuntime.delegate
+        },
+        currentAppUserID: {
+            Purchases.shared.appUserID
+        },
         getCustomerInfo: { forceRefresh, completion in
             let fetchPolicy: CacheFetchPolicy = forceRefresh ? .fetchCurrent : .default
             Purchases.shared.getCustomerInfo(fetchPolicy: fetchPolicy) { customerInfo, error in
@@ -58,17 +74,29 @@ struct RevenueCatClient {
                 completion(customerInfo.map(SubscriptionCustomerStatus.init), error)
             }
         },
+        syncPurchases: { completion in
+            Purchases.shared.syncPurchases { customerInfo, error in
+                completion(customerInfo.map(SubscriptionCustomerStatus.init), error)
+            }
+        },
         logIn: { appUserID, completion in
             Purchases.shared.logIn(appUserID) { customerInfo, _, error in
                 completion(customerInfo.map(SubscriptionCustomerStatus.init), error)
             }
-        },
-        logOut: { completion in
-            Purchases.shared.logOut { customerInfo, error in
-                completion(customerInfo.map(SubscriptionCustomerStatus.init), error)
-            }
         }
     )
+}
+
+private final class RevenueCatCustomerInfoDelegate: NSObject, PurchasesDelegate {
+    var onUpdate: RevenueCatClient.CustomerStatusUpdate?
+
+    func purchases(_ purchases: Purchases, receivedUpdated customerInfo: CustomerInfo) {
+        onUpdate?(SubscriptionCustomerStatus(customerInfo))
+    }
+}
+
+private enum RevenueCatRuntime {
+    static let delegate = RevenueCatCustomerInfoDelegate()
 }
 
 private extension SubscriptionCustomerStatus {
@@ -84,7 +112,9 @@ private extension SubscriptionCustomerStatus {
 final class SubscriptionStore {
     static let premiumEntitlementID = "nima Pro"
     static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
-    private static let cachedPremiumKey = "subscription.hasPremium"
+    private static let lastBoundAppUserIDKey = "subscription.lastBoundAppUserID"
+    private static let migrationKeyPrefix = "subscription.identityMigration.v1."
+    private static let cachedPremiumKeyPrefix = "subscription.hasPremium."
 
     var hasPremium: Bool
     var verificationState: SubscriptionVerificationState = .idle
@@ -128,6 +158,7 @@ final class SubscriptionStore {
     private var customerInfoRequestUpdatesVerificationState = true
     private var intendedAppUserID: String?
     private var hasConfirmedIdentity = false
+    private var needsReceiptSync = false
     private var isReconcilingPurchase = false
 
     init(
@@ -136,10 +167,16 @@ final class SubscriptionStore {
         timeoutNanoseconds: UInt64 = SubscriptionStore.requestTimeoutNanoseconds
     ) {
         self.defaults = defaults
-        self.hasPremium = defaults.bool(forKey: Self.cachedPremiumKey)
+        self.hasPremium = false
         self.client = client ?? .live
         self.timeoutNanoseconds = timeoutNanoseconds
         self.isConfigured = client != nil
+        if client != nil {
+            let testAppUserID = "test-user"
+            self.intendedAppUserID = testAppUserID
+            self.hasConfirmedIdentity = true
+            self.hasPremium = defaults.bool(forKey: Self.cachedPremiumKey(for: testAppUserID))
+        }
     }
 
     deinit {
@@ -148,35 +185,111 @@ final class SubscriptionStore {
         restoreTimeoutTask?.cancel()
     }
 
-    func configure() {
+    func bindAuthenticatedUser(userID: UUID) {
+        let appUserID = userID.uuidString.lowercased()
+        let previousAppUserID = defaults.string(forKey: Self.lastBoundAppUserIDKey)
+
+        if intendedAppUserID != appUserID {
+            cancelAllRequests()
+            intendedAppUserID = appUserID
+            hasConfirmedIdentity = false
+            needsReceiptSync = previousAppUserID != appUserID
+                || !defaults.bool(forKey: Self.migrationKey(for: appUserID))
+            hasPremium = defaults.bool(forKey: Self.cachedPremiumKey(for: appUserID))
+            verificationState = .loading
+        }
+
+        if !isConfigured {
+            configure(appUserID: appUserID)
+            guard isConfigured else { return }
+            hasConfirmedIdentity = true
+            continueAfterIdentityBinding(appUserID: appUserID)
+        } else if client.currentAppUserID() == appUserID {
+            hasConfirmedIdentity = true
+            continueAfterIdentityBinding(appUserID: appUserID)
+        } else {
+            logIn(appUserID: appUserID)
+        }
+
+        loadOfferings()
+    }
+
+    private func configure(appUserID: String) {
         guard !isConfigured else { return }
         guard let apiKey = Self.apiKey, !apiKey.isEmpty else {
             verificationState = .failed("Missing RevenueCat API key.")
             return
         }
 
-        #if DEBUG
-        Purchases.logLevel = .debug
-        #else
-        Purchases.logLevel = .warn
-        #endif
-        Purchases.configure(withAPIKey: apiKey)
+        client.configure(apiKey, appUserID) { [weak self] status in
+            Task { @MainActor in
+                guard let self,
+                      self.intendedAppUserID == appUserID,
+                      !self.needsReceiptSync,
+                      self.client.currentAppUserID() == appUserID else { return }
+                _ = self.apply(status)
+            }
+        }
         isConfigured = true
     }
 
-    func refreshAfterLaunch() {
-        guard isConfigured else { return }
-        refreshCustomerInfo()
-        loadOfferings()
+    private func logIn(appUserID: String) {
+        let requestID = beginCustomerInfoRequest()
+        client.logIn(appUserID) { [weak self] status, error in
+            Task { @MainActor in
+                guard let self,
+                      self.customerInfoRequestID == requestID,
+                      self.intendedAppUserID == appUserID else { return }
+                if let error {
+                    self.markVerificationFailedIfNeeded(error.localizedDescription)
+                    self.finishCustomerInfoRequest(result: nil)
+                    return
+                }
+                self.hasConfirmedIdentity = true
+                if self.needsReceiptSync {
+                    self.finishCustomerInfoRequest(result: nil)
+                    self.syncReceipt(appUserID: appUserID)
+                } else {
+                    let access = self.apply(status)
+                    self.defaults.set(appUserID, forKey: Self.lastBoundAppUserIDKey)
+                    self.finishCustomerInfoRequest(result: access)
+                }
+            }
+        }
+    }
+
+    private func continueAfterIdentityBinding(appUserID: String) {
+        if needsReceiptSync {
+            syncReceipt(appUserID: appUserID)
+        } else {
+            refreshCustomerInfo()
+        }
     }
 
     func retrySubscriptionCheck() {
-        guard isConfigured else {
+        guard isConfigured, let appUserID = intendedAppUserID else {
             verificationState = .failed("Subscriptions are unavailable right now.")
             return
         }
-        refreshCustomerInfo()
+        if !hasConfirmedIdentity, client.currentAppUserID() != appUserID {
+            logIn(appUserID: appUserID)
+        } else if needsReceiptSync {
+            syncReceipt(appUserID: appUserID)
+        } else {
+            refreshCustomerInfo(forceRefresh: true)
+        }
         loadOfferings()
+    }
+
+    func refreshAfterForeground() {
+        guard isConfigured, intendedAppUserID != nil, hasConfirmedIdentity else { return }
+        refreshCustomerInfo(forceRefresh: true, updatesVerificationState: false)
+    }
+
+    func recoverExistingAppStorePurchase() {
+        guard isConfigured, let appUserID = intendedAppUserID, hasConfirmedIdentity else { return }
+        needsReceiptSync = true
+        syncReceipt(appUserID: appUserID)
     }
 
     func reconcilePendingPurchaseAfterForeground() {
@@ -195,47 +308,23 @@ final class SubscriptionStore {
         loadOfferings()
     }
 
-    func identify(appUserID: String) {
-        guard isConfigured else { return }
-        let normalizedID = Self.normalizedAppUserID(appUserID)
-        guard !normalizedID.isEmpty else { return }
-
-        if intendedAppUserID != normalizedID {
-            cancelAllRequests()
-            intendedAppUserID = normalizedID
-            hasConfirmedIdentity = false
-        }
-        refreshCustomerInfo()
-    }
-
     func activateDemoAnnualPlan() {
         finishCustomerInfoRequest(result: nil)
+        intendedAppUserID = nil
+        hasConfirmedIdentity = false
+        needsReceiptSync = false
         verificationState = .verified
         purchaseErrorMessage = nil
         restoreErrorMessage = nil
-        setPremiumAccess(true)
+        hasPremium = true
     }
 
-    func logOut() {
+    func unbindUser() {
         cancelAllRequests()
         clearLocalAccess()
         intendedAppUserID = nil
         hasConfirmedIdentity = false
-        guard isConfigured else { return }
-
-        let requestID = beginCustomerInfoRequest()
-        client.logOut { [weak self] status, error in
-            Task { @MainActor in
-                guard let self, self.customerInfoRequestID == requestID else { return }
-                if let error {
-                    self.verificationState = .failed(error.localizedDescription)
-                    self.finishCustomerInfoRequest(result: nil)
-                    return
-                }
-                let access = self.apply(status)
-                self.finishCustomerInfoRequest(result: access)
-            }
-        }
+        needsReceiptSync = false
     }
 
     func refreshCustomerInfo(
@@ -255,24 +344,9 @@ final class SubscriptionStore {
             completion: completion
         )
 
-        if let appUserID = intendedAppUserID, !hasConfirmedIdentity {
-            client.logIn(appUserID) { [weak self] status, error in
-                Task { @MainActor in
-                    guard let self,
-                          self.customerInfoRequestID == requestID,
-                          self.intendedAppUserID == appUserID else { return }
-
-                    if let error {
-                        self.markVerificationFailedIfNeeded(error.localizedDescription)
-                        self.finishCustomerInfoRequest(result: nil)
-                        return
-                    }
-
-                    self.hasConfirmedIdentity = true
-                    let access = self.apply(status)
-                    self.finishCustomerInfoRequest(result: access)
-                }
-            }
+        guard intendedAppUserID != nil, hasConfirmedIdentity else {
+            markVerificationFailedIfNeeded("Sign in again to check your subscription.")
+            finishCustomerInfoRequest(result: nil)
             return
         }
 
@@ -286,6 +360,33 @@ final class SubscriptionStore {
                     return
                 }
                 let access = self.apply(status)
+                self.finishCustomerInfoRequest(result: access)
+            }
+        }
+    }
+
+    private func syncReceipt(appUserID: String) {
+        let requestID = beginCustomerInfoRequest()
+        client.syncPurchases { [weak self] status, error in
+            Task { @MainActor in
+                guard let self,
+                      self.customerInfoRequestID == requestID,
+                      self.intendedAppUserID == appUserID,
+                      self.client.currentAppUserID() == appUserID else { return }
+
+                if let error {
+                    self.markVerificationFailedIfNeeded(error.localizedDescription)
+                    self.finishCustomerInfoRequest(result: nil)
+                    return
+                }
+
+                guard let access = self.apply(status) else {
+                    self.finishCustomerInfoRequest(result: nil)
+                    return
+                }
+                self.needsReceiptSync = false
+                self.defaults.set(true, forKey: Self.migrationKey(for: appUserID))
+                self.defaults.set(appUserID, forKey: Self.lastBoundAppUserIDKey)
                 self.finishCustomerInfoRequest(result: access)
             }
         }
@@ -369,6 +470,7 @@ final class SubscriptionStore {
     }
 
     func handlePaywallCustomerInfo(_ customerInfo: CustomerInfo) {
+        guard let appUserID = intendedAppUserID, client.currentAppUserID() == appUserID else { return }
         _ = apply(SubscriptionCustomerStatus(customerInfo))
     }
 
@@ -552,12 +654,12 @@ final class SubscriptionStore {
         yearlyPackage = nil
         purchaseErrorMessage = nil
         restoreErrorMessage = nil
-        defaults.set(false, forKey: Self.cachedPremiumKey)
     }
 
     private func setPremiumAccess(_ hasAccess: Bool) {
         hasPremium = hasAccess
-        defaults.set(hasAccess, forKey: Self.cachedPremiumKey)
+        guard let appUserID = intendedAppUserID else { return }
+        defaults.set(hasAccess, forKey: Self.cachedPremiumKey(for: appUserID))
     }
 
     private static func premiumAccess(from status: SubscriptionCustomerStatus?) -> Bool? {
@@ -568,8 +670,12 @@ final class SubscriptionStore {
         )
     }
 
-    private static func normalizedAppUserID(_ appUserID: String) -> String {
-        appUserID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    private static func migrationKey(for appUserID: String) -> String {
+        migrationKeyPrefix + appUserID
+    }
+
+    private static func cachedPremiumKey(for appUserID: String) -> String {
+        cachedPremiumKeyPrefix + appUserID
     }
 
     static func resolvesPremiumAccess(
@@ -580,7 +686,7 @@ final class SubscriptionStore {
         let hasMatchingEntitlement = activeEntitlementIDs.contains { entitlementID in
             normalizedRevenueCatIdentifier(entitlementID) == expectedEntitlement
         }
-        return hasMatchingEntitlement || activeSubscriptionIDs.contains { !$0.isEmpty }
+        return hasMatchingEntitlement
     }
 
     private static func normalizedRevenueCatIdentifier(_ identifier: String) -> String {

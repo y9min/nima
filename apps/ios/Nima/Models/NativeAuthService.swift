@@ -9,6 +9,7 @@ import UIKit
 enum NativeAuthError: LocalizedError {
     case unavailable
     case missingAppleIdentityToken
+    case missingAppleAuthorizationCode
     case missingGoogleClientID
     case missingGoogleIdentityToken
     case missingPresentationContext
@@ -20,6 +21,8 @@ enum NativeAuthError: LocalizedError {
             return "Sign-in is unavailable until Supabase is configured."
         case .missingAppleIdentityToken:
             return "Apple did not return a valid identity token."
+        case .missingAppleAuthorizationCode:
+            return "Apple did not return the authorization needed to delete this account."
         case .missingGoogleClientID:
             return "Google sign-in is missing its iOS client ID."
         case .missingGoogleIdentityToken:
@@ -30,6 +33,11 @@ enum NativeAuthError: LocalizedError {
             return "Could not prepare a secure sign-in request."
         }
     }
+}
+
+struct AppleRevocationCredential: Equatable {
+    let authorizationCode: String
+    let userID: String
 }
 
 enum NativeAuthService {
@@ -54,6 +62,23 @@ enum NativeAuthService {
                 idToken: identityToken,
                 nonce: rawNonce
             )
+        )
+    }
+
+    @MainActor
+    static func appleRevocationCredential() async throws -> AppleRevocationCredential {
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        let authorization = try await AppleAuthorizationCoordinator.perform(request: request)
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let authorizationCode = credential.authorizationCode
+                .flatMap({ String(data: $0, encoding: .utf8) }),
+              !authorizationCode.isEmpty else {
+            throw NativeAuthError.missingAppleAuthorizationCode
+        }
+
+        return AppleRevocationCredential(
+            authorizationCode: authorizationCode,
+            userID: credential.user
         )
     }
 

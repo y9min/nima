@@ -1079,7 +1079,19 @@ private struct DeleteAccountSheet: View {
 
         Task {
             do {
-                try await AccountDeletionService.deleteCurrentUser(isDemo: authStore.isDemo)
+                var appleAuthorizationCode: String?
+                if authStore.isAppleAccount {
+                    let credential = try await NativeAuthService.appleRevocationCredential()
+                    guard credential.userID == authStore.appleUserID else {
+                        throw AccountDeletionError.appleAccountMismatch
+                    }
+                    appleAuthorizationCode = credential.authorizationCode
+                }
+
+                try await AccountDeletionService.deleteCurrentUser(
+                    isDemo: authStore.isDemo,
+                    appleAuthorizationCode: appleAuthorizationCode
+                )
                 await authStore.logout()
                 await MainActor.run {
                     LocalAccountDataCleaner.clearAll()
@@ -1137,6 +1149,7 @@ enum AccountDeletionService {
 
     static func deleteCurrentUser(
         isDemo: Bool,
+        appleAuthorizationCode: String? = nil,
         accountDeletionURL: URL? = configuredAccountDeletionURL,
         publishableKey: String? = configuredSupabasePublishableKey,
         accessTokenProvider: AccessTokenProvider = currentAccessToken,
@@ -1153,7 +1166,8 @@ enum AccountDeletionService {
         let request = try deletionRequest(
             accountDeletionURL: accountDeletionURL,
             accessToken: accessToken,
-            publishableKey: publishableKey
+            publishableKey: publishableKey,
+            appleAuthorizationCode: appleAuthorizationCode
         )
         let (data, response) = try await requestExecutor(request)
 
@@ -1183,7 +1197,8 @@ enum AccountDeletionService {
     static func deletionRequest(
         accountDeletionURL: URL,
         accessToken: String,
-        publishableKey: String? = configuredSupabasePublishableKey
+        publishableKey: String? = configuredSupabasePublishableKey,
+        appleAuthorizationCode: String? = nil
     ) throws -> URLRequest {
         var request = URLRequest(url: accountDeletionURL)
         request.httpMethod = "DELETE"
@@ -1191,6 +1206,12 @@ enum AccountDeletionService {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let publishableKey {
             request.setValue(publishableKey, forHTTPHeaderField: "apikey")
+        }
+        if let appleAuthorizationCode {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "apple_authorization_code": appleAuthorizationCode
+            ])
         }
         return request
     }
@@ -1242,6 +1263,7 @@ enum AccountDeletionService {
 enum AccountDeletionError: LocalizedError, Equatable {
     case missingFunctionURL
     case supabaseUnavailable
+    case appleAccountMismatch
     case invalidResponse
     case backend(statusCode: Int, message: String?)
 
@@ -1251,6 +1273,8 @@ enum AccountDeletionError: LocalizedError, Equatable {
             return "Account deletion is unavailable until Supabase is configured."
         case .supabaseUnavailable:
             return "Account deletion is unavailable until Supabase is configured."
+        case .appleAccountMismatch:
+            return "Use the same Apple Account that is connected to this Nima account."
         case .invalidResponse:
             return "Account deletion failed because the server returned an invalid response."
         case .backend(let statusCode, let message):

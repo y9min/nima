@@ -156,8 +156,8 @@ struct NimaApp: App {
                     markStreakIfEligible(source: "onboarding.completed")
                     presentGuidedOnboardingIfNeeded()
                 }
-                .onChange(of: authStore.isLoggedIn) { _, isLoggedIn in
-                    if isLoggedIn {
+                .onChange(of: authStore.subscriptionIdentity) { _, identity in
+                    if identity != .none {
                         path = NavigationPath()
                         guidedOnboardingPresentationMode = nil
                         if guidedPracticePhase != .waitingForReturn {
@@ -165,7 +165,7 @@ struct NimaApp: App {
                         }
                         applySubscriptionIdentity()
                     } else {
-                        subscriptionStore.logOut()
+                        subscriptionStore.unbindUser()
                     }
                     presentGuidedOnboardingIfNeeded()
                 }
@@ -238,12 +238,7 @@ struct NimaApp: App {
         presentGuidedOnboardingIfNeeded()
 
         await authStore.loadCurrentSession()
-        subscriptionStore.configure()
-        if authStore.isLoggedIn, !authStore.userEmail.isEmpty {
-            applySubscriptionIdentity()
-        } else {
-            subscriptionStore.refreshAfterLaunch()
-        }
+        applySubscriptionIdentity()
 
         await authStore.listenForAuthChanges()
     }
@@ -344,12 +339,13 @@ struct NimaApp: App {
     }
 
     private func applySubscriptionIdentity() {
-        guard !authStore.userEmail.isEmpty else { return }
-        if authStore.isDemo, AuthStore.isAnnualDemoAccount(email: authStore.userEmail) {
+        switch authStore.subscriptionIdentity {
+        case .demo(let email) where AuthStore.isAnnualDemoAccount(email: email):
             subscriptionStore.activateDemoAnnualPlan()
-        } else {
-            subscriptionStore.identify(appUserID: AuthStore.normalizedEmail(authStore.userEmail))
-            subscriptionStore.loadOfferings()
+        case .authenticated(let userID, _):
+            subscriptionStore.bindAuthenticatedUser(userID: userID)
+        case .none, .demo:
+            subscriptionStore.unbindUser()
         }
     }
 
@@ -675,6 +671,7 @@ struct NimaApp: App {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         switch newPhase {
         case .active:
+            subscriptionStore.refreshAfterForeground()
             subscriptionStore.reconcilePendingPurchaseAfterForeground()
             if onboardingStore.isCompleted {
                 timeWindowStore.evaluateSchedules(source: "app.scene.active", forceApply: true)
