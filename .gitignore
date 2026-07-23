@@ -19,6 +19,7 @@ xcuserdata/
 *.dSYM
 
 # Build caches
+build/
 apps/web/tsconfig.tsbuildinfo
 supabase/.temp/
 apps/ios/scripts/__pycache__/

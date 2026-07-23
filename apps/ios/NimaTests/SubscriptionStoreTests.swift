@@ -10,6 +10,21 @@ final class SubscriptionStoreTests: XCTestCase {
         XCTAssertFalse(AuthStore.isAnnualDemoAccount(email: "customer@nima.so"))
     }
 
+    func testDemoLoginSurvivesRelaunchAndLogoutClearsIt() async {
+        let suiteName = "AuthStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let firstStore = AuthStore(defaults: defaults)
+        firstStore.login(email: " REVIEW@NIMA.SO ", demo: true)
+
+        let relaunchedStore = AuthStore(defaults: defaults)
+        XCTAssertEqual(relaunchedStore.subscriptionIdentity, .demo(email: "review@nima.so"))
+
+        await relaunchedStore.logout()
+        XCTAssertEqual(AuthStore(defaults: defaults).subscriptionIdentity, .none)
+    }
+
     func testDemoAnnualPlanMarksPremiumVerified() {
         let (store, defaults, suiteName) = makeStore()
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -21,7 +36,7 @@ final class SubscriptionStoreTests: XCTestCase {
 
         XCTAssertTrue(store.hasPremium)
         XCTAssertEqual(store.verificationState, .verified)
-        XCTAssertTrue(defaults.bool(forKey: "subscription.hasPremium"))
+        XCTAssertNil(defaults.object(forKey: "subscription.hasPremium"))
     }
 
     func testCustomerInformationRoutesPremiumUser() async {
@@ -43,6 +58,111 @@ final class SubscriptionStoreTests: XCTestCase {
 
         XCTAssertEqual(store.verificationState, .verified)
         XCTAssertTrue(store.hasPremium)
+    }
+
+    func testFirstUUIDBindingLogsInAndSyncsReceiptBeforeVerification() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let userID = UUID()
+        let expectedID = userID.uuidString.lowercased()
+
+        store.bindAuthenticatedUser(userID: userID)
+        XCTAssertEqual(mock.loginAppUserIDs, [expectedID])
+        XCTAssertEqual(store.verificationState, .loading)
+
+        mock.loginCompletions[0](
+            SubscriptionCustomerStatus(activeEntitlementIDs: [], activeSubscriptionIDs: []),
+            nil
+        )
+        await flushMainActorTasks()
+
+        XCTAssertEqual(mock.syncCompletions.count, 1)
+        XCTAssertEqual(store.verificationState, .loading)
+
+        mock.syncCompletions[0](
+            SubscriptionCustomerStatus(
+                activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
+                activeSubscriptionIDs: ["nima_monthly"]
+            ),
+            nil
+        )
+        await flushMainActorTasks()
+
+        XCTAssertTrue(store.hasPremium)
+        XCTAssertEqual(store.verificationState, .verified)
+        XCTAssertEqual(defaults.string(forKey: "subscription.lastBoundAppUserID"), expectedID)
+        XCTAssertTrue(defaults.bool(forKey: "subscription.identityMigration.v1.\(expectedID)"))
+    }
+
+    func testPremiumCacheIsIsolatedPerSupabaseUser() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let firstUserID = UUID()
+        let secondUserID = UUID()
+
+        store.bindAuthenticatedUser(userID: firstUserID)
+        mock.loginCompletions[0](
+            SubscriptionCustomerStatus(activeEntitlementIDs: [], activeSubscriptionIDs: []),
+            nil
+        )
+        await flushMainActorTasks()
+        mock.syncCompletions[0](
+            SubscriptionCustomerStatus(
+                activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
+                activeSubscriptionIDs: []
+            ),
+            nil
+        )
+        await flushMainActorTasks()
+        XCTAssertTrue(store.hasPremium)
+
+        store.bindAuthenticatedUser(userID: secondUserID)
+
+        XCTAssertFalse(store.hasPremium)
+        XCTAssertEqual(store.verificationState, .loading)
+    }
+
+    func testCompletedMigrationDoesNotSyncAgainForSameUser() {
+        let mock = MockRevenueCatClient()
+        let suiteName = "SubscriptionStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let userID = UUID()
+        let appUserID = userID.uuidString.lowercased()
+        defaults.set(appUserID, forKey: "subscription.lastBoundAppUserID")
+        defaults.set(true, forKey: "subscription.identityMigration.v1.\(appUserID)")
+        mock.currentUserID = appUserID
+        let store = SubscriptionStore(defaults: defaults, client: mock.client)
+
+        store.bindAuthenticatedUser(userID: userID)
+
+        XCTAssertTrue(mock.syncCompletions.isEmpty)
+        XCTAssertEqual(mock.customerInfoForceRefreshes, [false])
+    }
+
+    func testForegroundRefreshBypassesRevenueCatCache() {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        store.refreshAfterForeground()
+
+        XCTAssertEqual(mock.customerInfoForceRefreshes, [true])
+    }
+
+    func testPurchaseFailureRecoverySyncsReceiptWithoutAnonymousLogout() {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        store.recoverExistingAppStorePurchase()
+        store.unbindUser()
+
+        XCTAssertEqual(mock.syncCompletions.count, 1)
+        XCTAssertEqual(mock.currentUserID, "test-user")
+        XCTAssertEqual(store.verificationState, .idle)
     }
 
     func testCustomerInformationRoutesNonPremiumUser() async {
@@ -107,7 +227,7 @@ final class SubscriptionStoreTests: XCTestCase {
 
         mock.customerInfoCompletions[1](
             SubscriptionCustomerStatus(
-                activeEntitlementIDs: [],
+                activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
                 activeSubscriptionIDs: ["nima_monthly"]
             ),
             nil
@@ -118,13 +238,15 @@ final class SubscriptionStoreTests: XCTestCase {
         XCTAssertTrue(store.hasPremium)
     }
 
-    func testSignedInRetryRepeatsLoginForSameNormalizedIdentity() async {
+    func testSignedInRetryRepeatsLoginForSameSupabaseIdentity() async {
         let mock = MockRevenueCatClient()
         let (store, defaults, suiteName) = makeStore(client: mock.client)
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        let userID = UUID()
+        let expectedID = userID.uuidString.lowercased()
 
-        store.identify(appUserID: " Customer@Example.com ")
-        XCTAssertEqual(mock.loginAppUserIDs, ["customer@example.com"])
+        store.bindAuthenticatedUser(userID: userID)
+        XCTAssertEqual(mock.loginAppUserIDs, [expectedID])
         XCTAssertTrue(mock.customerInfoCompletions.isEmpty)
 
         mock.loginCompletions[0](nil, TestError.offline)
@@ -134,7 +256,7 @@ final class SubscriptionStoreTests: XCTestCase {
 
         XCTAssertEqual(
             mock.loginAppUserIDs,
-            ["customer@example.com", "customer@example.com"]
+            [expectedID, expectedID]
         )
         XCTAssertTrue(mock.customerInfoCompletions.isEmpty)
     }
@@ -143,12 +265,19 @@ final class SubscriptionStoreTests: XCTestCase {
         let mock = MockRevenueCatClient()
         let (store, defaults, suiteName) = makeStore(client: mock.client)
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        let firstUserID = UUID()
+        let secondUserID = UUID()
 
-        store.identify(appUserID: "first@example.com")
+        store.bindAuthenticatedUser(userID: firstUserID)
         let firstCompletion = mock.loginCompletions[0]
 
-        store.identify(appUserID: "second@example.com")
+        store.bindAuthenticatedUser(userID: secondUserID)
         mock.loginCompletions[1](
+            SubscriptionCustomerStatus(activeEntitlementIDs: [], activeSubscriptionIDs: []),
+            nil
+        )
+        await flushMainActorTasks()
+        mock.syncCompletions[0](
             SubscriptionCustomerStatus(activeEntitlementIDs: [], activeSubscriptionIDs: []),
             nil
         )
@@ -200,7 +329,7 @@ final class SubscriptionStoreTests: XCTestCase {
         let mock = MockRevenueCatClient()
         let suiteName = "SubscriptionStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.set(true, forKey: "subscription.hasPremium")
+        defaults.set(true, forKey: "subscription.hasPremium.test-user")
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SubscriptionStore(defaults: defaults, client: mock.client)
 
@@ -212,7 +341,7 @@ final class SubscriptionStoreTests: XCTestCase {
             return XCTFail("Expected customer verification to fail")
         }
         XCTAssertTrue(store.hasPremium)
-        XCTAssertTrue(defaults.bool(forKey: "subscription.hasPremium"))
+        XCTAssertTrue(defaults.bool(forKey: "subscription.hasPremium.test-user"))
     }
 
     func testOfferingsErrorLeavesRetryAndRestoreAvailable() async {
@@ -478,8 +607,8 @@ final class SubscriptionStoreTests: XCTestCase {
         ))
     }
 
-    func testPremiumAccessAllowsActiveSubscriptionFallback() {
-        XCTAssertTrue(SubscriptionStore.resolvesPremiumAccess(
+    func testPremiumAccessRejectsSubscriptionWithoutConfiguredEntitlement() {
+        XCTAssertFalse(SubscriptionStore.resolvesPremiumAccess(
             activeEntitlementIDs: [],
             activeSubscriptionIDs: ["nima_monthly"]
         ))
@@ -544,15 +673,27 @@ private enum TestError: LocalizedError {
 }
 
 private final class MockRevenueCatClient {
+    var configuredAppUserIDs: [String] = []
+    var currentUserID: String? = "test-user"
+    var customerStatusUpdate: RevenueCatClient.CustomerStatusUpdate?
     var customerInfoCompletions: [RevenueCatClient.CustomerStatusCompletion] = []
     var customerInfoForceRefreshes: [Bool] = []
     var offeringsCompletions: [RevenueCatClient.OfferingsCompletion] = []
     var purchaseCompletions: [RevenueCatClient.PurchaseCompletion] = []
     var restoreCompletions: [RevenueCatClient.CustomerStatusCompletion] = []
+    var syncCompletions: [RevenueCatClient.CustomerStatusCompletion] = []
     var loginAppUserIDs: [String] = []
     var loginCompletions: [RevenueCatClient.CustomerStatusCompletion] = []
 
     lazy var client = RevenueCatClient(
+        configure: { [weak self] _, appUserID, update in
+            self?.configuredAppUserIDs.append(appUserID)
+            self?.currentUserID = appUserID
+            self?.customerStatusUpdate = update
+        },
+        currentAppUserID: { [weak self] in
+            self?.currentUserID
+        },
         getCustomerInfo: { [weak self] forceRefresh, completion in
             self?.customerInfoForceRefreshes.append(forceRefresh)
             self?.customerInfoCompletions.append(completion)
@@ -566,12 +707,17 @@ private final class MockRevenueCatClient {
         restorePurchases: { [weak self] completion in
             self?.restoreCompletions.append(completion)
         },
+        syncPurchases: { [weak self] completion in
+            self?.syncCompletions.append(completion)
+        },
         logIn: { [weak self] appUserID, completion in
             self?.loginAppUserIDs.append(appUserID)
-            self?.loginCompletions.append(completion)
-        },
-        logOut: { completion in
-            completion(nil, nil)
+            self?.loginCompletions.append { [weak self] status, error in
+                if error == nil {
+                    self?.currentUserID = appUserID
+                }
+                completion(status, error)
+            }
         }
     )
 }

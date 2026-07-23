@@ -47,6 +47,19 @@ private struct RevenueCatPaywallView: View {
             .onPurchaseCompleted { _, customerInfo in
                 subscriptionStore.handlePaywallCustomerInfo(customerInfo)
             }
+            .onPurchaseFailure { error in
+                switch RevenueCat.ErrorCode(rawValue: error.code) {
+                case .productAlreadyPurchasedError,
+                     .receiptAlreadyInUseError,
+                     .receiptInUseByOtherSubscriberError,
+                     .purchaseBelongsToOtherUser:
+                    // Apple knows the receipt is subscribed, but RevenueCat's
+                    // current customer record needs to be reconciled.
+                    subscriptionStore.recoverExistingAppStorePurchase()
+                default:
+                    break
+                }
+            }
             .onRestoreCompleted { customerInfo in
                 subscriptionStore.handlePaywallCustomerInfo(customerInfo)
             }
