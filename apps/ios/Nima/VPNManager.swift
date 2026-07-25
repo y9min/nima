@@ -1,6 +1,6 @@
 import Foundation
 import Combine
-import NetworkExtension
+@preconcurrency import NetworkExtension
 import SwiftUI
 import UIKit
 
@@ -30,6 +30,11 @@ final class VPNManager: ObservableObject {
     private var lastPolicyReconcileAttemptAt: Date?
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var lifecycleObserversRegistered = false
+    private let onDemandRollout = OnDemandRolloutService()
+    private var pendingProtectionIntent: ProtectionIntent?
+    private var lastProtectionIntent: ProtectionIntent?
+    private var protectionReconcileTask: Task<Void, Never>?
+    private var syntheticProtectionRevision = Int(Date().timeIntervalSince1970 * 1_000)
 
     private enum PendingTunnelIntent {
         case start(source: String)
@@ -60,10 +65,31 @@ final class VPNManager: ObservableObject {
         recordCurrentAppLifecycleSnapshot(source: "setup")
         applyDiagnosticProfileConfiguration()
         appendLog("App launched")
-        loadVPNPreferences(
-            createProfileIfMissing: false,
-            reconcilePolicyAfterLoad: false
-        )
+        Task { [weak self] in
+            guard let self else { return }
+            await self.retryAccountDeletionProfileRemovalIfNeeded()
+            self.syntheticProtectionRevision = max(
+                self.syntheticProtectionRevision + 1,
+                Int(Date().timeIntervalSince1970 * 1_000)
+            )
+            await self.reconcileProtection(ProtectionIntent(
+                vpnRequired: self.shouldVPNBeOnFromPolicy(),
+                manualRecoveryRequired: self.manualRecoveryRequiredFromPolicy(),
+                source: "setup.cached_rollout",
+                revision: self.syntheticProtectionRevision
+            ))
+            await self.onDemandRollout.refresh()
+            self.syntheticProtectionRevision = max(
+                self.syntheticProtectionRevision + 1,
+                Int(Date().timeIntervalSince1970 * 1_000)
+            )
+            await self.reconcileProtection(ProtectionIntent(
+                vpnRequired: self.shouldVPNBeOnFromPolicy(),
+                manualRecoveryRequired: self.manualRecoveryRequiredFromPolicy(),
+                source: "on_demand.rollout_refresh",
+                revision: self.syntheticProtectionRevision
+            ))
+        }
     }
 
     private func applyDiagnosticProfileConfiguration() {
@@ -276,22 +302,24 @@ final class VPNManager: ObservableObject {
             object: mgr.connection,
             queue: .main
         ) { [weak self] _ in
-            guard let self = self else { return }
-            let newStatus = mgr.connection.status
-            let oldStatus = self.previousVPNStatus
-            self.previousVPNStatus = newStatus
-            self.vpnStatus = newStatus
-            self.appendLog("VPN status \(Self.statusString(for: oldStatus)) -> \(self.statusString) (raw=\(newStatus.rawValue))")
-            self.observeStopEventTransition(oldStatus: oldStatus, newStatus: newStatus)
-            if newStatus == .disconnected {
-                let connectedDate = mgr.connection.connectedDate?.ISO8601Format() ?? "nil"
-                self.appendLog("Disconnect context connected_date=\(connectedDate) manager_enabled=\(mgr.isEnabled)")
-            }
-            self.handleStatusTransition(newStatus)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let newStatus = mgr.connection.status
+                let oldStatus = self.previousVPNStatus
+                self.previousVPNStatus = newStatus
+                self.vpnStatus = newStatus
+                self.appendLog("VPN status \(Self.statusString(for: oldStatus)) -> \(self.statusString) (raw=\(newStatus.rawValue))")
+                self.observeStopEventTransition(oldStatus: oldStatus, newStatus: newStatus)
+                if newStatus == .disconnected {
+                    let connectedDate = mgr.connection.connectedDate?.ISO8601Format() ?? "nil"
+                    self.appendLog("Disconnect context connected_date=\(connectedDate) manager_enabled=\(mgr.isEnabled)")
+                }
+                self.handleStatusTransition(newStatus)
 
-            if newStatus == .connected || newStatus == .disconnected {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    self?.refreshTunnelLog()
+                if newStatus == .connected || newStatus == .disconnected {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                        self?.refreshTunnelLog()
+                    }
                 }
             }
         }
@@ -352,6 +380,354 @@ final class VPNManager: ObservableObject {
         }
         lastPolicyReconcileAttemptAt = now
         startVPN(source: "\(source).policy_reconcile")
+    }
+
+    func reconcileProtection(_ intent: ProtectionIntent) async {
+        if let lastProtectionIntent, intent.revision < lastProtectionIntent.revision {
+            appendLog(
+                "PROTECTION_INTENT stale_ignored revision=\(intent.revision) latest=\(lastProtectionIntent.revision) source=\(intent.source)"
+            )
+            return
+        }
+        pendingProtectionIntent = intent
+        lastProtectionIntent = intent
+        syntheticProtectionRevision = max(syntheticProtectionRevision, intent.revision)
+
+        if let existing = protectionReconcileTask {
+            await existing.value
+            return
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while let next = self.pendingProtectionIntent {
+                self.pendingProtectionIntent = nil
+                await self.applyProtectionIntent(next)
+            }
+            self.protectionReconcileTask = nil
+        }
+        protectionReconcileTask = task
+        await task.value
+    }
+
+    func requestProtectionReconciliation(source: String) {
+        syntheticProtectionRevision = max(
+            syntheticProtectionRevision + 1,
+            Int(Date().timeIntervalSince1970 * 1_000)
+        )
+        let intent = ProtectionIntent(
+            vpnRequired: shouldVPNBeOnFromPolicy(),
+            manualRecoveryRequired: manualRecoveryRequiredFromPolicy(),
+            source: source,
+            revision: syntheticProtectionRevision
+        )
+        Task { [weak self] in
+            await self?.reconcileProtection(intent)
+        }
+    }
+
+    private func applyProtectionIntent(_ intent: ProtectionIntent) async {
+        let desired = VPNProfileDesiredState.resolve(
+            intent: intent,
+            rolloutEligible: onDemandRollout.isEligible
+        )
+        sharedDefaults?.set(desired.onDemandEnabled, forKey: NimaConstants.onDemandDesiredKey)
+        sharedDefaults?.set(intent.revision, forKey: NimaConstants.onDemandLastProfileRevisionKey)
+        sharedDefaults?.set(false, forKey: NimaConstants.onDemandDisableBeforeStopVerifiedKey)
+
+        let profileResult = await reconcileVPNProfile(
+            desired: desired,
+            revision: intent.revision,
+            source: intent.source,
+            createIfMissing: intent.vpnRequired
+        )
+
+        if intent.vpnRequired {
+            if !profileResult {
+                appendLog("ON_DEMAND_PROFILE degraded=true action=explicit_start source=\(intent.source)")
+            }
+            startTunnelAfterProfileReconciliation(source: "\(intent.source).policy_intent")
+            return
+        }
+
+        guard profileResult else {
+            sharedDefaults?.set(true, forKey: NimaConstants.vpnProfileCleanupPendingKey)
+            appendLog("ON_DEMAND_PROFILE disable_unverified action=keep_pass_through source=\(intent.source)")
+            return
+        }
+
+        sharedDefaults?.set(false, forKey: NimaConstants.vpnProfileCleanupPendingKey)
+        sharedDefaults?.set(true, forKey: NimaConstants.onDemandDisableBeforeStopVerifiedKey)
+        stopTunnelAfterProfileReconciliation(source: "\(intent.source).policy_intent")
+    }
+
+    private func startTunnelAfterProfileReconciliation(source: String) {
+        guard let manager else {
+            appendLog("VPN explicit start skipped because reconciled manager is unavailable source=\(source)")
+            return
+        }
+        guard !Self.isConnectedLike(manager.connection.status) else {
+            appendLog("VPN start no-op status=\(Self.statusString(for: manager.connection.status)) source=\(source)")
+            return
+        }
+        guard manager.connection.status != .disconnecting else {
+            pendingTunnelIntent = .start(source: source)
+            appendLog("VPN start deferred while disconnecting source=\(source)")
+            return
+        }
+        setManualOffRequested(false)
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        resetStopAttributionForNewSession()
+        startTunnelIfNeeded(manager: manager, source: source)
+    }
+
+    private func stopTunnelAfterProfileReconciliation(source: String) {
+        guard let manager else { return }
+        guard !Self.isDisconnectedLike(manager.connection.status) else {
+            appendLog("VPN stop no-op status=\(Self.statusString(for: manager.connection.status)) source=\(source)")
+            return
+        }
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectAttempts = 0
+        persistPendingStopIntent(source: source)
+        appendLog("Stopping VPN tunnel after On Demand disable verification source=\(source)")
+        manager.connection.stopVPNTunnel()
+    }
+
+    func removeVPNProfileForAccountDeletion() async -> Bool {
+        syntheticProtectionRevision = max(
+            syntheticProtectionRevision + 1,
+            Int(Date().timeIntervalSince1970 * 1_000)
+        )
+        await reconcileProtection(
+            ProtectionIntent(
+                vpnRequired: false,
+                manualRecoveryRequired: false,
+                source: "account_deletion",
+                revision: syntheticProtectionRevision
+            )
+        )
+
+        guard sharedDefaults?.bool(forKey: NimaConstants.onDemandDisableBeforeStopVerifiedKey) == true else {
+            UserDefaults.standard.set(true, forKey: NimaConstants.vpnProfileRemovalPendingStandardKey)
+            appendLog("ACCOUNT_DELETION profile_removal_deferred reason=on_demand_disable_unverified")
+            return false
+        }
+
+        do {
+            let managers = try await NETunnelProviderManager.loadAllFromPreferences()
+            for profile in managers where
+                (profile.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == NimaConstants.tunnelBundleID {
+                profile.connection.stopVPNTunnel()
+                try await profile.removeFromPreferences()
+            }
+            let remaining = try await NETunnelProviderManager.loadAllFromPreferences().contains {
+                ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == NimaConstants.tunnelBundleID
+            }
+            guard !remaining else {
+                throw NSError(
+                    domain: "Nima.VPNProfile",
+                    code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "VPN profile remained after removal"]
+                )
+            }
+            manager = nil
+            UserDefaults.standard.set(false, forKey: NimaConstants.vpnProfileRemovalPendingStandardKey)
+            appendLog("ACCOUNT_DELETION profile_removed_and_verified=true")
+            return true
+        } catch {
+            UserDefaults.standard.set(true, forKey: NimaConstants.vpnProfileRemovalPendingStandardKey)
+            appendLog("ACCOUNT_DELETION profile_removal_deferred error=\(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func retryAccountDeletionProfileRemovalIfNeeded() async {
+        guard UserDefaults.standard.bool(forKey: NimaConstants.vpnProfileRemovalPendingStandardKey) else {
+            return
+        }
+        do {
+            let managers = try await NETunnelProviderManager.loadAllFromPreferences()
+            for profile in managers where
+                (profile.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == NimaConstants.tunnelBundleID {
+                profile.isOnDemandEnabled = false
+                profile.onDemandRules = []
+                try await profile.saveToPreferences()
+                try await profile.loadFromPreferences()
+                guard !profile.isOnDemandEnabled, (profile.onDemandRules ?? []).isEmpty else {
+                    throw NSError(
+                        domain: "Nima.VPNProfile",
+                        code: 4,
+                        userInfo: [NSLocalizedDescriptionKey: "Could not verify On Demand disabled during cleanup"]
+                    )
+                }
+                profile.connection.stopVPNTunnel()
+                try await profile.removeFromPreferences()
+            }
+            UserDefaults.standard.set(false, forKey: NimaConstants.vpnProfileRemovalPendingStandardKey)
+            appendLog("ACCOUNT_DELETION deferred_profile_cleanup_succeeded=true")
+        } catch {
+            appendLog("ACCOUNT_DELETION deferred_profile_cleanup_failed error=\(error.localizedDescription)")
+        }
+    }
+
+    private func reconcileVPNProfile(
+        desired: VPNProfileDesiredState,
+        revision: Int,
+        source: String,
+        createIfMissing: Bool
+    ) async -> Bool {
+        do {
+            guard let manager = try await loadProfileManager(createIfMissing: createIfMissing) else {
+                sharedDefaults?.set(false, forKey: NimaConstants.onDemandActualKey)
+                sharedDefaults?.set(0, forKey: NimaConstants.onDemandRuleCountKey)
+                sharedDefaults?.set("none", forKey: NimaConstants.onDemandInterfaceKey)
+                sharedDefaults?.set("verified_profile_absent", forKey: NimaConstants.onDemandLastProfileResultKey)
+                sharedDefaults?.set("", forKey: NimaConstants.onDemandLastProfileErrorKey)
+                return true
+            }
+            self.manager = manager
+            vpnStatus = manager.connection.status
+            previousVPNStatus = manager.connection.status
+            managerReadyAt = Date()
+            observeStatusChanges(for: manager)
+
+            for attempt in 1...2 {
+                do {
+                    try await manager.loadFromPreferences()
+                    let needsMutation = profileNeedsMutation(manager: manager, desired: desired)
+                    applyProfileDesiredState(desired, to: manager)
+                    if needsMutation {
+                        try await manager.saveToPreferences()
+                        try await manager.loadFromPreferences()
+                    }
+                    guard profileMatches(manager: manager, desired: desired) else {
+                        throw NSError(
+                            domain: "Nima.VPNProfile",
+                            code: 2,
+                            userInfo: [NSLocalizedDescriptionKey: "Persisted VPN profile did not match desired On Demand state"]
+                        )
+                    }
+                    recordOnDemandProfileState(
+                        manager: manager,
+                        desired: desired,
+                        result: "verified_attempt_\(attempt)",
+                        error: ""
+                    )
+                    sharedDefaults?.set(
+                        desiredProfileSignature(for: manager, desired: desired),
+                        forKey: NimaConstants.vpnLifecycleProfileConfigSignatureKey
+                    )
+                    appendLog(
+                        "ON_DEMAND_PROFILE verified desired=\(desired.onDemandEnabled) revision=\(revision) attempt=\(attempt) source=\(source)"
+                    )
+                    return true
+                } catch {
+                    recordOnDemandProfileState(
+                        manager: manager,
+                        desired: desired,
+                        result: "failed_attempt_\(attempt)",
+                        error: error.localizedDescription
+                    )
+                    appendLog(
+                        "ON_DEMAND_PROFILE attempt_failed desired=\(desired.onDemandEnabled) revision=\(revision) attempt=\(attempt) source=\(source) error=\(error.localizedDescription)"
+                    )
+                    if attempt == 1 {
+                        try? await manager.loadFromPreferences()
+                    }
+                }
+            }
+        } catch {
+            sharedDefaults?.set("manager_load_failed", forKey: NimaConstants.onDemandLastProfileResultKey)
+            sharedDefaults?.set(error.localizedDescription, forKey: NimaConstants.onDemandLastProfileErrorKey)
+            appendLog("ON_DEMAND_PROFILE manager_failed source=\(source) error=\(error.localizedDescription)")
+        }
+        return false
+    }
+
+    private func loadProfileManager(createIfMissing: Bool) async throws -> NETunnelProviderManager? {
+        let managers = try await NETunnelProviderManager.loadAllFromPreferences()
+        if let matching = managers.first(where: {
+            ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == NimaConstants.tunnelBundleID
+        }) {
+            return matching
+        }
+        guard createIfMissing else { return nil }
+        let manager = NETunnelProviderManager()
+        let proto = NETunnelProviderProtocol()
+        proto.providerBundleIdentifier = NimaConstants.tunnelBundleID
+        proto.serverAddress = NimaConstants.vpnServerAddress
+        proto.disconnectOnSleep = false
+        manager.protocolConfiguration = proto
+        manager.localizedDescription = NimaConstants.vpnDescription
+        manager.isEnabled = true
+        try await manager.saveToPreferences()
+        try await manager.loadFromPreferences()
+        return manager
+    }
+
+    private func applyProfileDesiredState(
+        _ desired: VPNProfileDesiredState,
+        to manager: NETunnelProviderManager
+    ) {
+        let proto = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
+        proto.providerBundleIdentifier = NimaConstants.tunnelBundleID
+        proto.serverAddress = NimaConstants.vpnServerAddress
+        proto.disconnectOnSleep = desired.disconnectOnSleep
+        manager.protocolConfiguration = proto
+        manager.localizedDescription = NimaConstants.vpnDescription
+        manager.isEnabled = desired.profileEnabled
+        manager.isOnDemandEnabled = desired.onDemandEnabled
+        if desired.onDemandEnabled {
+            let rule = NEOnDemandRuleConnect()
+            rule.interfaceTypeMatch = .any
+            manager.onDemandRules = [rule]
+        } else {
+            manager.onDemandRules = []
+        }
+    }
+
+    private func profileMatches(
+        manager: NETunnelProviderManager,
+        desired: VPNProfileDesiredState
+    ) -> Bool {
+        guard let proto = manager.protocolConfiguration as? NETunnelProviderProtocol else { return false }
+        guard manager.isEnabled == desired.profileEnabled,
+              proto.providerBundleIdentifier == NimaConstants.tunnelBundleID,
+              proto.serverAddress == NimaConstants.vpnServerAddress,
+              proto.disconnectOnSleep == desired.disconnectOnSleep,
+              manager.isOnDemandEnabled == desired.onDemandEnabled else {
+            return false
+        }
+        if desired.onDemandEnabled {
+            guard manager.onDemandRules?.count == 1,
+                  let rule = manager.onDemandRules?.first as? NEOnDemandRuleConnect,
+                  rule.interfaceTypeMatch == .any else {
+                return false
+            }
+        } else if !(manager.onDemandRules ?? []).isEmpty {
+            return false
+        }
+        return true
+    }
+
+    private func recordOnDemandProfileState(
+        manager: NETunnelProviderManager,
+        desired: VPNProfileDesiredState,
+        result: String,
+        error: String
+    ) {
+        sharedDefaults?.set(manager.isOnDemandEnabled, forKey: NimaConstants.onDemandActualKey)
+        sharedDefaults?.set(manager.onDemandRules?.count ?? 0, forKey: NimaConstants.onDemandRuleCountKey)
+        let interface = (manager.onDemandRules?.first as? NEOnDemandRuleConnect)?.interfaceTypeMatch == .any
+            ? "any"
+            : "none"
+        sharedDefaults?.set(interface, forKey: NimaConstants.onDemandInterfaceKey)
+        sharedDefaults?.set(result, forKey: NimaConstants.onDemandLastProfileResultKey)
+        sharedDefaults?.set(error, forKey: NimaConstants.onDemandLastProfileErrorKey)
+        sharedDefaults?.set(desired.onDemandEnabled, forKey: NimaConstants.onDemandDesiredKey)
     }
 
     func toggleVPN() {
@@ -416,22 +792,17 @@ final class VPNManager: ObservableObject {
                 self.sharedDefaults?.set(Date().timeIntervalSince1970, forKey: NimaConstants.vpnLifecycleProfileLoadTSKey)
                 self.appendLog("VPN profile operation: load_from_preferences complete source=\(source)")
 
-                let desiredSignature = self.desiredProfileSignature(for: manager)
+                let desiredState = self.currentVPNProfileDesiredState()
+                let desiredSignature = self.desiredProfileSignature(for: manager, desired: desiredState)
                 let lastSignature = self.sharedDefaults?.string(forKey: NimaConstants.vpnLifecycleProfileConfigSignatureKey) ?? ""
-                let needsMutation = self.profileNeedsMutation(manager: manager) || desiredSignature != lastSignature
+                let needsMutation = self.profileNeedsMutation(manager: manager, desired: desiredState) || desiredSignature != lastSignature
                 if !needsMutation {
                     self.appendLog("VPN profile operation: mutation skipped source=\(source)")
                     self.startTunnelIfNeeded(manager: manager, source: source)
                     return
                 }
 
-                if let proto = manager.protocolConfiguration as? NETunnelProviderProtocol {
-                    proto.providerBundleIdentifier = NimaConstants.tunnelBundleID
-                    proto.serverAddress = NimaConstants.vpnServerAddress
-                    manager.protocolConfiguration = proto
-                }
-                manager.localizedDescription = NimaConstants.vpnDescription
-                manager.isEnabled = true
+                self.applyProfileDesiredState(desiredState, to: manager)
                 manager.saveToPreferences { [weak self] error in
                     Task { @MainActor [weak self] in
                         guard let self = self else { return }
@@ -472,6 +843,7 @@ final class VPNManager: ObservableObject {
 
         do {
             appendLog("Starting VPN tunnel... source=\(source)")
+            sharedDefaults?.set(Date().timeIntervalSince1970, forKey: NimaConstants.onDemandExplicitStartTSKey)
             try manager.connection.startVPNTunnel()
             appendLog("startVPNTunnel() called successfully")
             if source.hasPrefix("schedule.") {
@@ -488,19 +860,49 @@ final class VPNManager: ObservableObject {
         startInFlight = false
     }
 
-    private func desiredProfileSignature(for manager: NETunnelProviderManager) -> String {
+    private func currentVPNProfileDesiredState() -> VPNProfileDesiredState {
+        VPNProfileDesiredState(
+            profileEnabled: true,
+            onDemandEnabled: sharedDefaults?.bool(forKey: NimaConstants.onDemandDesiredKey) ?? false,
+            disconnectOnSleep: false
+        )
+    }
+
+    private func desiredProfileSignature(
+        for manager: NETunnelProviderManager,
+        desired: VPNProfileDesiredState
+    ) -> String {
         let proto = manager.protocolConfiguration as? NETunnelProviderProtocol
         let provider = proto?.providerBundleIdentifier ?? "nil"
         let server = proto?.serverAddress ?? "nil"
-        return "provider=\(provider)|server=\(server)|enabled=true|description=\(NimaConstants.vpnDescription)"
+        let rule = desired.onDemandEnabled ? "connect_any" : "none"
+        return "provider=\(provider)|server=\(server)|enabled=\(desired.profileEnabled)|description=\(NimaConstants.vpnDescription)|disconnect_on_sleep=\(desired.disconnectOnSleep)|on_demand=\(desired.onDemandEnabled)|rule=\(rule)"
     }
 
     private func profileNeedsMutation(manager: NETunnelProviderManager) -> Bool {
+        profileNeedsMutation(manager: manager, desired: currentVPNProfileDesiredState())
+    }
+
+    private func profileNeedsMutation(
+        manager: NETunnelProviderManager,
+        desired: VPNProfileDesiredState
+    ) -> Bool {
         guard let proto = manager.protocolConfiguration as? NETunnelProviderProtocol else { return true }
-        if !manager.isEnabled { return true }
+        if manager.isEnabled != desired.profileEnabled { return true }
         if proto.providerBundleIdentifier != NimaConstants.tunnelBundleID { return true }
         if proto.serverAddress != NimaConstants.vpnServerAddress { return true }
+        if proto.disconnectOnSleep != desired.disconnectOnSleep { return true }
         if manager.localizedDescription != NimaConstants.vpnDescription { return true }
+        if manager.isOnDemandEnabled != desired.onDemandEnabled { return true }
+        if desired.onDemandEnabled {
+            if manager.onDemandRules?.count != 1 { return true }
+            guard let rule = manager.onDemandRules?.first as? NEOnDemandRuleConnect,
+                  rule.interfaceTypeMatch == .any else {
+                return true
+            }
+        } else if !(manager.onDemandRules ?? []).isEmpty {
+            return true
+        }
         return false
     }
 
@@ -742,7 +1144,7 @@ final class VPNManager: ObservableObject {
                 if self.vpnStatus == .disconnected && self.shouldVPNBeOnFromPolicy() {
                     guard self.registerExternalKillReconnectAttemptIfAllowed() else { return }
                     self.appendLog("Auto-reconnect attempt \(self.reconnectAttempts)/\(self.reconnectMaxAttempts) delay=\(String(format: "%.2f", reconnectDelay))s")
-                    self.startVPN(source: "auto_reconnect")
+                    self.requestProtectionReconciliation(source: "auto_reconnect")
                 }
             }
         }
@@ -755,34 +1157,14 @@ final class VPNManager: ObservableObject {
             setManualOffRequested(false)
             appendLog("Schedule protection cleared stale manual_off_requested source=\(source)")
         }
-        guard let manager else {
-            appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true status=manager_not_ready action=start source=\(source)")
-            ScheduledProtectionStateStore.recordRepairResult(defaults: sharedDefaults, result: "manager_not_ready_start_queued")
-            startVPN(source: "schedule.repair")
+        if let manager, Self.isConnectedLike(manager.connection.status) {
+            appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true status=\(Self.statusString(for: manager.connection.status)) action=none source=\(source)")
+            ScheduledProtectionStateStore.recordRepairResult(defaults: sharedDefaults, result: "already_connected")
             return
         }
-
-        manager.loadFromPreferences { [weak self] error in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if let error {
-                    self.appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true status=load_failed action=none source=\(source) error=\(error.localizedDescription)")
-                    ScheduledProtectionStateStore.recordRepairResult(defaults: self.sharedDefaults, result: "repair_load_failed")
-                    return
-                }
-                let status = manager.connection.status
-                self.vpnStatus = status
-                self.previousVPNStatus = status
-                if Self.isConnectedLike(status) {
-                    self.appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true status=\(Self.statusString(for: status)) action=none source=\(source)")
-                    ScheduledProtectionStateStore.recordRepairResult(defaults: self.sharedDefaults, result: "already_connected")
-                    return
-                }
-                self.appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true status=\(Self.statusString(for: status)) action=start source=\(source)")
-                ScheduledProtectionStateStore.recordRepairResult(defaults: self.sharedDefaults, result: "repair_starting")
-                self.startVPN(source: "schedule.repair")
-            }
-        }
+        appendLog("SCHEDULE_PROTECTION_REPAIR desired_on=true action=reconcile source=\(source)")
+        ScheduledProtectionStateStore.recordRepairResult(defaults: sharedDefaults, result: "repair_reconciling")
+        requestProtectionReconciliation(source: "schedule.repair")
     }
 
     private func diagnosticHoldEnabled() -> Bool {
@@ -962,7 +1344,7 @@ final class VPNManager: ObservableObject {
                 guard let self else { return }
                 self.reconnectTask = nil
                 guard self.vpnStatus == .disconnected, self.shouldVPNBeOnFromPolicy(), !self.manualOffRequested else { return }
-                self.startVPN(source: source)
+                self.requestProtectionReconciliation(source: source)
             }
         }
     }
@@ -995,7 +1377,7 @@ final class VPNManager: ObservableObject {
                       !self.manualOffRequested else {
                     return
                 }
-                self.startVPN(source: source)
+                self.requestProtectionReconciliation(source: source)
             }
         }
     }
@@ -1332,6 +1714,17 @@ final class VPNManager: ObservableObject {
         return instagramOn || tiktokOn || xOn
     }
 
+    private func manualRecoveryRequiredFromPolicy() -> Bool {
+        guard let data = sharedDefaults?.data(forKey: NimaConstants.manualFeaturePolicyKey),
+              var policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
+            return false
+        }
+        policy.mergeDefaults()
+        return policy.appToggles.values.contains { toggles in
+            toggles.values.contains(true)
+        }
+    }
+
     private var manualOffRequested: Bool {
         sharedDefaults?.bool(forKey: NimaConstants.manualOffRequestedKey) ?? false
     }
@@ -1589,7 +1982,7 @@ final class VPNManager: ObservableObject {
                 guard self.vpnStatus == .disconnected, self.shouldVPNBeOnFromPolicy() else { return }
                 self.lastProbeReconnectAt = Date()
                 self.appendLog("Probe reconnect attempt after transport trip")
-                self.startVPN(source: "probe_reconnect")
+                self.requestProtectionReconciliation(source: "probe_reconnect")
             }
         }
     }
@@ -1788,6 +2181,19 @@ final class VPNManager: ObservableObject {
             "tunnel_operational=\(vpnStatus == .connected)",
             "policy_enabled=\(shouldVPNBeOnFromPolicy())",
             "manual_off_requested=\(manualOffRequested)",
+            "on_demand_rollout_eligible=\(sharedDefaults?.bool(forKey: NimaConstants.onDemandRolloutEligibleKey) ?? false)",
+            "on_demand_rollout_cache_age_seconds=\(onDemandRollout.cacheAge.map { String(Int($0)) } ?? "unknown")",
+            "on_demand_desired=\(sharedDefaults?.bool(forKey: NimaConstants.onDemandDesiredKey) ?? false)",
+            "on_demand_actual=\(sharedDefaults?.bool(forKey: NimaConstants.onDemandActualKey) ?? false)",
+            "on_demand_rule_count=\(sharedDefaults?.integer(forKey: NimaConstants.onDemandRuleCountKey) ?? 0)",
+            "on_demand_interface=\(sharedDefaults?.string(forKey: NimaConstants.onDemandInterfaceKey) ?? "none")",
+            "on_demand_last_profile_revision=\(sharedDefaults?.integer(forKey: NimaConstants.onDemandLastProfileRevisionKey) ?? 0)",
+            "on_demand_last_profile_result=\(sharedDefaults?.string(forKey: NimaConstants.onDemandLastProfileResultKey) ?? "none")",
+            "on_demand_last_profile_error=\(sharedDefaults?.string(forKey: NimaConstants.onDemandLastProfileErrorKey) ?? "")",
+            "on_demand_disable_before_stop_verified=\(sharedDefaults?.bool(forKey: NimaConstants.onDemandDisableBeforeStopVerifiedKey) ?? false)",
+            "on_demand_inferred_recovery_count=\(sharedDefaults?.integer(forKey: NimaConstants.onDemandInferredRecoveryCountKey) ?? 0)",
+            "on_demand_inferred_recovery_duration_seconds=\(String(format: "%.2f", sharedDefaults?.double(forKey: NimaConstants.onDemandInferredRecoveryDurationKey) ?? 0))",
+            "previous_session_json=\(sharedDefaults?.string(forKey: NimaConstants.previousSessionSnapshotJSONKey) ?? "{}")",
             "schedule_desired_vpn_on=\(scheduleSnapshot.isDesiredProtectionActive())",
             "schedule_desired_vpn_on_raw=\(scheduleSnapshot.desiredVPNOn)",
             "schedule_desired_until=\(formatUnixTS(scheduleSnapshot.desiredUntil))",

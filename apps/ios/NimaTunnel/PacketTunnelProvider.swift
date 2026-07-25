@@ -72,6 +72,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         tun2SocksRestartCount = 0
         tunnelStateLock.unlock()
 
+        let startTS = Date().timeIntervalSince1970
+        preservePreviousSessionBeforeStart(nowTS: startTS)
+        recordInferredOnDemandRecoveryIfNeeded(nowTS: startTS)
         log.clear()
         recordLifecycleStart()
         recordProviderPhase("tunnel_start")
@@ -437,9 +440,85 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             let stats = Socks5Tunnel.stats
             let reply = "pong — up: \(stats.up.packets) pkts, down: \(stats.down.packets) pkts"
             completionHandler?(reply.data(using: .utf8))
-        } else {
-            completionHandler?(nil)
+            return
         }
+        #if DEBUG
+        if message.hasPrefix("diagnostic.schedule_forced_disconnect:") {
+            let rawDelay = message.split(separator: ":").last.flatMap { TimeInterval(String($0)) } ?? 5
+            let delay = min(60, max(1, rawDelay))
+            log.logAndFlush("DIAGNOSTIC forced_disconnect_scheduled delay=\(delay)")
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                let error = NSError(
+                    domain: "NimaTunnel.Diagnostic",
+                    code: 9001,
+                    userInfo: [NSLocalizedDescriptionKey: "DEBUG forced tunnel disconnect"]
+                )
+                self.log.logAndFlush("DIAGNOSTIC forced_disconnect_firing")
+                self.cancelTunnelWithError(error)
+            }
+            completionHandler?("scheduled".data(using: .utf8))
+            return
+        }
+        #endif
+        completionHandler?(nil)
+    }
+
+    private func preservePreviousSessionBeforeStart(nowTS: TimeInterval) {
+        guard let previousSessionID = sharedDefaults?.string(forKey: NimaConstants.vpnLifecycleSessionIDKey),
+              !previousSessionID.isEmpty else {
+            return
+        }
+        func boundedString(_ key: String, fallback: String, limit: Int) -> String {
+            String((sharedDefaults?.string(forKey: key) ?? fallback).prefix(limit))
+        }
+        let snapshot: [String: Any] = [
+            "captured_at": nowTS,
+            "session_id": previousSessionID,
+            "last_start": sharedDefaults?.double(forKey: NimaConstants.vpnLifecycleLastStartTSKey) ?? 0,
+            "last_heartbeat": sharedDefaults?.double(forKey: NimaConstants.vpnLifecycleLastHeartbeatTSKey) ?? 0,
+            "provider_phase": boundedString(NimaConstants.vpnLifecycleProviderLastPhaseKey, fallback: "unknown", limit: 256),
+            "provider_phase_at": sharedDefaults?.double(forKey: NimaConstants.vpnLifecycleProviderLastPhaseTSKey) ?? 0,
+            "provider_phase_ring": boundedString(NimaConstants.providerPhaseRingJSONKey, fallback: "[]", limit: 8_192),
+            "tun2socks_stats": boundedString(NimaConstants.tun2socksLastStatsJSONKey, fallback: "{}", limit: 4_096),
+            "heartbeat_snapshot": boundedString(NimaConstants.vpnLifecycleProviderHeartbeatSnapshotJSONKey, fallback: "{}", limit: 4_096),
+            "path_status": boundedString(NimaConstants.vpnLifecycleLastPathStatusKey, fallback: "unknown", limit: 256),
+            "path_interfaces": boundedString(NimaConstants.vpnLifecycleLastPathInterfacesKey, fallback: "unknown", limit: 512),
+            "pressure_level": boundedString(NimaConstants.vpnLifecycleExtensionPressureLevelKey, fallback: "unknown", limit: 256),
+            "pressure_memory_mb": sharedDefaults?.double(forKey: NimaConstants.vpnLifecycleExtensionPressureMemoryMBKey) ?? -1,
+            "stop_source": boundedString(NimaConstants.vpnLifecycleStopSourceKey, fallback: "unknown", limit: 256),
+            "stop_reason": boundedString(NimaConstants.vpnLifecycleStopReasonKey, fallback: "unknown", limit: 512),
+            "stop_event_id": boundedString(NimaConstants.vpnLifecycleStopEventIDKey, fallback: "", limit: 256),
+            "stop_cause_final": boundedString(NimaConstants.vpnLifecycleStopCauseFinalKey, fallback: "", limit: 512)
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys]) else { return }
+        if let json = String(data: data, encoding: .utf8) {
+            sharedDefaults?.set(json, forKey: NimaConstants.previousSessionSnapshotJSONKey)
+        }
+    }
+
+    private func recordInferredOnDemandRecoveryIfNeeded(nowTS: TimeInterval) {
+        guard sharedDefaults?.bool(forKey: NimaConstants.onDemandActualKey) == true,
+              hasManualEnabledBlocker() else {
+            return
+        }
+        let explicitStartTS = sharedDefaults?.double(forKey: NimaConstants.onDemandExplicitStartTSKey) ?? 0
+        guard explicitStartTS <= 0 || nowTS - explicitStartTS > 15 else { return }
+        let previousHeartbeat = sharedDefaults?.double(forKey: NimaConstants.vpnLifecycleLastHeartbeatTSKey) ?? 0
+        let duration = previousHeartbeat > 0 ? max(0, nowTS - previousHeartbeat) : 0
+        let count = sharedDefaults?.integer(forKey: NimaConstants.onDemandInferredRecoveryCountKey) ?? 0
+        sharedDefaults?.set(count + 1, forKey: NimaConstants.onDemandInferredRecoveryCountKey)
+        sharedDefaults?.set(duration, forKey: NimaConstants.onDemandInferredRecoveryDurationKey)
+        log.logAndFlush("ON_DEMAND_RECOVERY inferred=true duration_s=\(String(format: "%.2f", duration))")
+    }
+
+    private func hasManualEnabledBlocker() -> Bool {
+        guard let data = sharedDefaults?.data(forKey: NimaConstants.manualFeaturePolicyKey),
+              var policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
+            return false
+        }
+        policy.mergeDefaults()
+        return policy.appToggles.values.contains { $0.values.contains(true) }
     }
 
     private func recordLifecycleStart() {

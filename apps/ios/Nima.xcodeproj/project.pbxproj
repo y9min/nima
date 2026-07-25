@@ -41,6 +41,7 @@
 		3FAC86E35CA85ADDF0E9BC6D /* DialSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA882E4A9482E432717819B6 /* DialSelector.swift */; };
 		448ED71176CC45C9F70C3D2E /* HomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649EEF9455088B1E328E37BE /* HomeScreen.swift */; };
 		44E3628AB4041D923B70F731 /* UDPControlStreamDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 572F72616968EC95681D51F8 /* UDPControlStreamDecoder.swift */; };
+		46D7238002630CAFB38F2393 /* OnDemandRolloutService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6EEF66DCCF58B55D3A1FA4 /* OnDemandRolloutService.swift */; };
 		477627CC8A89591759D222C9 /* GuidedPracticeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABE6E21B68F0A7C9E658A7B9 /* GuidedPracticeModels.swift */; };
 		4B11644ABAF06AC58618B289 /* AppCluster.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81604AEBF016F2331792B0FC /* AppCluster.swift */; };
 		4B1ADAF7B52D6B5AD4133B03 /* clouds.png in Resources */ = {isa = PBXBuildFile; fileRef = 5A17A7EAAF27E84DC1D57212 /* clouds.png */; };
@@ -55,6 +56,7 @@
 		58B5DC2AF59FBBB0DE78DF0D /* SubscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC29480A7095EDCA32349C2 /* SubscriptionStore.swift */; };
 		5A011E68B110970A34888CF5 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = 324DD16958586EBB08ADB9BB /* RevenueCatUI */; };
 		5ABD34C79BC2A7CD5E7F0605 /* HeaderBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDEA02BCAA6A129EBFDAF647 /* HeaderBar.swift */; };
+		5D979C8AF484B2FFEA81D81B /* OnDemandRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CF10E90F675C199F9412F22 /* OnDemandRecoveryTests.swift */; };
 		5FDA109CB31227F09291B170 /* NimaConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = F47B517FE3D6ABE29BCD33A1 /* NimaConstants.swift */; };
 		615BAAFE945B5E341324628D /* ReelsBlockFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0926A86CF539EEFD8F9E80D8 /* ReelsBlockFilter.swift */; };
 		62C5DEFFA3C124628470B084 /* TrafficStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 244CFA3218360B6076C0B938 /* TrafficStats.swift */; };
@@ -111,6 +113,7 @@
 		CC154689F70DA3D18957B899 /* emoji_catalog.tsv in Resources */ = {isa = PBXBuildFile; fileRef = 1DB612DC77CE3EEDF525C925 /* emoji_catalog.tsv */; };
 		CC7262123D4B27FB2E8F98C5 /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC2C8C821BCBDE64C42478 /* SettingsScreen.swift */; };
 		CE0918F7580B21F206292D02 /* MainTabsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = E565B604226C26895D6A2CF7 /* MainTabsScreen.swift */; };
+		CE1F06A7AC4FF97D174EFC9D /* ProtectionIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77DAE83BFD8D51126DE39FF /* ProtectionIntent.swift */; };
 		CF3AA7967CAF34BCE39D3F75 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2D0ECA4BFAE471B047D839D /* AppStore.swift */; };
 		D1BA414684DCAF555BD2F6D5 /* home_streak_flame.png in Resources */ = {isa = PBXBuildFile; fileRef = A95C81B0AB038DCD16C765D8 /* home_streak_flame.png */; };
 		D498F45F2E53667DBA7AB335 /* AppIconCircle.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC23C93BD155E614ED46325D /* AppIconCircle.swift */; };
@@ -183,6 +186,7 @@
 		18D4075A89C2E34DCDDE392D /* UDPControlStreamDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPControlStreamDecoderTests.swift; sourceTree = "<group>"; };
 		196C814A47E9CCD9AF3CB1C8 /* ReelsBlockFilterPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelsBlockFilterPolicyTests.swift; sourceTree = "<group>"; };
 		19A2BF8F6BB75542434F301D /* icon_rect.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon_rect.png; sourceTree = "<group>"; };
+		1CF10E90F675C199F9412F22 /* OnDemandRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDemandRecoveryTests.swift; sourceTree = "<group>"; };
 		1DB612DC77CE3EEDF525C925 /* emoji_catalog.tsv */ = {isa = PBXFileReference; path = emoji_catalog.tsv; sourceTree = "<group>"; };
 		1F317125295266F8C1BD5F10 /* home_tiktok_blocking_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_tiktok_blocking_icon.png; sourceTree = "<group>"; };
 		20C4E9418E6BF39B574D508F /* AppOptionArcs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOptionArcs.swift; sourceTree = "<group>"; };
@@ -257,6 +261,7 @@
 		B49DCE607B1EBF1843C488FB /* TrafficMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficMonitor.swift; sourceTree = "<group>"; };
 		B4EFB105F8DA784804F9B745 /* DomainThresholdsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainThresholdsStore.swift; sourceTree = "<group>"; };
 		B7E0F53FBAC57F87A5FB9695 /* chungusTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = chungusTunnel.entitlements; sourceTree = "<group>"; };
+		BB6EEF66DCCF58B55D3A1FA4 /* OnDemandRolloutService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDemandRolloutService.swift; sourceTree = "<group>"; };
 		BDB171C4EB89D104C345EEF8 /* TunnelLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelLogger.swift; sourceTree = "<group>"; };
 		C2D193B28A287245CB51E28D /* HexCoordinate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HexCoordinate.swift; sourceTree = "<group>"; };
 		C8F9D598EBD2359E651478EB /* fanduel.svg */ = {isa = PBXFileReference; path = fanduel.svg; sourceTree = "<group>"; };
@@ -266,6 +271,7 @@
 		D18B86CED7F94FF7AF8C6737 /* guided_practice_tiktok_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = guided_practice_tiktok_icon.png; sourceTree = "<group>"; };
 		D21E311BD4AD22DE250FA78A /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
 		D507CB42186B41E6A2F49704 /* OnboardingStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStoreTests.swift; sourceTree = "<group>"; };
+		D77DAE83BFD8D51126DE39FF /* ProtectionIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtectionIntent.swift; sourceTree = "<group>"; };
 		D968395CEB74C9F6494B6923 /* BlockingOptionsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockingOptionsScreen.swift; sourceTree = "<group>"; };
 		DA882E4A9482E432717819B6 /* DialSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DialSelector.swift; sourceTree = "<group>"; };
 		DACE73396CB5F8C6560F142A /* VPNManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPNManager.swift; sourceTree = "<group>"; };
@@ -412,6 +418,7 @@
 				86A12F62FF8F624CB4CB6FBA /* AppSettingsStoreTests.swift */,
 				67E335E8F0AC90F5B758F014 /* HomeDashboardLayoutTests.swift */,
 				D507CB42186B41E6A2F49704 /* OnboardingStoreTests.swift */,
+				1CF10E90F675C199F9412F22 /* OnDemandRecoveryTests.swift */,
 				EFABF0ED07BA2C7D985110BD /* SubscriptionStoreTests.swift */,
 				3F93DCCF1A2A572C2C18F62B /* TimeWindowTests.swift */,
 			);
@@ -494,6 +501,8 @@
 				DD7C367288685F57F774CFA0 /* HexGridLayoutManager.swift */,
 				5D07A6936AD4E39EA6F74B19 /* NativeAuthService.swift */,
 				0F009426C200AC3558CDEF18 /* OnboardingStore.swift */,
+				BB6EEF66DCCF58B55D3A1FA4 /* OnDemandRolloutService.swift */,
+				D77DAE83BFD8D51126DE39FF /* ProtectionIntent.swift */,
 				59574FA19F13C03CDA3B2AD0 /* Route.swift */,
 				E4772947D80DED926571C57D /* StreakStore.swift */,
 				50B33AA9B7B092B9BA9F30E7 /* SubscriptionCancellationFeedbackService.swift */,
@@ -814,6 +823,7 @@
 				E005B1E1750D0DEDE114BB4F /* AccountDeletionServiceTests.swift in Sources */,
 				980E2D72613FE35923D41C74 /* AppSettingsStoreTests.swift in Sources */,
 				0EB3F8E91571742F57D9C608 /* HomeDashboardLayoutTests.swift in Sources */,
+				5D979C8AF484B2FFEA81D81B /* OnDemandRecoveryTests.swift in Sources */,
 				A6AF4B2BEAD4C1ADA39CA417 /* OnboardingStoreTests.swift in Sources */,
 				E71F19DE0FA7C4F208754466 /* SubscriptionStoreTests.swift in Sources */,
 				4D04056FB52075AE0C59EBE7 /* TimeWindowTests.swift in Sources */,
@@ -901,11 +911,13 @@
 				5FDA109CB31227F09291B170 /* NimaConstants.swift in Sources */,
 				E5D53A8250FD31DF2EC931EA /* NimaFonts.swift in Sources */,
 				0CB3EFA5DEC1714EBD539509 /* NimaSpacing.swift in Sources */,
+				46D7238002630CAFB38F2393 /* OnDemandRolloutService.swift in Sources */,
 				742C37BB6C972115B415D967 /* OnboardingFlowScreen.swift in Sources */,
 				25D2DFE1E7EF7E78519C6B36 /* OnboardingStore.swift in Sources */,
 				006EA4083175AD6634FAB5FE /* PageIndicator.swift in Sources */,
 				9AF74B78685A73BD2EE12F6D /* PaywallScreen.swift in Sources */,
 				B509D06BEFACD0609277934A /* PiPInstructionVideoController.swift in Sources */,
+				CE1F06A7AC4FF97D174EFC9D /* ProtectionIntent.swift in Sources */,
 				10343D4CE68415BFE0725E3C /* Route.swift in Sources */,
 				3276027BC5D7F0A6A8AE11AE /* SVGCache.swift in Sources */,
 				FE8C202073CDDCB9C3664BCA /* SVGView.swift in Sources */,

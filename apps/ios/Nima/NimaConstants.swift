@@ -39,6 +39,24 @@ enum NimaConstants {
     static let maxStatusLogEntries = 200
     static let logSubsystem = "so.nima.app.NimaTunnel"
     static let statsFileName = "traffic_stats.json"
+    static let onDemandRolloutFlagCacheKey = "vpnLifecycle.on_demand_rollout_flag_cache"
+    static let onDemandRolloutFlagFetchedAtKey = "vpnLifecycle.on_demand_rollout_flag_fetched_at"
+    static let onDemandInstallationIDKey = "vpnLifecycle.on_demand_installation_id"
+    static let onDemandRolloutEligibleKey = "vpnLifecycle.on_demand_rollout_eligible"
+    static let onDemandDesiredKey = "vpnLifecycle.on_demand_desired"
+    static let onDemandActualKey = "vpnLifecycle.on_demand_actual"
+    static let onDemandRuleCountKey = "vpnLifecycle.on_demand_rule_count"
+    static let onDemandInterfaceKey = "vpnLifecycle.on_demand_interface"
+    static let onDemandLastProfileRevisionKey = "vpnLifecycle.on_demand_last_profile_revision"
+    static let onDemandLastProfileResultKey = "vpnLifecycle.on_demand_last_profile_result"
+    static let onDemandLastProfileErrorKey = "vpnLifecycle.on_demand_last_profile_error"
+    static let onDemandDisableBeforeStopVerifiedKey = "vpnLifecycle.on_demand_disable_before_stop_verified"
+    static let onDemandExplicitStartTSKey = "vpnLifecycle.on_demand_explicit_start_ts"
+    static let onDemandInferredRecoveryCountKey = "vpnLifecycle.on_demand_inferred_recovery_count"
+    static let onDemandInferredRecoveryDurationKey = "vpnLifecycle.on_demand_inferred_recovery_duration"
+    static let previousSessionSnapshotJSONKey = "vpnLifecycle.previous_session_json"
+    static let vpnProfileCleanupPendingKey = "vpnLifecycle.profile_cleanup_pending"
+    static let vpnProfileRemovalPendingStandardKey = "vpnLifecycle.profile_removal_pending_after_account_deletion"
 
     // MARK: - Stream Blocking
     static let streamBlockDefaultThreshold = 512 * 1024  // 0.5 MB

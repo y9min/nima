@@ -26,14 +26,12 @@ final class AppStore {
     ]
 
     private let optionsService = AppOptionsService.shared
-    @ObservationIgnored private var vpnStartHandler: (() -> Void)?
-    @ObservationIgnored private var vpnStopHandler: (() -> Void)?
+    @ObservationIgnored private var vpnReconcileHandler: ((ProtectionIntent) async -> Void)?
     @ObservationIgnored private var vpnStatusProvider: (() -> NEVPNStatus)?
     @ObservationIgnored private var streakEligibilityHandler: ((String) -> Void)?
-    @ObservationIgnored private var vpnStartInFlight = false
-    @ObservationIgnored private var vpnStopInFlight = false
     @ObservationIgnored private var pendingVPNSyncTask: Task<Void, Never>?
     @ObservationIgnored private let sharedDefaults = UserDefaults(suiteName: NimaConstants.appGroupID)
+    @ObservationIgnored private var protectionIntentRevision = Int(Date().timeIntervalSince1970 * 1_000)
 
     init() {
         refreshFromOptionsService()
@@ -62,13 +60,11 @@ final class AppStore {
     }
 
     func configureVPNAutostart(
-        startVPN: @escaping () -> Void,
-        stopVPN: @escaping () -> Void,
+        reconcileProtection: @escaping (ProtectionIntent) async -> Void,
         vpnStatus: @escaping () -> NEVPNStatus,
         markStreakIfEligible: @escaping (String) -> Void = { _ in }
     ) {
-        vpnStartHandler = startVPN
-        vpnStopHandler = stopVPN
+        vpnReconcileHandler = reconcileProtection
         vpnStatusProvider = vpnStatus
         streakEligibilityHandler = markStreakIfEligible
         scheduleVPNReconciliation(triggerSource: "app_store.configure")
@@ -103,19 +99,28 @@ final class AppStore {
 
     private func scheduleVPNReconciliation(triggerSource: String) {
         pendingVPNSyncTask?.cancel()
-        pendingVPNSyncTask = Task { [weak self] in
+        pendingVPNSyncTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000)
-            await MainActor.run {
-                self?.reconcileVPNState(triggerSource: triggerSource)
-            }
+            self?.reconcileVPNState(triggerSource: triggerSource)
         }
     }
 
     private func reconcileVPNState(triggerSource: String) {
-        guard let vpnStartHandler, let vpnStopHandler, let vpnStatusProvider else { return }
+        guard let vpnReconcileHandler, let vpnStatusProvider else { return }
         let status = vpnStatusProvider()
         let isConnectedLike = status == .connected || status == .connecting || status == .reasserting
+        let manualRecoveryRequired = hasAnyManuallyEnabledBlockingOption
         let shouldVPNBeOn = shouldVPNBeOnFromPolicy()
+        protectionIntentRevision = max(
+            protectionIntentRevision + 1,
+            Int(Date().timeIntervalSince1970 * 1_000)
+        )
+        let intent = ProtectionIntent(
+            vpnRequired: shouldVPNBeOn,
+            manualRecoveryRequired: manualRecoveryRequired,
+            source: triggerSource,
+            revision: protectionIntentRevision
+        )
 
         if shouldVPNBeOn {
             if isConnectedLike {
@@ -124,33 +129,14 @@ final class AppStore {
             AppDiagnosticsLogger.log(
                 "VPN_SYNC action=converge_on status=\(status.rawValue) should_vpn_be_on=true source=\(triggerSource)"
             )
-            guard !isConnectedLike, !vpnStartInFlight else { return }
-            vpnStartInFlight = true
-            vpnStopInFlight = false
-            vpnStartHandler()
-            Task {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                await MainActor.run {
-                    vpnStartInFlight = false
-                }
-            }
+            Task { await vpnReconcileHandler(intent) }
             return
         }
 
         AppDiagnosticsLogger.log(
             "VPN_SYNC action=converge_off status=\(status.rawValue) should_vpn_be_on=false source=\(triggerSource)"
         )
-        let isDisconnectedLike = status == .disconnected || status == .disconnecting || status == .invalid
-        guard !isDisconnectedLike, !vpnStopInFlight else { return }
-        vpnStopInFlight = true
-        vpnStartInFlight = false
-        vpnStopHandler()
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            await MainActor.run {
-                self.vpnStopInFlight = false
-            }
-        }
+        Task { await vpnReconcileHandler(intent) }
     }
 
     var hasAnyEnabledBlockingOption: Bool {

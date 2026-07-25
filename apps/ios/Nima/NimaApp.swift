@@ -248,8 +248,9 @@ struct NimaApp: App {
         didConfigureProtection = true
 
         store.configureVPNAutostart(
-            startVPN: { vpnManager.startVPN(source: "app_store.autostart") },
-            stopVPN: { vpnManager.stopVPN(source: "app_store.autostop") },
+            reconcileProtection: { intent in
+                await vpnManager.reconcileProtection(intent)
+            },
             vpnStatus: { vpnManager.vpnStatus },
             markStreakIfEligible: { source in
                 markStreakIfEligible(source: source)
@@ -260,7 +261,7 @@ struct NimaApp: App {
                 store.setScheduledBlockedAppIDs(appIDs, source: source)
             },
             startProtection: { source in
-                vpnManager.startVPN(source: source)
+                vpnManager.requestProtectionReconciliation(source: source)
             },
             requestHomeFocus: {
                 path = NavigationPath()

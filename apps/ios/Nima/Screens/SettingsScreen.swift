@@ -946,6 +946,7 @@ private struct CancellationFeedbackSheet: View {
 private struct DeleteAccountSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var authStore
+    @EnvironmentObject private var vpnManager: VPNManager
 
     @State private var isShowingFinalConfirmation = false
     @State private var isDeleting = false
@@ -1093,6 +1094,7 @@ private struct DeleteAccountSheet: View {
                     appleAuthorizationCode: appleAuthorizationCode
                 )
                 await authStore.logout()
+                _ = await vpnManager.removeVPNProfileForAccountDeletion()
                 await MainActor.run {
                     LocalAccountDataCleaner.clearAll()
                     isDeleting = false
