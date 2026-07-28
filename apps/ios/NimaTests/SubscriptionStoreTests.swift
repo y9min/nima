@@ -4,9 +4,15 @@ import XCTest
 
 @MainActor
 final class SubscriptionStoreTests: XCTestCase {
+    func testDemoLoginAccountsResolveAfterNormalization() {
+        XCTAssertTrue(AuthStore.isDemoLoginAccount(email: " ya@nima.so "))
+        XCTAssertTrue(AuthStore.isDemoLoginAccount(email: "REVIEW@NIMA.SO"))
+        XCTAssertFalse(AuthStore.isDemoLoginAccount(email: "customer@nima.so"))
+    }
+
     func testAnnualDemoAccountsResolveAfterNormalization() {
         XCTAssertTrue(AuthStore.isAnnualDemoAccount(email: " ya@nima.so "))
-        XCTAssertTrue(AuthStore.isAnnualDemoAccount(email: "REVIEW@NIMA.SO"))
+        XCTAssertFalse(AuthStore.isAnnualDemoAccount(email: "REVIEW@NIMA.SO"))
         XCTAssertFalse(AuthStore.isAnnualDemoAccount(email: "customer@nima.so"))
     }
 
@@ -37,6 +43,34 @@ final class SubscriptionStoreTests: XCTestCase {
         XCTAssertTrue(store.hasPremium)
         XCTAssertEqual(store.verificationState, .verified)
         XCTAssertNil(defaults.object(forKey: "subscription.hasPremium"))
+    }
+
+    func testReviewDemoAccountVerifiesAsNonPremiumForPaywall() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        store.bindDemoPaywallUser(email: " REVIEW@NIMA.SO ")
+
+        XCTAssertEqual(mock.loginAppUserIDs.count, 1)
+        XCTAssertTrue(mock.loginAppUserIDs[0].hasPrefix("review-"))
+        XCTAssertEqual(store.verificationState, .loading)
+
+        mock.loginCompletions[0](
+            SubscriptionCustomerStatus(activeEntitlementIDs: [], activeSubscriptionIDs: []),
+            nil
+        )
+        await flushMainActorTasks()
+
+        XCTAssertEqual(mock.syncCompletions.count, 1)
+        mock.syncCompletions[0](
+            SubscriptionCustomerStatus(activeEntitlementIDs: [], activeSubscriptionIDs: []),
+            nil
+        )
+        await flushMainActorTasks()
+
+        XCTAssertEqual(store.verificationState, .verified)
+        XCTAssertFalse(store.hasPremium)
     }
 
     func testCustomerInformationRoutesPremiumUser() async {

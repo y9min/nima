@@ -19,9 +19,12 @@ enum SubscriptionIdentity: Equatable {
 @Observable
 final class AuthStore {
     static let emailAuthRedirectURL = URL(string: "nima://auth-callback")!
-    private static let annualDemoAccountEmails: Set<String> = [
+    private static let demoLoginAccountEmails: Set<String> = [
         "ya@nima.so",
         "review@nima.so",
+    ]
+    private static let annualDemoAccountEmails: Set<String> = [
+        "ya@nima.so",
     ]
     private static let persistedDemoEmailKey = "auth.persistedDemoEmail"
 
@@ -52,7 +55,7 @@ final class AuthStore {
         self.defaults = defaults
         guard
             let email = defaults.string(forKey: Self.persistedDemoEmailKey),
-            Self.isAnnualDemoAccount(email: email)
+            Self.isDemoLoginAccount(email: email)
         else {
             return
         }
@@ -168,6 +171,10 @@ final class AuthStore {
 
     static func isAnnualDemoAccount(email: String) -> Bool {
         annualDemoAccountEmails.contains(normalizedEmail(email))
+    }
+
+    static func isDemoLoginAccount(email: String) -> Bool {
+        demoLoginAccountEmails.contains(normalizedEmail(email))
     }
 
     static func normalizedEmail(_ email: String) -> String {

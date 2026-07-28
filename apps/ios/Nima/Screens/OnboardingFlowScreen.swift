@@ -17,7 +17,7 @@ struct OnboardingFlowScreen: View {
     @State private var didProvideAge = false
     @State private var selectedHabits: Set<String> = []
     @State private var selectedApps: Set<String> = []
-    @State private var showsPrivacySheet = false
+    @State private var privacySheetStep: OnboardingPrivacySheetStep?
     @State private var isAuthenticating = false
     @State private var authErrorMessage: String?
     @State private var emailAuthAddress = ""
@@ -56,20 +56,29 @@ struct OnboardingFlowScreen: View {
             currentScreen
                 .transition(.opacity)
 
-            if showsPrivacySheet {
+            if let privacySheetStep {
                 Color.black.opacity(0.22)
                     .ignoresSafeArea()
                     .transition(.opacity)
 
-                OnboardingPrivacySheet(
-                    onContinue: triggerVPNPermissionAndContinue
-                )
+                Group {
+                    switch privacySheetStep {
+                    case .checklist:
+                        OnboardingPrivacyChecklistSheet {
+                            self.privacySheetStep = .vpnData
+                        }
+                    case .vpnData:
+                        OnboardingVPNDataSheet(
+                            onContinue: triggerVPNPermissionAndContinue
+                        )
+                    }
+                }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .zIndex(2)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: step)
-        .animation(.easeInOut(duration: 0.2), value: showsPrivacySheet)
+        .animation(.easeInOut(duration: 0.2), value: privacySheetStep)
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
@@ -434,7 +443,7 @@ struct OnboardingFlowScreen: View {
             }
         } bottom: {
             OnboardingPrimaryButton(title: "Continue") {
-                showsPrivacySheet = true
+                privacySheetStep = .checklist
             }
             .accessibilityIdentifier("onboarding.vpn.continue")
         }
@@ -662,7 +671,7 @@ struct OnboardingFlowScreen: View {
         onboardingStore.markVPNPermissionRequested()
         vpnManager.startVPN(source: "onboarding.vpn_permission")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            showsPrivacySheet = false
+            privacySheetStep = nil
             step = .notifications
         }
     }
@@ -697,7 +706,7 @@ struct OnboardingFlowScreen: View {
     }
 
     private func sendEmailAuthLink(to email: String, shouldAdvance: Bool) {
-        if AuthStore.isAnnualDemoAccount(email: email) {
+        if AuthStore.isDemoLoginAccount(email: email) {
             authStore.login(email: AuthStore.normalizedEmail(email), demo: true)
             completeOnboarding()
             return
@@ -761,8 +770,8 @@ struct OnboardingFlowScreen: View {
 
     private func goBack() {
         guard let previousStep = step.previous else { return }
-        if showsPrivacySheet {
-            showsPrivacySheet = false
+        if privacySheetStep != nil {
+            privacySheetStep = nil
         }
         if step == .emailEntry || step == .emailLinkSent {
             authErrorMessage = nil
@@ -2213,7 +2222,12 @@ private struct CurvedArrow: Shape {
     }
 }
 
-private struct OnboardingPrivacySheet: View {
+private enum OnboardingPrivacySheetStep: Equatable {
+    case checklist
+    case vpnData
+}
+
+private struct OnboardingPrivacyChecklistSheet: View {
     let onContinue: () -> Void
 
     var body: some View {
@@ -2229,34 +2243,26 @@ private struct OnboardingPrivacySheet: View {
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Nima does not read:")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(.white)
-
-                        ForEach(["Messages", "Passwords", "Photos", "Message content"], id: \.self) { item in
-                            HStack(spacing: 10) {
-                                Circle()
-                                    .fill(Color.white.opacity(0.14))
-                                    .frame(width: 21, height: 21)
-                                    .overlay {
-                                        Image(systemName: "xmark")
-                                            .font(.system(size: 11, weight: .bold))
-                                            .foregroundStyle(.white)
-                                    }
-                                Text(item)
-                                    .font(.system(size: 21, weight: .regular))
-                                    .foregroundStyle(.white)
-                            }
-                        }
-
-                            Text("Nima processes network signals like domains, connection metadata, and block decisions to apply your blocking rules. Traffic details stay in local diagnostics unless you choose to share them for support.")
-                                .font(.system(size: 16, weight: .semibold))
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Nima does not read:")
+                                .font(.system(size: 20, weight: .bold))
                                 .foregroundStyle(.white)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 12)
+
+                            ForEach(["Messages", "Passwords", "Photos", "Message content"], id: \.self) { item in
+                                HStack(spacing: 10) {
+                                    Circle()
+                                        .fill(Color.white.opacity(0.14))
+                                        .frame(width: 21, height: 21)
+                                        .overlay {
+                                            Image(systemName: "xmark")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundStyle(.white)
+                                        }
+                                    Text(item)
+                                        .font(.system(size: 21, weight: .regular))
+                                        .foregroundStyle(.white)
+                                }
+                            }
                         }
                         .padding(.horizontal, 26)
                         .padding(.vertical, 24)
@@ -2266,7 +2272,64 @@ private struct OnboardingPrivacySheet: View {
 
                         OnboardingPrimaryButton(title: "Continue", action: onContinue)
                             .padding(.horizontal, 40)
-                            .accessibilityIdentifier("onboarding.privacy.continue")
+                            .accessibilityIdentifier("onboarding.privacy-checklist.continue")
+                    }
+                    .padding(.horizontal, 30)
+                    .padding(.top, 34)
+                    .padding(.bottom, max(42, proxy.safeAreaInsets.bottom + 30))
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxWidth: .infinity)
+                .frame(maxHeight: max(420, proxy.size.height - max(12, proxy.safeAreaInsets.top)))
+                .background(OnboardingPalette.privacySheet)
+                .clipShape(TopRoundedRectangle(radius: 40))
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
+    }
+}
+
+private struct OnboardingVPNDataSheet: View {
+    let onContinue: () -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            VStack {
+                Spacer()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        Text("How Nima uses VPN data")
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Nima checks destination domains and basic connection details on your device to apply your blocking rules.")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("This data stays on your device and is never automatically uploaded. Nima does not collect page contents, passwords, messages, or browsing history.")
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("If you choose to send diagnostics to support, we’ll show you what will be shared and ask for permission first.")
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.horizontal, 26)
+                        .padding(.vertical, 24)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OnboardingPalette.privacyCard)
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+
+                        OnboardingPrimaryButton(title: "Continue & Enable VPN", action: onContinue)
+                            .padding(.horizontal, 40)
+                            .accessibilityIdentifier("onboarding.vpn-data.continue")
                     }
                     .padding(.horizontal, 30)
                     .padding(.top, 34)

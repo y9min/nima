@@ -343,9 +343,11 @@ struct NimaApp: App {
         switch authStore.subscriptionIdentity {
         case .demo(let email) where AuthStore.isAnnualDemoAccount(email: email):
             subscriptionStore.activateDemoAnnualPlan()
+        case .demo(let email):
+            subscriptionStore.bindDemoPaywallUser(email: email)
         case .authenticated(let userID, _):
             subscriptionStore.bindAuthenticatedUser(userID: userID)
-        case .none, .demo:
+        case .none:
             subscriptionStore.unbindUser()
         }
     }

@@ -113,6 +113,7 @@ final class SubscriptionStore {
     static let premiumEntitlementID = "nima Pro"
     static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
     private static let lastBoundAppUserIDKey = "subscription.lastBoundAppUserID"
+    private static let demoPaywallAppUserIDKeyPrefix = "subscription.demoPaywallAppUserID."
     private static let migrationKeyPrefix = "subscription.identityMigration.v1."
     private static let cachedPremiumKeyPrefix = "subscription.hasPremium."
 
@@ -187,6 +188,23 @@ final class SubscriptionStore {
 
     func bindAuthenticatedUser(userID: UUID) {
         let appUserID = userID.uuidString.lowercased()
+        bindAppUserID(appUserID)
+    }
+
+    func bindDemoPaywallUser(email: String) {
+        let normalizedEmail = AuthStore.normalizedEmail(email)
+        let defaultsKey = Self.demoPaywallAppUserIDKeyPrefix + normalizedEmail
+        let appUserID: String
+        if let persistedAppUserID = defaults.string(forKey: defaultsKey) {
+            appUserID = persistedAppUserID
+        } else {
+            appUserID = "review-" + UUID().uuidString.lowercased()
+            defaults.set(appUserID, forKey: defaultsKey)
+        }
+        bindAppUserID(appUserID)
+    }
+
+    private func bindAppUserID(_ appUserID: String) {
         let previousAppUserID = defaults.string(forKey: Self.lastBoundAppUserIDKey)
 
         if intendedAppUserID != appUserID {
