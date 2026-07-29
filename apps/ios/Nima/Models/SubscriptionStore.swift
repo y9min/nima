@@ -111,6 +111,7 @@ private extension SubscriptionCustomerStatus {
 @Observable
 final class SubscriptionStore {
     static let premiumEntitlementID = "nima Pro"
+    static let appStoreReviewAppUserID = "app-store-review-expired-v1"
     static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
     private static let lastBoundAppUserIDKey = "subscription.lastBoundAppUserID"
     private static let demoPaywallAppUserIDKeyPrefix = "subscription.demoPaywallAppUserID."
@@ -193,6 +194,11 @@ final class SubscriptionStore {
 
     func bindDemoPaywallUser(email: String) {
         let normalizedEmail = AuthStore.normalizedEmail(email)
+        if AuthStore.isAppStoreReviewAccount(email: normalizedEmail) {
+            bindAppUserID(Self.appStoreReviewAppUserID)
+            return
+        }
+
         let defaultsKey = Self.demoPaywallAppUserIDKeyPrefix + normalizedEmail
         let appUserID: String
         if let persistedAppUserID = defaults.string(forKey: defaultsKey) {
@@ -336,6 +342,20 @@ final class SubscriptionStore {
         restoreErrorMessage = nil
         hasPremium = true
     }
+
+    #if DEBUG
+    func activateSimulatedExpiredReviewSubscription() {
+        cancelAllRequests()
+        intendedAppUserID = Self.appStoreReviewAppUserID
+        hasConfirmedIdentity = true
+        needsReceiptSync = false
+        hasPremium = false
+        verificationState = .verified
+        offeringsState = .failed("Reviewer test reached the subscription paywall.")
+        purchaseErrorMessage = nil
+        restoreErrorMessage = nil
+    }
+    #endif
 
     func unbindUser() {
         cancelAllRequests()

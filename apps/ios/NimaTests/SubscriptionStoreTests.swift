@@ -16,6 +16,12 @@ final class SubscriptionStoreTests: XCTestCase {
         XCTAssertFalse(AuthStore.isAnnualDemoAccount(email: "customer@nima.so"))
     }
 
+    func testAppStoreReviewAccountResolvesAfterNormalization() {
+        XCTAssertTrue(AuthStore.isAppStoreReviewAccount(email: " REVIEW@NIMA.SO "))
+        XCTAssertFalse(AuthStore.isAppStoreReviewAccount(email: "ya@nima.so"))
+        XCTAssertFalse(AuthStore.isAppStoreReviewAccount(email: "customer@nima.so"))
+    }
+
     func testDemoLoginSurvivesRelaunchAndLogoutClearsIt() async {
         let suiteName = "AuthStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -52,8 +58,7 @@ final class SubscriptionStoreTests: XCTestCase {
 
         store.bindDemoPaywallUser(email: " REVIEW@NIMA.SO ")
 
-        XCTAssertEqual(mock.loginAppUserIDs.count, 1)
-        XCTAssertTrue(mock.loginAppUserIDs[0].hasPrefix("review-"))
+        XCTAssertEqual(mock.loginAppUserIDs, [SubscriptionStore.appStoreReviewAppUserID])
         XCTAssertEqual(store.verificationState, .loading)
 
         mock.loginCompletions[0](
@@ -71,6 +76,105 @@ final class SubscriptionStoreTests: XCTestCase {
 
         XCTAssertEqual(store.verificationState, .verified)
         XCTAssertFalse(store.hasPremium)
+    }
+
+    func testReviewAccountUsesSameRevenueCatIdentityAcrossFreshInstalls() {
+        let firstMock = MockRevenueCatClient()
+        let secondMock = MockRevenueCatClient()
+        let (firstStore, firstDefaults, firstSuiteName) = makeStore(client: firstMock.client)
+        let (secondStore, secondDefaults, secondSuiteName) = makeStore(client: secondMock.client)
+        defer {
+            firstDefaults.removePersistentDomain(forName: firstSuiteName)
+            secondDefaults.removePersistentDomain(forName: secondSuiteName)
+        }
+
+        firstStore.bindDemoPaywallUser(email: "review@nima.so")
+        secondStore.bindDemoPaywallUser(email: "review@nima.so")
+
+        XCTAssertEqual(firstMock.loginAppUserIDs, [SubscriptionStore.appStoreReviewAppUserID])
+        XCTAssertEqual(secondMock.loginAppUserIDs, [SubscriptionStore.appStoreReviewAppUserID])
+    }
+
+    func testAppAccessPolicyKeepsGuidedExperienceBeforePaywall() {
+        XCTAssertEqual(
+            AppAccessPolicy.destination(
+                onboardingCompleted: true,
+                guidedExperienceCompleted: false,
+                hasPremium: false,
+                verificationState: .verified
+            ),
+            .guidedExperience
+        )
+    }
+
+    func testAppAccessPolicyRoutesExpiredOrNonPremiumAccountToPaywall() {
+        XCTAssertEqual(
+            AppAccessPolicy.destination(
+                onboardingCompleted: true,
+                guidedExperienceCompleted: true,
+                hasPremium: false,
+                verificationState: .verified
+            ),
+            .paywall
+        )
+    }
+
+    func testAppAccessPolicyFailsClosedWhileVerificationIsUnavailable() {
+        for state in [
+            SubscriptionVerificationState.idle,
+            .loading,
+            .failed("offline"),
+        ] {
+            XCTAssertEqual(
+                AppAccessPolicy.destination(
+                    onboardingCompleted: true,
+                    guidedExperienceCompleted: true,
+                    hasPremium: false,
+                    verificationState: state
+                ),
+                .subscriptionLoading
+            )
+        }
+    }
+
+    func testAppAccessPolicyUnlocksOnlyVerifiedPremiumAccount() {
+        XCTAssertEqual(
+            AppAccessPolicy.destination(
+                onboardingCompleted: true,
+                guidedExperienceCompleted: true,
+                hasPremium: true,
+                verificationState: .verified
+            ),
+            .mainApp
+        )
+
+        XCTAssertEqual(
+            AppAccessPolicy.destination(
+                onboardingCompleted: true,
+                guidedExperienceCompleted: true,
+                hasPremium: true,
+                verificationState: .failed("offline")
+            ),
+            .subscriptionLoading
+        )
+    }
+
+    func testDebugLaunchConfigurationCanSkipOnlyExternalPractice() {
+        XCTAssertTrue(
+            NimaLaunchConfiguration.skipsExternalGuidedPractice(
+                arguments: [NimaLaunchConfiguration.skipExternalGuidedPracticeArgument]
+            )
+        )
+        XCTAssertFalse(NimaLaunchConfiguration.skipsExternalGuidedPractice(arguments: []))
+    }
+
+    func testDebugLaunchConfigurationCanSimulateExpiredReviewSubscription() {
+        XCTAssertTrue(
+            NimaLaunchConfiguration.simulatesExpiredReviewSubscription(
+                arguments: [NimaLaunchConfiguration.simulateExpiredReviewSubscriptionArgument]
+            )
+        )
+        XCTAssertFalse(NimaLaunchConfiguration.simulatesExpiredReviewSubscription(arguments: []))
     }
 
     func testCustomerInformationRoutesPremiumUser() async {

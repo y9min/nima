@@ -264,6 +264,7 @@ struct BlockingStatusCard: View {
                                 .frame(width: min(layout.actualSize.width - 96, 352 * layout.visualScale))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("guided_windows.home.start")
                         .position(
                             x: layout.actualSize.width / 2,
                             y: max(54 * layout.visualScale, layout.timePillCenter.y - 70 * layout.visualScale)

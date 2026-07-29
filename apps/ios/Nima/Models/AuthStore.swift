@@ -26,6 +26,7 @@ final class AuthStore {
     private static let annualDemoAccountEmails: Set<String> = [
         "ya@nima.so",
     ]
+    private static let appStoreReviewAccountEmail = "review@nima.so"
     private static let persistedDemoEmailKey = "auth.persistedDemoEmail"
 
     var isLoggedIn: Bool = false
@@ -175,6 +176,10 @@ final class AuthStore {
 
     static func isDemoLoginAccount(email: String) -> Bool {
         demoLoginAccountEmails.contains(normalizedEmail(email))
+    }
+
+    static func isAppStoreReviewAccount(email: String) -> Bool {
+        normalizedEmail(email) == appStoreReviewAccountEmail
     }
 
     static func normalizedEmail(_ email: String) -> String {

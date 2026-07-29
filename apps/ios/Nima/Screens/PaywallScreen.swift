@@ -32,6 +32,7 @@ struct PaywallScreen: View {
                 onUnlocked()
             }
         }
+        .accessibilityIdentifier("subscription.paywall")
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
     }

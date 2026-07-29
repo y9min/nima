@@ -1,5 +1,55 @@
 import Foundation
 
+enum AppRootDestination: Equatable {
+    case onboarding
+    case guidedExperience
+    case subscriptionLoading
+    case paywall
+    case mainApp
+}
+
+struct AppAccessPolicy {
+    static func destination(
+        onboardingCompleted: Bool,
+        guidedExperienceCompleted: Bool,
+        hasPremium: Bool,
+        verificationState: SubscriptionVerificationState
+    ) -> AppRootDestination {
+        guard onboardingCompleted else { return .onboarding }
+        guard guidedExperienceCompleted else { return .guidedExperience }
+
+        switch verificationState {
+        case .verified:
+            return hasPremium ? .mainApp : .paywall
+        case .idle, .loading, .failed:
+            return .subscriptionLoading
+        }
+    }
+}
+
+enum NimaLaunchConfiguration {
+    #if DEBUG
+    static let skipExternalGuidedPracticeArgument = "-NimaSkipExternalGuidedPractice"
+    static let simulateExpiredReviewSubscriptionArgument = "-NimaSimulateExpiredReviewSubscription"
+    #endif
+
+    static func skipsExternalGuidedPractice(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        #if DEBUG
+        arguments.contains(skipExternalGuidedPracticeArgument)
+        #else
+        false
+        #endif
+    }
+
+    static func simulatesExpiredReviewSubscription(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        #if DEBUG
+        arguments.contains(simulateExpiredReviewSubscriptionArgument)
+        #else
+        false
+        #endif
+    }
+}
+
 enum GuidedOnboardingPresentationMode: Equatable {
     case firstRunPractice
     case manualReplay

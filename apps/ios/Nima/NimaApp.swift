@@ -272,16 +272,15 @@ struct NimaApp: App {
 
     @ViewBuilder
     private var rootScreen: some View {
-        if onboardingStore.isCompleted {
-            if shouldWaitForSubscriptionStatus {
-                SubscriptionStatusLoadingScreen()
-            } else if shouldShowPaywall {
-                PaywallScreen(onUnlocked: completePaywall)
-            } else {
-                mainTabsScreen
-            }
-        } else {
+        switch rootDestination {
+        case .onboarding:
             OnboardingFlowScreen()
+        case .guidedExperience, .mainApp:
+            mainTabsScreen
+        case .subscriptionLoading:
+            SubscriptionStatusLoadingScreen()
+        case .paywall:
+            PaywallScreen(onUnlocked: completePaywall)
         }
     }
 
@@ -302,28 +301,32 @@ struct NimaApp: App {
             onGuidedWindowsHomeAction: beginGuidedWindowsEditor,
             guidedWindowsEditorStep: guidedWindowsEditorStep,
             onGuidedWindowsEditorAdvance: advanceGuidedWindowsEditorStep,
-            onGuidedWindowsEditorFinished: showGuidedWindowsReadyModal
+            onGuidedWindowsEditorFinished: showGuidedWindowsReadyModal,
+            allowsSettings: rootDestination != .guidedExperience
         )
     }
 
-    private var shouldShowPaywall: Bool {
-        needsSubscriptionGate
+    private var rootDestination: AppRootDestination {
+        AppAccessPolicy.destination(
+            onboardingCompleted: onboardingStore.isCompleted,
+            guidedExperienceCompleted: hasCompletedRequiredGuidedExperience,
+            hasPremium: subscriptionStore.hasPremium,
+            verificationState: subscriptionStore.verificationState
+        )
+    }
+
+    private var hasCompletedRequiredGuidedExperience: Bool {
+        onboardingStore.hasCompletedGuidedPractice
+            && onboardingStore.hasCompletedGuidedWindowsOnboarding
             && !shouldHoldPaywallForGuidedPracticeReturn
-            && subscriptionStore.verificationState == .verified
-            && !subscriptionStore.hasPremium
+    }
+
+    private var shouldShowPaywall: Bool {
+        rootDestination == .paywall
     }
 
     private var shouldWaitForSubscriptionStatus: Bool {
-        needsSubscriptionGate
-            && !shouldHoldPaywallForGuidedPracticeReturn
-            && !subscriptionStore.hasPremium
-            && subscriptionStore.verificationState != .verified
-    }
-
-    private var needsSubscriptionGate: Bool {
-        onboardingStore.isCompleted
-            && onboardingStore.hasCompletedGuidedPractice
-            && onboardingStore.hasCompletedGuidedWindowsOnboarding
+        rootDestination == .subscriptionLoading
     }
 
     private var shouldHoldPaywallForGuidedPracticeReturn: Bool {
@@ -340,6 +343,15 @@ struct NimaApp: App {
     }
 
     private func applySubscriptionIdentity() {
+        #if DEBUG
+        if case .demo(let email) = authStore.subscriptionIdentity,
+           AuthStore.isAppStoreReviewAccount(email: email),
+           NimaLaunchConfiguration.simulatesExpiredReviewSubscription() {
+            subscriptionStore.activateSimulatedExpiredReviewSubscription()
+            return
+        }
+        #endif
+
         switch authStore.subscriptionIdentity {
         case .demo(let email) where AuthStore.isAnnualDemoAccount(email: email):
             subscriptionStore.activateDemoAnnualPlan()
@@ -364,7 +376,8 @@ struct NimaApp: App {
                 activeApps: guidedPracticeActiveApps,
                 isStartingPIP: isStartingGuidedPracticePIP,
                 errorMessage: guidedPracticePIPError,
-                onOpenApp: openGuidedPracticeApp
+                onOpenApp: openGuidedPracticeApp,
+                onSkipPractice: skipExternalGuidedPractice
             )
             .transition(.opacity)
             .zIndex(11)
@@ -474,8 +487,29 @@ struct NimaApp: App {
         guidedPracticePIPError = nil
         isStartingGuidedPracticePIP = false
         hasHandledGuidedPracticeReviewRequest = false
+
+        if NimaLaunchConfiguration.skipsExternalGuidedPractice() {
+            skipExternalGuidedPractice()
+            return
+        }
+
         guidedPracticeActiveApps = activeGuidedPracticeBlockedApps
         guidedPracticePhase = guidedPracticeActiveApps.isEmpty ? .readyCoachMark : .openAppPrompt
+    }
+
+    private func skipExternalGuidedPractice() {
+        onboardingStore.markGuidedPracticeCompleted()
+        onboardingStore.setGuidedPracticeReturnPending(false)
+        guidedPracticePIPError = nil
+        isStartingGuidedPracticePIP = false
+        guidedPracticeActiveApps = []
+
+        if onboardingStore.hasCompletedGuidedWindowsOnboarding {
+            showGuidedPracticeReviewPrompt()
+        } else {
+            onboardingStore.markGuidedWindowsOnboardingPending()
+            beginGuidedWindowsOnboarding()
+        }
     }
 
     private var activeGuidedPracticeBlockedApps: Set<GuidedPracticeLaunchApp> {

@@ -39,6 +39,7 @@ struct AppBottomDock: View {
     let onHome: () -> Void
     let onWindows: () -> Void
     let onSettings: () -> Void
+    var settingsEnabled = true
 
     private var visualScale: CGFloat {
         min(1.08, max(0.9, scale))
@@ -48,7 +49,13 @@ struct AppBottomDock: View {
         HStack {
             dockItem(label: "home", icon: "house", destination: .home, action: onHome)
             dockItem(label: "windows", icon: "clock", destination: .windows, action: onWindows)
-            dockItem(label: "settings", icon: "gearshape", destination: .settings, action: onSettings)
+            dockItem(
+                label: "settings",
+                icon: "gearshape",
+                destination: .settings,
+                isEnabled: settingsEnabled,
+                action: onSettings
+            )
         }
         .padding(.horizontal, 30 * visualScale)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -57,7 +64,13 @@ struct AppBottomDock: View {
         )
     }
 
-    private func dockItem(label: String, icon: String, destination: AppDockDestination, action: @escaping () -> Void) -> some View {
+    private func dockItem(
+        label: String,
+        icon: String,
+        destination: AppDockDestination,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             VStack(spacing: 3 * visualScale) {
                 Image(systemName: icon)
@@ -71,6 +84,8 @@ struct AppBottomDock: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.45)
     }
 }
 

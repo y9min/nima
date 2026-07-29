@@ -16,6 +16,7 @@ struct MainTabsScreen: View {
     var guidedWindowsEditorStep: GuidedWindowsEditorStep?
     var onGuidedWindowsEditorAdvance: () -> Void = {}
     var onGuidedWindowsEditorFinished: () -> Void = {}
+    var allowsSettings = true
 
     var body: some View {
         GeometryReader { proxy in
@@ -33,8 +34,11 @@ struct MainTabsScreen: View {
                             onSelectApp: onSelectApp,
                             onTimeWindows: { selectedTab = .windows },
                             onAddTimeWindow: openAddTimeWindow,
-                            onSettings: { selectedTab = .settings },
-                            onTrafficDashboard: onTrafficDashboard,
+                            onSettings: openSettings,
+                            onTrafficDashboard: {
+                                guard allowsSettings else { return }
+                                onTrafficDashboard()
+                            },
                             onShowGuidedOnboarding: onShowGuidedOnboarding,
                             guidedPracticeCardStep: guidedPracticeCardStep,
                             showsGuidedWindowsHomeCoachMark: showsGuidedWindowsHomeCoachMark,
@@ -44,7 +48,7 @@ struct MainTabsScreen: View {
                     case .windows:
                         TimeWindowsScreen(
                             onHome: { selectedTab = .home },
-                            onSettings: { selectedTab = .settings },
+                            onSettings: openSettings,
                             addWindowRequestID: pendingAddWindowRequestID,
                             onAddWindowRequestHandled: {
                                 pendingAddWindowRequestID = nil
@@ -72,7 +76,8 @@ struct MainTabsScreen: View {
                     scale: layout.scale,
                     onHome: { selectedTab = .home },
                     onWindows: { selectedTab = .windows },
-                    onSettings: { selectedTab = .settings }
+                    onSettings: openSettings,
+                    settingsEnabled: allowsSettings
                 )
                 .frame(width: layout.contentWidth, height: layout.dockHeight)
                 .padding(.bottom, layout.dockBottomPadding)
@@ -88,6 +93,16 @@ struct MainTabsScreen: View {
                 selectedTab = .home
             }
         }
+        .onChange(of: allowsSettings) { _, isAllowed in
+            if !isAllowed, selectedTab == .settings {
+                selectedTab = .home
+            }
+        }
+    }
+
+    private func openSettings() {
+        guard allowsSettings else { return }
+        selectedTab = .settings
     }
 
     private func openAddTimeWindow() {

@@ -271,6 +271,179 @@ final class NimaAdaptiveLayoutUITests: XCTestCase {
     }
 }
 
+final class NimaReviewerJourneyUITests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    func testExpiredReviewAccountCompletesGuidanceAndReachesPaywall() throws {
+        let app = XCUIApplication(bundleIdentifier: "so.nima.app")
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_GB",
+            "-NimaSimulateExpiredReviewSubscription",
+        ]
+
+        addUIInterruptionMonitor(withDescription: "Nima permissions") { alert in
+            for label in ["Allow", "OK", "Continue"] where alert.buttons[label].exists {
+                alert.buttons[label].tap()
+                return true
+            }
+            return false
+        }
+
+        app.launch()
+        completeOnboarding(in: app)
+
+        let guide = app.descendants(matching: .any)["guided_onboarding.modal"].firstMatch
+        XCTAssertTrue(guide.waitForExistence(timeout: 15), "The guided onboarding modal did not appear after review login.")
+
+        let settings = app.buttons["settings"].firstMatch
+        XCTAssertTrue(settings.exists, "The Settings tab was not present during guided onboarding.")
+        XCTAssertFalse(settings.isEnabled, "Settings must remain locked until the reviewer reaches the paywall.")
+
+        let nextGuideSlide = app.buttons["Next guide slide"].firstMatch
+        XCTAssertTrue(nextGuideSlide.waitForExistence(timeout: 5))
+        nextGuideSlide.tap()
+        XCTAssertTrue(nextGuideSlide.waitForExistence(timeout: 5))
+        nextGuideSlide.tap()
+
+        let finishGuide = app.buttons["guided_onboarding.done"].firstMatch
+        XCTAssertTrue(finishGuide.waitForExistence(timeout: 5), "The guided onboarding completion button did not appear.")
+        finishGuide.tap()
+
+        let tikTok = app.descendants(matching: .any)["nima.app.tiktok"].firstMatch
+        XCTAssertTrue(tikTok.waitForExistence(timeout: 8), "The TikTok blocker was not available for guided practice.")
+        XCTAssertFalse(settings.isEnabled, "Settings unlocked before guided practice completed.")
+        tikTok.tap()
+
+        let openAppPrompt = app.descendants(matching: .any)["guided_practice.open_app_prompt"].firstMatch
+        XCTAssertTrue(openAppPrompt.waitForExistence(timeout: 10), "Guided practice did not reach the external-app prompt.")
+
+        let skipPractice = app.buttons["guided_practice.skip_external_app"].firstMatch
+        XCTAssertTrue(skipPractice.waitForExistence(timeout: 5), "The reviewer-safe Skip practice action was missing.")
+        skipPractice.tap()
+
+        let startWindowsGuide = app.buttons["guided_windows.home.start"].firstMatch
+        XCTAssertTrue(startWindowsGuide.waitForExistence(timeout: 8), "The guided windows step did not begin.")
+        XCTAssertFalse(settings.isEnabled, "Settings unlocked before guided windows completed.")
+        startWindowsGuide.tap()
+
+        let closeEditor = app.buttons["guided_windows.editor.close"].firstMatch
+        XCTAssertTrue(closeEditor.waitForExistence(timeout: 8), "The guided window editor did not open.")
+        closeEditor.tap()
+
+        let windowsReady = app.buttons["guided_windows.ready_continue"].firstMatch
+        XCTAssertTrue(windowsReady.waitForExistence(timeout: 8), "The guided windows completion screen did not appear.")
+        windowsReady.tap()
+
+        let reviewContinue = app.buttons["guided_practice.review_continue"].firstMatch
+        XCTAssertTrue(reviewContinue.waitForExistence(timeout: 8), "The final guided-practice screen did not appear.")
+        reviewContinue.tap()
+        dismissStoreReviewPromptIfPresent(in: app)
+        XCTAssertTrue(reviewContinue.waitForExistence(timeout: 5))
+        reviewContinue.tap()
+
+        let paywall = app.descendants(matching: .any)["subscription.paywall"].firstMatch
+        XCTAssertTrue(paywall.waitForExistence(timeout: 15), "The expired review account did not reach the subscription paywall.")
+        XCTAssertFalse(app.buttons["settings"].exists, "Settings remained reachable over the paywall.")
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "reviewer-expired-account-paywall"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    private func completeOnboarding(in app: XCUIApplication) {
+        tap("onboarding.splash.start", in: app)
+
+        let name = app.textFields["onboarding.name.input"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        name.typeText("App Review")
+        tap("onboarding.name.continue", in: app)
+
+        tapButton(label: "Ignoring people around me", in: app)
+        tap("onboarding.habits.continue", in: app)
+
+        let age = app.pickerWheels.firstMatch
+        XCTAssertTrue(age.waitForExistence(timeout: 5))
+        age.adjust(toPickerWheelValue: "25")
+        tap("onboarding.age.continue", in: app)
+
+        tapButton(label: "Instagram", in: app)
+        tap("onboarding.apps.continue", in: app)
+
+        let phoneSlider = app.descendants(matching: .any)["onboarding.phone.slider"].firstMatch
+        XCTAssertTrue(phoneSlider.waitForExistence(timeout: 5))
+        phoneSlider.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)).tap()
+        tap("onboarding.phone.continue", in: app)
+
+        tap("onboarding.bad-news.continue", in: app, timeout: 15)
+        tap("onboarding.good-news.continue", in: app, timeout: 15)
+        tap("onboarding.stay-connected.continue", in: app)
+        tap("onboarding.vpn.continue", in: app)
+        tap("onboarding.privacy-checklist.continue", in: app)
+        tap("onboarding.vpn-data.continue", in: app)
+        handlePermissionAlertIfPresent(app: app)
+
+        tap("onboarding.notifications.continue", in: app, timeout: 10)
+        handlePermissionAlertIfPresent(app: app)
+
+        let email = app.textFields["onboarding.email.input"].firstMatch
+        if !email.waitForExistence(timeout: 2) {
+            tapButton(label: "Already have an account? Log in", in: app, timeout: 10)
+        }
+        XCTAssertTrue(email.waitForExistence(timeout: 5))
+        email.tap()
+        email.typeText("review@nima.so")
+        tap("onboarding.email.send_link", in: app)
+    }
+
+    private func tap(_ identifier: String, in app: XCUIApplication, timeout: TimeInterval = 8) {
+        let element = app.buttons[identifier].firstMatch
+        XCTAssertTrue(element.waitForExistence(timeout: timeout), "\(identifier) did not appear.")
+        makeReachable(element, in: app)
+        XCTAssertTrue(element.isHittable, "\(identifier) was not hittable.")
+        element.tap()
+    }
+
+    private func tapButton(label: String, in app: XCUIApplication, timeout: TimeInterval = 8) {
+        let button = app.buttons[label].firstMatch
+        XCTAssertTrue(button.waitForExistence(timeout: timeout), "\(label) did not appear.")
+        makeReachable(button, in: app)
+        XCTAssertTrue(button.isHittable, "\(label) was not hittable.")
+        button.tap()
+    }
+
+    private func makeReachable(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<8 where !element.isHittable {
+            app.swipeUp()
+        }
+    }
+
+    private func handlePermissionAlertIfPresent(app: XCUIApplication) {
+        app.tap()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let alert = springboard.alerts.firstMatch
+        guard alert.waitForExistence(timeout: 2) else { return }
+        for label in ["Allow", "OK", "Continue"] where alert.buttons[label].exists {
+            alert.buttons[label].tap()
+            return
+        }
+    }
+
+    private func dismissStoreReviewPromptIfPresent(in app: XCUIApplication) {
+        for label in ["Not Now", "Cancel"] {
+            let button = app.buttons[label].firstMatch
+            if button.waitForExistence(timeout: 1) {
+                button.tap()
+                return
+            }
+        }
+    }
+}
+
 private extension Dictionary where Key == String, Value == String {
     func doubleValue(for key: String, defaultValue: Double) -> Double {
         guard let value = self[key], let parsed = Double(value) else {

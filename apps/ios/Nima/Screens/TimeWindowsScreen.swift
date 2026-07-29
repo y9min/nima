@@ -513,6 +513,7 @@ private struct TimeWindowEditorSheet: View {
                     .background(Circle().stroke(TimeWindowsPalette.border, lineWidth: 1))
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("guided_windows.editor.close")
 
             Spacer()
 

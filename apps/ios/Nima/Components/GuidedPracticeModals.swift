@@ -7,6 +7,7 @@ struct GuidedPracticeOpenAppPromptModal: View {
     let isStartingPIP: Bool
     let errorMessage: String?
     var onOpenApp: (GuidedPracticeLaunchApp) -> Void
+    var onSkipPractice: () -> Void
 
     var body: some View {
         GuidedPracticeOverlay {
@@ -78,6 +79,15 @@ struct GuidedPracticeOpenAppPromptModal: View {
                         } else {
                             Color.clear.frame(height: 34 * scale)
                         }
+
+                        Button("Skip practice", action: onSkipPractice)
+                            .font(.system(size: 14 * scale, weight: .regular, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.82))
+                            .buttonStyle(.plain)
+                            .disabled(isStartingPIP)
+                            .accessibilityIdentifier("guided_practice.skip_external_app")
+
+                        Color.clear.frame(height: 18 * scale)
                     }
                     .frame(width: proxy.size.width)
                     .frame(minHeight: proxy.size.height, alignment: .top)
