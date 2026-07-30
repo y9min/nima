@@ -28,12 +28,14 @@ final class AuthStore {
     ]
     private static let appStoreReviewAccountEmail = "review@nima.so"
     private static let persistedDemoEmailKey = "auth.persistedDemoEmail"
+    private static let persistedReviewSessionIDKey = "auth.persistedReviewSessionID"
 
     var isLoggedIn: Bool = false
     var isDemo: Bool = false
     var userID: UUID?
     var userEmail: String = ""
     var appleUserID: String?
+    var reviewSessionID: String?
     var sessionState: AuthSessionState = .idle
 
     var isAppleAccount: Bool {
@@ -64,6 +66,12 @@ final class AuthStore {
         isLoggedIn = true
         isDemo = true
         userEmail = Self.normalizedEmail(email)
+        if Self.isAppStoreReviewAccount(email: userEmail) {
+            let sessionID = defaults.string(forKey: Self.persistedReviewSessionIDKey)
+                ?? UUID().uuidString.lowercased()
+            reviewSessionID = sessionID
+            defaults.set(sessionID, forKey: Self.persistedReviewSessionIDKey)
+        }
         sessionState = .authenticated
     }
 
@@ -76,8 +84,18 @@ final class AuthStore {
         sessionState = .authenticated
         if demo {
             defaults.set(userEmail, forKey: Self.persistedDemoEmailKey)
+            if Self.isAppStoreReviewAccount(email: userEmail) {
+                let sessionID = UUID().uuidString.lowercased()
+                reviewSessionID = sessionID
+                defaults.set(sessionID, forKey: Self.persistedReviewSessionIDKey)
+            } else {
+                reviewSessionID = nil
+                defaults.removeObject(forKey: Self.persistedReviewSessionIDKey)
+            }
         } else {
             defaults.removeObject(forKey: Self.persistedDemoEmailKey)
+            reviewSessionID = nil
+            defaults.removeObject(forKey: Self.persistedReviewSessionIDKey)
         }
     }
 
@@ -134,6 +152,7 @@ final class AuthStore {
             try? await supabaseClient?.auth.signOut()
         }
         defaults.removeObject(forKey: Self.persistedDemoEmailKey)
+        defaults.removeObject(forKey: Self.persistedReviewSessionIDKey)
         clearSession()
     }
 
@@ -151,6 +170,7 @@ final class AuthStore {
 
     private func apply(session: Session) {
         defaults.removeObject(forKey: Self.persistedDemoEmailKey)
+        defaults.removeObject(forKey: Self.persistedReviewSessionIDKey)
         isLoggedIn = true
         isDemo = false
         userID = session.user.id
@@ -158,6 +178,7 @@ final class AuthStore {
         appleUserID = session.user.identities?
             .first { $0.provider.caseInsensitiveCompare("apple") == .orderedSame }?
             .id
+        reviewSessionID = nil
         sessionState = .authenticated
     }
 
@@ -167,6 +188,7 @@ final class AuthStore {
         userID = nil
         userEmail = ""
         appleUserID = nil
+        reviewSessionID = nil
         sessionState = .unauthenticated
     }
 

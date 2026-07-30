@@ -27,6 +27,13 @@ struct AppAccessPolicy {
     }
 }
 
+struct GuidedPracticeAccessPolicy {
+    static func showsSkipPractice(for identity: SubscriptionIdentity) -> Bool {
+        guard case .demo(let email) = identity else { return false }
+        return AuthStore.isAppStoreReviewAccount(email: email)
+    }
+}
+
 enum NimaLaunchConfiguration {
     #if DEBUG
     static let skipExternalGuidedPracticeArgument = "-NimaSkipExternalGuidedPractice"

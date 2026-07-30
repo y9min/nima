@@ -29,12 +29,17 @@ final class SubscriptionStoreTests: XCTestCase {
 
         let firstStore = AuthStore(defaults: defaults)
         firstStore.login(email: " REVIEW@NIMA.SO ", demo: true)
+        let firstReviewSessionID = try? XCTUnwrap(firstStore.reviewSessionID)
 
         let relaunchedStore = AuthStore(defaults: defaults)
         XCTAssertEqual(relaunchedStore.subscriptionIdentity, .demo(email: "review@nima.so"))
+        XCTAssertEqual(relaunchedStore.reviewSessionID, firstReviewSessionID)
 
         await relaunchedStore.logout()
         XCTAssertEqual(AuthStore(defaults: defaults).subscriptionIdentity, .none)
+
+        relaunchedStore.login(email: "review@nima.so", demo: true)
+        XCTAssertNotEqual(relaunchedStore.reviewSessionID, firstReviewSessionID)
     }
 
     func testDemoAnnualPlanMarksPremiumVerified() {
@@ -56,7 +61,7 @@ final class SubscriptionStoreTests: XCTestCase {
         let (store, defaults, suiteName) = makeStore(client: mock.client)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        store.bindDemoPaywallUser(email: " REVIEW@NIMA.SO ")
+        store.bindAppStoreReviewUser(sessionID: "review-session-1")
 
         XCTAssertEqual(mock.loginAppUserIDs, [SubscriptionStore.appStoreReviewAppUserID])
         XCTAssertEqual(store.verificationState, .loading)
@@ -88,11 +93,94 @@ final class SubscriptionStoreTests: XCTestCase {
             secondDefaults.removePersistentDomain(forName: secondSuiteName)
         }
 
-        firstStore.bindDemoPaywallUser(email: "review@nima.so")
-        secondStore.bindDemoPaywallUser(email: "review@nima.so")
+        firstStore.bindAppStoreReviewUser(sessionID: "first-review-session")
+        secondStore.bindAppStoreReviewUser(sessionID: "second-review-session")
 
         XCTAssertEqual(firstMock.loginAppUserIDs, [SubscriptionStore.appStoreReviewAppUserID])
         XCTAssertEqual(secondMock.loginAppUserIDs, [SubscriptionStore.appStoreReviewAppUserID])
+    }
+
+    func testReviewSessionIgnoresExistingEntitlementUntilExplicitRestore() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let premiumStatus = SubscriptionCustomerStatus(
+            activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
+            activeSubscriptionIDs: ["nima_monthly"]
+        )
+
+        store.bindAppStoreReviewUser(sessionID: "review-session-1")
+        mock.loginCompletions[0](premiumStatus, nil)
+        await flushMainActorTasks()
+        mock.syncCompletions[0](premiumStatus, nil)
+        await flushMainActorTasks()
+
+        XCTAssertEqual(store.verificationState, .verified)
+        XCTAssertFalse(store.hasPremium)
+
+        var didUnlock = false
+        store.restore {
+            didUnlock = true
+        }
+        mock.restoreCompletions[0](premiumStatus, nil)
+        await flushMainActorTasks()
+
+        XCTAssertTrue(didUnlock)
+        XCTAssertTrue(store.hasPremium)
+    }
+
+    func testNewReviewLoginResetsAccessWithoutChangingNormalSubscriptionRules() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let premiumStatus = SubscriptionCustomerStatus(
+            activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
+            activeSubscriptionIDs: ["nima_monthly"]
+        )
+
+        store.bindAppStoreReviewUser(sessionID: "review-session-1")
+        mock.loginCompletions[0](premiumStatus, nil)
+        await flushMainActorTasks()
+        mock.syncCompletions[0](premiumStatus, nil)
+        await flushMainActorTasks()
+        store.restore {}
+        mock.restoreCompletions[0](premiumStatus, nil)
+        await flushMainActorTasks()
+        XCTAssertTrue(store.hasPremium)
+
+        store.unbindUser()
+        store.bindAppStoreReviewUser(sessionID: "review-session-2")
+        mock.customerInfoCompletions[0](premiumStatus, nil)
+        await flushMainActorTasks()
+        XCTAssertFalse(store.hasPremium)
+
+        store.unbindUser()
+        let normalUserID = UUID()
+        store.bindAuthenticatedUser(userID: normalUserID)
+        mock.loginCompletions[1](premiumStatus, nil)
+        await flushMainActorTasks()
+        mock.syncCompletions[1](premiumStatus, nil)
+        await flushMainActorTasks()
+        XCTAssertTrue(store.hasPremium)
+    }
+
+    func testSkipPracticeIsAvailableOnlyToAppStoreReviewAccount() {
+        XCTAssertTrue(
+            GuidedPracticeAccessPolicy.showsSkipPractice(
+                for: .demo(email: "review@nima.so")
+            )
+        )
+        XCTAssertFalse(
+            GuidedPracticeAccessPolicy.showsSkipPractice(
+                for: .demo(email: "ya@nima.so")
+            )
+        )
+        XCTAssertFalse(
+            GuidedPracticeAccessPolicy.showsSkipPractice(
+                for: .authenticated(userID: UUID(), email: "customer@nima.so")
+            )
+        )
+        XCTAssertFalse(GuidedPracticeAccessPolicy.showsSkipPractice(for: .none))
     }
 
     func testAppAccessPolicyKeepsGuidedExperienceBeforePaywall() {

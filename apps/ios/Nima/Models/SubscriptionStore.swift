@@ -115,6 +115,7 @@ final class SubscriptionStore {
     static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
     private static let lastBoundAppUserIDKey = "subscription.lastBoundAppUserID"
     private static let demoPaywallAppUserIDKeyPrefix = "subscription.demoPaywallAppUserID."
+    private static let reviewUnlockedSessionIDKey = "subscription.reviewUnlockedSessionID"
     private static let migrationKeyPrefix = "subscription.identityMigration.v1."
     private static let cachedPremiumKeyPrefix = "subscription.hasPremium."
 
@@ -162,6 +163,8 @@ final class SubscriptionStore {
     private var hasConfirmedIdentity = false
     private var needsReceiptSync = false
     private var isReconcilingPurchase = false
+    private var reviewSessionID: String?
+    private var reviewSessionRequiresTransaction = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -188,17 +191,31 @@ final class SubscriptionStore {
     }
 
     func bindAuthenticatedUser(userID: UUID) {
+        clearReviewSession()
         let appUserID = userID.uuidString.lowercased()
         bindAppUserID(appUserID)
     }
 
-    func bindDemoPaywallUser(email: String) {
-        let normalizedEmail = AuthStore.normalizedEmail(email)
-        if AuthStore.isAppStoreReviewAccount(email: normalizedEmail) {
-            bindAppUserID(Self.appStoreReviewAppUserID)
+    func bindAppStoreReviewUser(sessionID: String) {
+        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedSessionID.isEmpty else {
+            unbindUser()
             return
         }
 
+        reviewSessionID = normalizedSessionID
+        reviewSessionRequiresTransaction =
+            defaults.string(forKey: Self.reviewUnlockedSessionIDKey) != normalizedSessionID
+        if reviewSessionRequiresTransaction {
+            hasPremium = false
+            verificationState = .verified
+        }
+        bindAppUserID(Self.appStoreReviewAppUserID)
+    }
+
+    func bindDemoPaywallUser(email: String) {
+        clearReviewSession()
+        let normalizedEmail = AuthStore.normalizedEmail(email)
         let defaultsKey = Self.demoPaywallAppUserIDKeyPrefix + normalizedEmail
         let appUserID: String
         if let persistedAppUserID = defaults.string(forKey: defaultsKey) {
@@ -219,8 +236,13 @@ final class SubscriptionStore {
             hasConfirmedIdentity = false
             needsReceiptSync = previousAppUserID != appUserID
                 || !defaults.bool(forKey: Self.migrationKey(for: appUserID))
-            hasPremium = defaults.bool(forKey: Self.cachedPremiumKey(for: appUserID))
-            verificationState = .loading
+            if reviewSessionRequiresTransaction {
+                hasPremium = false
+                verificationState = .verified
+            } else {
+                hasPremium = defaults.bool(forKey: Self.cachedPremiumKey(for: appUserID))
+                verificationState = .loading
+            }
         }
 
         if !isConfigured {
@@ -313,7 +335,7 @@ final class SubscriptionStore {
     func recoverExistingAppStorePurchase() {
         guard isConfigured, let appUserID = intendedAppUserID, hasConfirmedIdentity else { return }
         needsReceiptSync = true
-        syncReceipt(appUserID: appUserID)
+        syncReceipt(appUserID: appUserID, permitsReviewUnlock: true)
     }
 
     func reconcilePendingPurchaseAfterForeground() {
@@ -333,6 +355,7 @@ final class SubscriptionStore {
     }
 
     func activateDemoAnnualPlan() {
+        clearReviewSession()
         finishCustomerInfoRequest(result: nil)
         intendedAppUserID = nil
         hasConfirmedIdentity = false
@@ -363,6 +386,7 @@ final class SubscriptionStore {
         intendedAppUserID = nil
         hasConfirmedIdentity = false
         needsReceiptSync = false
+        clearReviewSession()
     }
 
     func refreshCustomerInfo(
@@ -403,7 +427,7 @@ final class SubscriptionStore {
         }
     }
 
-    private func syncReceipt(appUserID: String) {
+    private func syncReceipt(appUserID: String, permitsReviewUnlock: Bool = false) {
         let requestID = beginCustomerInfoRequest()
         client.syncPurchases { [weak self] status, error in
             Task { @MainActor in
@@ -418,7 +442,10 @@ final class SubscriptionStore {
                     return
                 }
 
-                guard let access = self.apply(status) else {
+                guard let access = self.apply(
+                    status,
+                    permitsReviewUnlock: permitsReviewUnlock
+                ) else {
                     self.finishCustomerInfoRequest(result: nil)
                     return
                 }
@@ -499,7 +526,7 @@ final class SubscriptionStore {
                 }
 
                 self.purchaseErrorMessage = nil
-                _ = self.apply(status)
+                _ = self.apply(status, permitsReviewUnlock: true)
                 if self.hasPremium {
                     onUnlocked()
                 }
@@ -509,7 +536,10 @@ final class SubscriptionStore {
 
     func handlePaywallCustomerInfo(_ customerInfo: CustomerInfo) {
         guard let appUserID = intendedAppUserID, client.currentAppUserID() == appUserID else { return }
-        _ = apply(SubscriptionCustomerStatus(customerInfo))
+        _ = apply(
+            SubscriptionCustomerStatus(customerInfo),
+            permitsReviewUnlock: true
+        )
     }
 
     func restore(onUnlocked: @escaping () -> Void) {
@@ -549,10 +579,10 @@ final class SubscriptionStore {
                 let access = Self.premiumAccess(from: status)
                 if access == true {
                     self.restoreErrorMessage = nil
-                    _ = self.apply(status)
+                    _ = self.apply(status, permitsReviewUnlock: true)
                     onUnlocked()
                 } else if !didTimeOut {
-                    _ = self.apply(status)
+                    _ = self.apply(status, permitsReviewUnlock: true)
                     self.restoreErrorMessage = "No active subscription was found."
                 }
             }
@@ -637,15 +667,30 @@ final class SubscriptionStore {
     }
 
     @discardableResult
-    private func apply(_ status: SubscriptionCustomerStatus?) -> Bool? {
-        guard let access = Self.premiumAccess(from: status) else {
+    private func apply(
+        _ status: SubscriptionCustomerStatus?,
+        permitsReviewUnlock: Bool = false
+    ) -> Bool? {
+        guard let resolvedAccess = Self.premiumAccess(from: status) else {
             verificationState = .failed("We couldn’t check your subscription. Please try again.")
             return nil
         }
 
+        if reviewSessionRequiresTransaction {
+            guard permitsReviewUnlock, resolvedAccess else {
+                verificationState = .verified
+                setPremiumAccess(false)
+                return false
+            }
+            reviewSessionRequiresTransaction = false
+            if let reviewSessionID {
+                defaults.set(reviewSessionID, forKey: Self.reviewUnlockedSessionIDKey)
+            }
+        }
+
         verificationState = .verified
-        setPremiumAccess(access)
-        return access
+        setPremiumAccess(resolvedAccess)
+        return resolvedAccess
     }
 
     private func cancelAllRequests() {
@@ -692,6 +737,11 @@ final class SubscriptionStore {
         yearlyPackage = nil
         purchaseErrorMessage = nil
         restoreErrorMessage = nil
+    }
+
+    private func clearReviewSession() {
+        reviewSessionID = nil
+        reviewSessionRequiresTransaction = false
     }
 
     private func setPremiumAccess(_ hasAccess: Bool) {

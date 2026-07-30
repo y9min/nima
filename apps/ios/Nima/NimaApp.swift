@@ -355,6 +355,12 @@ struct NimaApp: App {
         switch authStore.subscriptionIdentity {
         case .demo(let email) where AuthStore.isAnnualDemoAccount(email: email):
             subscriptionStore.activateDemoAnnualPlan()
+        case .demo(let email) where AuthStore.isAppStoreReviewAccount(email: email):
+            guard let reviewSessionID = authStore.reviewSessionID else {
+                subscriptionStore.unbindUser()
+                return
+            }
+            subscriptionStore.bindAppStoreReviewUser(sessionID: reviewSessionID)
         case .demo(let email):
             subscriptionStore.bindDemoPaywallUser(email: email)
         case .authenticated(let userID, _):
@@ -376,6 +382,9 @@ struct NimaApp: App {
                 activeApps: guidedPracticeActiveApps,
                 isStartingPIP: isStartingGuidedPracticePIP,
                 errorMessage: guidedPracticePIPError,
+                showsSkipPractice: GuidedPracticeAccessPolicy.showsSkipPractice(
+                    for: authStore.subscriptionIdentity
+                ),
                 onOpenApp: openGuidedPracticeApp,
                 onSkipPractice: skipExternalGuidedPractice
             )

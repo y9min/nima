@@ -9,7 +9,16 @@
 	<key>method</key>
 	<string>app-store-connect</string>
 	<key>signingStyle</key>
-	<string>automatic</string>
+	<string>manual</string>
+	<key>signingCertificate</key>
+	<string>Apple Distribution</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>so.nima.app</key>
+		<string>Nima App Store Build 15</string>
+		<key>so.nima.app.NimaTunnel</key>
+		<string>Nima Tunnel App Store Build 15</string>
+	</dict>
 	<key>stripSwiftSymbols</key>
 	<true/>
 	<key>teamID</key>
