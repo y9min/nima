@@ -300,7 +300,7 @@ final class NimaReviewerJourneyUITests: XCTestCase {
 
         let settings = app.buttons["settings"].firstMatch
         XCTAssertTrue(settings.exists, "The Settings tab was not present during guided onboarding.")
-        XCTAssertFalse(settings.isEnabled, "Settings must remain locked until the reviewer reaches the paywall.")
+        XCTAssertTrue(settings.isEnabled, "Settings must remain available during guided onboarding.")
 
         let nextGuideSlide = app.buttons["Next guide slide"].firstMatch
         XCTAssertTrue(nextGuideSlide.waitForExistence(timeout: 5))
@@ -314,7 +314,15 @@ final class NimaReviewerJourneyUITests: XCTestCase {
 
         let tikTok = app.descendants(matching: .any)["nima.app.tiktok"].firstMatch
         XCTAssertTrue(tikTok.waitForExistence(timeout: 8), "The TikTok blocker was not available for guided practice.")
-        XCTAssertFalse(settings.isEnabled, "Settings unlocked before guided practice completed.")
+
+        XCTAssertTrue(settings.isHittable, "Settings was visible but could not be opened during guided practice.")
+        settings.tap()
+        XCTAssertTrue(app.staticTexts["Settings"].firstMatch.waitForExistence(timeout: 5), "Settings did not open during guided practice.")
+
+        let home = app.buttons["home"].firstMatch
+        XCTAssertTrue(home.waitForExistence(timeout: 5), "Home was not available from Settings.")
+        home.tap()
+        XCTAssertTrue(tikTok.waitForExistence(timeout: 5), "Returning from Settings lost the guided-practice screen.")
         tikTok.tap()
 
         let openAppPrompt = app.descendants(matching: .any)["guided_practice.open_app_prompt"].firstMatch
@@ -326,11 +334,31 @@ final class NimaReviewerJourneyUITests: XCTestCase {
 
         let startWindowsGuide = app.buttons["guided_windows.home.start"].firstMatch
         XCTAssertTrue(startWindowsGuide.waitForExistence(timeout: 8), "The guided windows step did not begin.")
-        XCTAssertFalse(settings.isEnabled, "Settings unlocked before guided windows completed.")
+        XCTAssertTrue(settings.isEnabled, "Settings became disabled during guided windows.")
         startWindowsGuide.tap()
 
         let closeEditor = app.buttons["guided_windows.editor.close"].firstMatch
         XCTAssertTrue(closeEditor.waitForExistence(timeout: 8), "The guided window editor did not open.")
+
+        let repeatRow = app.buttons["Repeat, Choose days"].firstMatch
+        XCTAssertTrue(repeatRow.waitForExistence(timeout: 5), "The Repeat row was missing.")
+        makeReachable(repeatRow, in: app)
+        XCTAssertTrue(repeatRow.isHittable, "The Repeat row was not reachable.")
+        repeatRow.tap()
+
+        let monday = app.buttons["Every Monday"].firstMatch
+        XCTAssertTrue(monday.waitForExistence(timeout: 5), "Monday was missing from the repeat sheet.")
+        XCTAssertTrue(monday.isHittable, "Monday was covered by the repeat sheet navigation bar.")
+        monday.tap()
+
+        let repeatDone = app.buttons["Done"].firstMatch
+        XCTAssertTrue(repeatDone.waitForExistence(timeout: 5), "The repeat sheet Done button was missing.")
+        repeatDone.tap()
+
+        XCTAssertTrue(
+            app.buttons["Repeat, Every Monday"].firstMatch.waitForExistence(timeout: 5),
+            "Selecting Monday did not update the time-window draft."
+        )
         closeEditor.tap()
 
         let windowsReady = app.buttons["guided_windows.ready_continue"].firstMatch
@@ -341,8 +369,6 @@ final class NimaReviewerJourneyUITests: XCTestCase {
         XCTAssertTrue(reviewContinue.waitForExistence(timeout: 8), "The final guided-practice screen did not appear.")
         reviewContinue.tap()
         dismissStoreReviewPromptIfPresent(in: app)
-        XCTAssertTrue(reviewContinue.waitForExistence(timeout: 5))
-        reviewContinue.tap()
 
         let paywall = app.descendants(matching: .any)["subscription.paywall"].firstMatch
         XCTAssertTrue(paywall.waitForExistence(timeout: 15), "The expired review account did not reach the subscription paywall.")

@@ -16,7 +16,6 @@ struct MainTabsScreen: View {
     var guidedWindowsEditorStep: GuidedWindowsEditorStep?
     var onGuidedWindowsEditorAdvance: () -> Void = {}
     var onGuidedWindowsEditorFinished: () -> Void = {}
-    var allowsSettings = true
 
     var body: some View {
         GeometryReader { proxy in
@@ -35,10 +34,7 @@ struct MainTabsScreen: View {
                             onTimeWindows: { selectedTab = .windows },
                             onAddTimeWindow: openAddTimeWindow,
                             onSettings: openSettings,
-                            onTrafficDashboard: {
-                                guard allowsSettings else { return }
-                                onTrafficDashboard()
-                            },
+                            onTrafficDashboard: onTrafficDashboard,
                             onShowGuidedOnboarding: onShowGuidedOnboarding,
                             guidedPracticeCardStep: guidedPracticeCardStep,
                             showsGuidedWindowsHomeCoachMark: showsGuidedWindowsHomeCoachMark,
@@ -76,8 +72,7 @@ struct MainTabsScreen: View {
                     scale: layout.scale,
                     onHome: { selectedTab = .home },
                     onWindows: { selectedTab = .windows },
-                    onSettings: openSettings,
-                    settingsEnabled: allowsSettings
+                    onSettings: openSettings
                 )
                 .frame(width: layout.contentWidth, height: layout.dockHeight)
                 .padding(.bottom, layout.dockBottomPadding)
@@ -93,15 +88,9 @@ struct MainTabsScreen: View {
                 selectedTab = .home
             }
         }
-        .onChange(of: allowsSettings) { _, isAllowed in
-            if !isAllowed, selectedTab == .settings {
-                selectedTab = .home
-            }
-        }
     }
 
     private func openSettings() {
-        guard allowsSettings else { return }
         selectedTab = .settings
     }
 

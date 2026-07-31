@@ -905,25 +905,28 @@ private struct RepeatSelectionSheet: View {
                 TimeWindowsPalette.background
                     .ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    ForEach(TimeWindowWeekday.allCases) { day in
-                        repeatDayRow(day)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        ForEach(TimeWindowWeekday.allCases) { day in
+                            repeatDayRow(day)
 
-                        if day != TimeWindowWeekday.allCases.last {
-                            Divider()
-                                .overlay(TimeWindowsPalette.border)
-                                .padding(.leading, 16)
-                                .padding(.trailing, 12)
+                            if day != TimeWindowWeekday.allCases.last {
+                                Divider()
+                                    .overlay(TimeWindowsPalette.border)
+                                    .padding(.leading, 16)
+                                    .padding(.trailing, 12)
+                            }
                         }
                     }
+                    .background(TimeWindowsPalette.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 14)
                 }
-                .background(TimeWindowsPalette.card)
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .padding(.horizontal, 24)
-                .padding(.top, 14)
-                .frame(maxHeight: .infinity, alignment: .top)
+                .scrollBounceBehavior(.basedOnSize)
             }
             .navigationTitle("Repeat")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {

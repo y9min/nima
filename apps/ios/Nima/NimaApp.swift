@@ -301,8 +301,7 @@ struct NimaApp: App {
             onGuidedWindowsHomeAction: beginGuidedWindowsEditor,
             guidedWindowsEditorStep: guidedWindowsEditorStep,
             onGuidedWindowsEditorAdvance: advanceGuidedWindowsEditorStep,
-            onGuidedWindowsEditorFinished: showGuidedWindowsReadyModal,
-            allowsSettings: rootDestination != .guidedExperience
+            onGuidedWindowsEditorFinished: showGuidedWindowsReadyModal
         )
     }
 
@@ -644,10 +643,9 @@ struct NimaApp: App {
     }
 
     private func continueGuidedPracticeReviewPrompt() {
-        guard hasHandledGuidedPracticeReviewRequest else {
+        if !hasHandledGuidedPracticeReviewRequest {
             requestGuidedPracticeReviewIfNeeded()
             hasHandledGuidedPracticeReviewRequest = true
-            return
         }
 
         finishGuidedPracticeReturn()
