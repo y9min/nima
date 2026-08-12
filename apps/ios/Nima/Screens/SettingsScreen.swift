@@ -713,6 +713,7 @@ private struct WindowsSettingsPage: View {
 private struct SubscriptionSettingsPage: View {
     @Environment(SubscriptionStore.self) private var subscriptionStore
 
+    @State private var isShowingPlans = false
     @State private var isShowingCancellationFeedback = false
     @State private var selectedCancellationReason: SubscriptionCancellationReason = .tooExpensive
     @State private var cancellationDetails = ""
@@ -770,6 +771,27 @@ private struct SubscriptionSettingsPage: View {
                         .padding(.vertical, 10)
                 }
             }
+
+            if !subscriptionStore.hasPremium {
+                Button("View plans") {
+                    isShowingPlans = true
+                }
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(AppChromePalette.accent)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings.subscription.view_plans")
+            }
+        }
+        .fullScreenCover(isPresented: $isShowingPlans) {
+            PaywallScreen(
+                onUnlocked: {
+                    isShowingPlans = false
+                },
+                onClose: {
+                    isShowingPlans = false
+                }
+            )
         }
         .sheet(isPresented: $isShowingCancellationFeedback) {
             CancellationFeedbackSheet(

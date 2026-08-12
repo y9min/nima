@@ -6,20 +6,44 @@ struct PaywallScreen: View {
     @Environment(SubscriptionStore.self) private var subscriptionStore
 
     let onUnlocked: () -> Void
+    var onClose: (() -> Void)?
+
+    init(
+        onUnlocked: @escaping () -> Void,
+        onClose: (() -> Void)? = nil
+    ) {
+        self.onUnlocked = onUnlocked
+        self.onClose = onClose
+    }
 
     var body: some View {
-        Group {
-            switch subscriptionStore.offeringsState {
-            case .idle, .loading:
-                PaywallLoadingView()
-            case .loaded:
-                if let offering = subscriptionStore.currentOffering, offering.hasPaywall {
-                    RevenueCatPaywallView(offering: offering)
-                } else {
-                    PaywallUnavailableView(message: "The subscription screen is unavailable right now.")
+        ZStack(alignment: .topTrailing) {
+            Group {
+                switch subscriptionStore.offeringsState {
+                case .idle, .loading:
+                    PaywallLoadingView()
+                case .loaded:
+                    if let offering = subscriptionStore.currentOffering, offering.hasPaywall {
+                        RevenueCatPaywallView(offering: offering)
+                    } else {
+                        PaywallUnavailableView(message: "The subscription screen is unavailable right now.")
+                    }
+                case .failed(let message):
+                    PaywallUnavailableView(message: message)
                 }
-            case .failed(let message):
-                PaywallUnavailableView(message: message)
+            }
+
+            if let onClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(.black.opacity(0.34), in: Circle())
+                }
+                .accessibilityLabel("Close subscription plans")
+                .padding(.top, 12)
+                .padding(.trailing, 16)
             }
         }
         .task {
