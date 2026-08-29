@@ -48,7 +48,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima
         CFBundleName: Nima
-        CFBundleShortVersionString: "1.0"
+        CFBundleShortVersionString: "1.1"
         CFBundleVersion: "21"
         UIAppFonts:
           - SK Pupok Solid 400.ttf
@@ -102,7 +102,7 @@ targets:
       path: NimaTunnel/Info.plist
       properties:
         CFBundleDisplayName: Nima Tunnel
-        CFBundleShortVersionString: "1.0"
+        CFBundleShortVersionString: "1.1"
         CFBundleVersion: "21"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
