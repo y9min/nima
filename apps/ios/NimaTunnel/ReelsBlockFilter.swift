@@ -270,6 +270,12 @@ struct TunnelProtectionState {
     }
 }
 
+enum AutoStopInactiveProtectionDecision: Equatable {
+    case keepRunning
+    case deferUntilOnDemandDisabled
+    case stop
+}
+
 struct AutoStopInactiveProtectionGate {
     let requiredConsecutiveInactiveResults: Int
     private(set) var consecutiveInactiveResults: Int = 0
@@ -278,14 +284,27 @@ struct AutoStopInactiveProtectionGate {
         self.requiredConsecutiveInactiveResults = max(1, requiredConsecutiveInactiveResults)
     }
 
-    mutating func record(_ evaluation: TunnelProtectionState.Evaluation) -> Bool {
+    mutating func decision(
+        for evaluation: TunnelProtectionState.Evaluation,
+        onDemandDesired: Bool,
+        onDemandActual: Bool
+    ) -> AutoStopInactiveProtectionDecision {
         guard !evaluation.shouldKeepVPNRunning else {
             consecutiveInactiveResults = 0
-            return false
+            return .keepRunning
         }
 
-        consecutiveInactiveResults += 1
-        return consecutiveInactiveResults >= requiredConsecutiveInactiveResults
+        consecutiveInactiveResults = min(
+            consecutiveInactiveResults + 1,
+            requiredConsecutiveInactiveResults
+        )
+        guard consecutiveInactiveResults >= requiredConsecutiveInactiveResults else {
+            return .keepRunning
+        }
+        guard !onDemandDesired, !onDemandActual else {
+            return .deferUntilOnDemandDisabled
+        }
+        return .stop
     }
 }
 
@@ -324,6 +343,7 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
 
     private let sharedDefaults: UserDefaults?
     private let mediaGuardRuleset: MediaGuardRulesetV1
+    private let nowProvider: () -> Date
     private var cachedPolicy: FeaturePolicyV1 = .defaultPolicy()
     private var highestSeenPolicyRevisions: [String: Int] = [:]
     private var lastPolicyReload = Date.distantPast
@@ -353,10 +373,12 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
 
     init(
         sharedDefaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID),
-        mediaGuardRuleset: MediaGuardRulesetV1 = .defaultRules()
+        mediaGuardRuleset: MediaGuardRulesetV1 = .defaultRules(),
+        nowProvider: @escaping () -> Date = { Date() }
     ) {
         self.sharedDefaults = sharedDefaults
         self.mediaGuardRuleset = mediaGuardRuleset
+        self.nowProvider = nowProvider
         reloadPolicyIfNeeded(force: true)
     }
 
@@ -1336,7 +1358,7 @@ final class ReelsBlockFilter: ConnectionFilter, StreamObservationRecorder, Insta
     }
 
     private func reloadPolicyIfNeeded(force: Bool) {
-        let now = Date()
+        let now = nowProvider()
         if !force, now.timeIntervalSince(lastPolicyReload) < policyReloadInterval {
             return
         }

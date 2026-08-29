@@ -15,7 +15,7 @@ struct VPNProfileDesiredState: Equatable, Sendable {
     static func resolve(intent: ProtectionIntent, rolloutEligible: Bool) -> VPNProfileDesiredState {
         VPNProfileDesiredState(
             profileEnabled: true,
-            onDemandEnabled: intent.manualRecoveryRequired && rolloutEligible,
+            onDemandEnabled: intent.vpnRequired && rolloutEligible,
             disconnectOnSleep: false
         )
     }

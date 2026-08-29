@@ -30,7 +30,7 @@ final class OnDemandRecoveryTests: XCTestCase {
         )
     }
 
-    func testScheduledProtectionAloneNeverEnablesOnDemand() {
+    func testScheduledProtectionAndEligibleRolloutEnableOnDemand() {
         let intent = ProtectionIntent(
             vpnRequired: true,
             manualRecoveryRequired: false,
@@ -39,12 +39,12 @@ final class OnDemandRecoveryTests: XCTestCase {
         )
 
         XCTAssertTrue(intent.vpnRequired)
-        XCTAssertFalse(
+        XCTAssertTrue(
             VPNProfileDesiredState.resolve(intent: intent, rolloutEligible: true).onDemandEnabled
         )
     }
 
-    func testManualDisableDuringScheduleKeepsVPNRequiredButDisablesOnDemand() {
+    func testManualDisableDuringScheduleKeepsVPNAndOnDemandRequired() {
         let intent = ProtectionIntent(
             vpnRequired: true,
             manualRecoveryRequired: false,
@@ -54,7 +54,33 @@ final class OnDemandRecoveryTests: XCTestCase {
         let desired = VPNProfileDesiredState.resolve(intent: intent, rolloutEligible: true)
 
         XCTAssertTrue(intent.vpnRequired)
-        XCTAssertFalse(desired.onDemandEnabled)
+        XCTAssertTrue(desired.onDemandEnabled)
+    }
+
+    func testProtectionOffDisablesOnDemandEvenIfManualRecoveryIsStale() {
+        let intent = ProtectionIntent(
+            vpnRequired: false,
+            manualRecoveryRequired: true,
+            source: "protection_off",
+            revision: 4
+        )
+
+        XCTAssertFalse(
+            VPNProfileDesiredState.resolve(intent: intent, rolloutEligible: true).onDemandEnabled
+        )
+    }
+
+    func testScheduledProtectionWithoutEligibleRolloutLeavesOnDemandOff() {
+        let intent = ProtectionIntent(
+            vpnRequired: true,
+            manualRecoveryRequired: false,
+            source: "time_windows",
+            revision: 5
+        )
+
+        XCTAssertFalse(
+            VPNProfileDesiredState.resolve(intent: intent, rolloutEligible: false).onDemandEnabled
+        )
     }
 
     func testRolloutEligibilityHonorsEnabledPercentageAndMinimumBuild() {

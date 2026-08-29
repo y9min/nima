@@ -39,6 +39,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var tun2SocksRestartCount = 0
     private var autoStopNoActiveProtectionRequested = false
     private var autoStopInactiveProtectionGate = AutoStopInactiveProtectionGate()
+    private var autoStopDeferredForOnDemand = false
     private var pressureSamplerTimer: DispatchSourceTimer?
     private var lastKnownEarnedStreakDate: String?
 
@@ -70,6 +71,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         tun2SocksRestartAttemptedForSession = false
         tun2SocksConsecutiveUnexpectedExits = 0
         tun2SocksRestartCount = 0
+        autoStopDeferredForOnDemand = false
         tunnelStateLock.unlock()
 
         let startTS = Date().timeIntervalSince1970
@@ -499,7 +501,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private func recordInferredOnDemandRecoveryIfNeeded(nowTS: TimeInterval) {
         guard sharedDefaults?.bool(forKey: NimaConstants.onDemandActualKey) == true,
-              hasManualEnabledBlocker() else {
+              isProtectionDesired() else {
             return
         }
         let explicitStartTS = sharedDefaults?.double(forKey: NimaConstants.onDemandExplicitStartTSKey) ?? 0
@@ -510,6 +512,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         sharedDefaults?.set(count + 1, forKey: NimaConstants.onDemandInferredRecoveryCountKey)
         sharedDefaults?.set(duration, forKey: NimaConstants.onDemandInferredRecoveryDurationKey)
         log.logAndFlush("ON_DEMAND_RECOVERY inferred=true duration_s=\(String(format: "%.2f", duration))")
+    }
+
+    private func isProtectionDesired(now: Date = Date()) -> Bool {
+        hasManualEnabledBlocker() ||
+            ScheduledProtectionSnapshotReader.snapshot(defaults: sharedDefaults).isDesiredProtectionActive(now: now)
     }
 
     private func hasManualEnabledBlocker() -> Bool {
@@ -1014,8 +1021,21 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private func requestAutoStopIfProtectionInactive(now: Date) -> Bool {
         let protectionState = TunnelProtectionState(defaults: sharedDefaults)
         let evaluation = protectionState.evaluate(now: now)
-        let shouldRequestAutoStop = autoStopInactiveProtectionGate.record(evaluation)
-        guard shouldRequestAutoStop else {
+        let onDemandDesired = sharedDefaults?.bool(forKey: NimaConstants.onDemandDesiredKey) ?? false
+        let onDemandActual = sharedDefaults?.bool(forKey: NimaConstants.onDemandActualKey) ?? false
+        let decision = autoStopInactiveProtectionGate.decision(
+            for: evaluation,
+            onDemandDesired: onDemandDesired,
+            onDemandActual: onDemandActual
+        )
+
+        if evaluation.shouldKeepVPNRunning, autoStopDeferredForOnDemand {
+            autoStopDeferredForOnDemand = false
+            log.logAndFlush("AUTO_STOP deferred shutdown cleared reason=protection_active")
+        }
+
+        switch decision {
+        case .keepRunning:
             if !evaluation.shouldKeepVPNRunning {
                 log.logAndFlush(
                     "AUTO_STOP inactive guard deferred " +
@@ -1025,6 +1045,19 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 )
             }
             return false
+        case .deferUntilOnDemandDisabled:
+            if !autoStopDeferredForOnDemand {
+                autoStopDeferredForOnDemand = true
+                log.logAndFlush(
+                    "AUTO_STOP deferred reason=on_demand_enabled " +
+                        "on_demand_desired=\(onDemandDesired) " +
+                        "on_demand_actual=\(onDemandActual) " +
+                        evaluation.diagnosticSummary
+                )
+            }
+            return false
+        case .stop:
+            autoStopDeferredForOnDemand = false
         }
 
         tunnelStateLock.lock()

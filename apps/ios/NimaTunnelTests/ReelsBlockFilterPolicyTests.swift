@@ -1196,14 +1196,100 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         let active = TunnelProtectionState(defaults: activeDefaults).evaluate(now: now, calendar: testCalendar)
 
         var gate = AutoStopInactiveProtectionGate()
-        XCTAssertFalse(gate.record(inactive))
+        XCTAssertEqual(
+            gate.decision(for: inactive, onDemandDesired: false, onDemandActual: false),
+            .keepRunning
+        )
         XCTAssertEqual(gate.consecutiveInactiveResults, 1)
-        XCTAssertTrue(gate.record(inactive))
+        XCTAssertEqual(
+            gate.decision(for: inactive, onDemandDesired: false, onDemandActual: false),
+            .stop
+        )
         XCTAssertEqual(gate.consecutiveInactiveResults, 2)
-        XCTAssertFalse(gate.record(active))
+        XCTAssertEqual(
+            gate.decision(for: active, onDemandDesired: false, onDemandActual: false),
+            .keepRunning
+        )
         XCTAssertEqual(gate.consecutiveInactiveResults, 0)
-        XCTAssertFalse(gate.record(inactive))
+        XCTAssertEqual(
+            gate.decision(for: inactive, onDemandDesired: false, onDemandActual: false),
+            .keepRunning
+        )
         XCTAssertEqual(gate.consecutiveInactiveResults, 1)
+    }
+
+    func testAutoStopGateDefersWhileOnDemandIsDesiredOrActual() {
+        let now = testDate(hour: 12)
+        let defaults = makeProtectionDefaults(windows: [])
+        persistScheduleState(defaults: defaults, desiredVPNOn: false, desiredUntil: nil, activeAppIDs: [])
+        let inactive = TunnelProtectionState(defaults: defaults).evaluate(now: now, calendar: testCalendar)
+
+        var desiredGate = AutoStopInactiveProtectionGate()
+        _ = desiredGate.decision(for: inactive, onDemandDesired: true, onDemandActual: false)
+        XCTAssertEqual(
+            desiredGate.decision(for: inactive, onDemandDesired: true, onDemandActual: false),
+            .deferUntilOnDemandDisabled
+        )
+
+        var actualGate = AutoStopInactiveProtectionGate()
+        _ = actualGate.decision(for: inactive, onDemandDesired: false, onDemandActual: true)
+        XCTAssertEqual(
+            actualGate.decision(for: inactive, onDemandDesired: false, onDemandActual: true),
+            .deferUntilOnDemandDisabled
+        )
+    }
+
+    func testAutoStopGateStopsOnceDeferredOnDemandIsDisabled() {
+        let now = testDate(hour: 12)
+        let defaults = makeProtectionDefaults(windows: [])
+        persistScheduleState(defaults: defaults, desiredVPNOn: false, desiredUntil: nil, activeAppIDs: [])
+        let inactive = TunnelProtectionState(defaults: defaults).evaluate(now: now, calendar: testCalendar)
+
+        var gate = AutoStopInactiveProtectionGate()
+        _ = gate.decision(for: inactive, onDemandDesired: true, onDemandActual: true)
+        XCTAssertEqual(
+            gate.decision(for: inactive, onDemandDesired: true, onDemandActual: true),
+            .deferUntilOnDemandDisabled
+        )
+        XCTAssertEqual(
+            gate.decision(for: inactive, onDemandDesired: false, onDemandActual: false),
+            .stop
+        )
+    }
+
+    func testExpiredScheduleDropsScheduledBlockButKeepsManualBlock() {
+        let now = testDate(hour: 12)
+        var manualPolicy = FeaturePolicyV1.defaultPolicy()
+        manualPolicy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let defaults = makeProtectionDefaults(
+            manualPolicy: manualPolicy,
+            windows: [
+                testWindow(id: "tw_expired", startTime: "09:00", endTime: "10:00", apps: ["instagram"])
+            ]
+        )
+        let filter = ReelsBlockFilter(sharedDefaults: defaults, nowProvider: { now })
+
+        let instagram = filter.evaluateStream(
+            host: "reels-video-lhr8-1.cdninstagram.com",
+            sni: "reels-video-lhr8-1.cdninstagram.com",
+            port: 443,
+            bytesDown: 3_000,
+            connectionAge: 0.2,
+            parallelConnections: 2,
+            now: now
+        )
+        let tiktok = filter.evaluateStream(
+            host: "v16.tiktokcdn-us.com",
+            sni: "v16.tiktokcdn-us.com",
+            port: 443,
+            bytesDown: 3_000,
+            connectionAge: 0.2,
+            parallelConnections: 2,
+            now: now
+        )
+
+        XCTAssertEqual(instagram.action, .allow)
+        XCTAssertNotEqual(tiktok.action, .allow)
     }
 
     private var testCalendar: Calendar {
