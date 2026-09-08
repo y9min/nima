@@ -6,6 +6,8 @@ dist/
 .env
 .env.*
 !.env.example
+.secrets/
+*.p8
 
 # Swift / Xcode
 Secrets.xcconfig

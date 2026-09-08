@@ -214,10 +214,27 @@ struct NimaApp: App {
                     .zIndex(10)
                 }
 
+                if shouldShowTimeWindowActivationPrompt,
+                   let prompt = timeWindowStore.activationPrompt {
+                    TimeWindowActivationModal(
+                        prompt: prompt,
+                        onActivate: {
+                            timeWindowStore.activatePromptedWindows()
+                        },
+                        onDecline: {
+                            timeWindowStore.declinePromptedWindows()
+                        }
+                    )
+                    .id(prompt.id)
+                    .transition(.opacity)
+                    .zIndex(9)
+                }
+
                 guidedPracticeOverlay
             }
             .animation(.easeInOut(duration: 0.18), value: guidedOnboardingPresentationMode)
             .animation(.easeInOut(duration: 0.18), value: guidedPracticePhase)
+            .animation(.easeInOut(duration: 0.18), value: timeWindowStore.activationPrompt?.id)
         }
     }
 
@@ -262,6 +279,9 @@ struct NimaApp: App {
             },
             startProtection: { source in
                 vpnManager.requestProtectionReconciliation(source: source)
+            },
+            manuallyBlockedAppIDs: {
+                store.manuallyBlockedAppIDs
             },
             requestHomeFocus: {
                 path = NavigationPath()
@@ -446,6 +466,20 @@ struct NimaApp: App {
         case .openAppPrompt, .waitingForReturn:
             return true
         case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .success, .windowsHomeCoachMark, .windowsEditor, .windowsReady, .reviewPrompt, .troubleshooting, .completed:
+            return false
+        }
+    }
+
+    private var shouldShowTimeWindowActivationPrompt: Bool {
+        guard rootDestination == .mainApp,
+              guidedOnboardingPresentationMode == nil else {
+            return false
+        }
+        switch guidedPracticePhase {
+        case .hidden, .completed:
+            return true
+        case .introSlides, .readyCoachMark, .dragTikTokCoachMark, .openAppPrompt, .waitingForReturn,
+             .success, .windowsHomeCoachMark, .windowsEditor, .windowsReady, .reviewPrompt, .troubleshooting:
             return false
         }
     }
@@ -719,6 +753,7 @@ struct NimaApp: App {
             subscriptionStore.reconcilePendingPurchaseAfterForeground()
             if onboardingStore.isCompleted {
                 timeWindowStore.evaluateSchedules(source: "app.scene.active", forceApply: true)
+                timeWindowStore.refreshActivationPrompt(source: "app.scene.active")
                 store.syncVPNState(source: "app.scene.active")
                 vpnManager.repairScheduledProtectionIfNeeded(source: "app.scene.active")
             }

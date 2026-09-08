@@ -11,15 +11,20 @@ final class TimeWindowStore {
     private(set) var activeWindowIDs: Set<String> = []
     private(set) var scheduledAppIDs: Set<String> = []
     private(set) var endedWindowUntilByID: [String: Date] = [:]
+    private(set) var activationPrompt: TimeWindowActivationPrompt?
 
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private let notificationScheduler: any TimeWindowNotificationScheduling
     @ObservationIgnored private var applyScheduledApps: ((Set<String>, String) -> Void)?
     @ObservationIgnored private var startProtection: ((String) -> Void)?
     @ObservationIgnored private var requestHomeFocus: (() -> Void)?
+    @ObservationIgnored private var manuallyBlockedAppIDs: (() -> Set<String>)?
     @ObservationIgnored private var lifecycleObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var scheduleTimer: Timer?
     @ObservationIgnored private var lastAppliedScheduledAppIDs: Set<String>?
+    @ObservationIgnored private var occurrenceDecisions: [String: PersistedTimeWindowOccurrenceDecision] = [:]
+
+    static let minimumActivationRemainingTime: TimeInterval = 5 * 60
 
     init(
         defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID),
@@ -46,10 +51,12 @@ final class TimeWindowStore {
     func configure(
         applyScheduledApps: @escaping (Set<String>, String) -> Void,
         startProtection: @escaping (String) -> Void,
+        manuallyBlockedAppIDs: @escaping () -> Set<String> = { [] },
         requestHomeFocus: @escaping () -> Void = {}
     ) {
         self.applyScheduledApps = applyScheduledApps
         self.startProtection = startProtection
+        self.manuallyBlockedAppIDs = manuallyBlockedAppIDs
         self.requestHomeFocus = requestHomeFocus
         TimeWindowNotificationCoordinator.shared.setActionHandler { [weak self] action in
             switch action {
@@ -60,6 +67,7 @@ final class TimeWindowStore {
             }
         }
         evaluateSchedules(source: "time_windows.configure", forceApply: true)
+        refreshActivationPrompt(source: "time_windows.configure")
         rescheduleNotifications(requestAuthorizationIfNeeded: false)
         if pauseAll {
             schedulePauseReminders(requestAuthorizationIfNeeded: false)
@@ -132,12 +140,15 @@ final class TimeWindowStore {
         activeWindowIDs = []
         scheduledAppIDs = []
         endedWindowUntilByID = [:]
+        activationPrompt = nil
+        occurrenceDecisions = [:]
         lastAppliedScheduledAppIDs = nil
 
         defaults?.removeObject(forKey: NimaConstants.timeWindowsKey)
         defaults?.removeObject(forKey: NimaConstants.timeWindowsPauseAllKey)
         defaults?.removeObject(forKey: NimaConstants.timeWindowsPauseExpiresAtKey)
         defaults?.removeObject(forKey: NimaConstants.timeWindowsEndedUntilKey)
+        defaults?.removeObject(forKey: NimaConstants.timeWindowOccurrenceDecisionsKey)
         ScheduledProtectionStateStore.persistScheduleEvaluation(
             appIDs: [],
             windowIDs: [],
@@ -160,21 +171,13 @@ final class TimeWindowStore {
     }
 
     func activeWindows(now: Date = Date()) -> [TimeWindow] {
-        TimeWindowScheduleEvaluator.activeWindows(
-            from: windows,
-            now: now,
-            pauseAll: pauseAll,
-            endedWindowIDs: activeEndedWindowIDs(now: now)
-        )
+        confirmedActiveWindows(now: now)
     }
 
     func soonestActiveWindowEndDate(now: Date = Date()) -> Date? {
-        TimeWindowScheduleEvaluator.soonestActiveEndDate(
-            from: windows,
-            now: now,
-            pauseAll: pauseAll,
-            endedWindowIDs: activeEndedWindowIDs(now: now)
-        )
+        confirmedActiveWindows(now: now)
+            .compactMap { TimeWindowScheduleEvaluator.activeEndDate(for: $0, now: now, pauseAll: pauseAll) }
+            .min()
     }
 
     func soonestActiveWindowEndDateIgnoringPause(now: Date = Date()) -> Date? {
@@ -188,13 +191,7 @@ final class TimeWindowStore {
     @discardableResult
     func endActiveWindow(for appID: String, now: Date = Date()) -> Bool {
         purgeEndedWindows(now: now)
-        let alreadyEndedIDs = activeEndedWindowIDs(now: now)
-        let activeWindows = TimeWindowScheduleEvaluator.activeWindows(
-            from: windows,
-            now: now,
-            pauseAll: pauseAll,
-            endedWindowIDs: alreadyEndedIDs
-        )
+        let activeWindows = confirmedActiveWindows(now: now)
         let windowsToEnd = activeWindows.filter { $0.apps.contains(appID) }
         guard !windowsToEnd.isEmpty else { return false }
 
@@ -204,7 +201,7 @@ final class TimeWindowStore {
             }
         }
         saveEndedWindows()
-        evaluateSchedules(source: "time_windows.end_current_window")
+        evaluateSchedules(source: "time_windows.end_current_window", now: now)
         return true
     }
 
@@ -219,18 +216,27 @@ final class TimeWindowStore {
         return nil
     }
 
-    func evaluateSchedules(source: String = "time_windows.evaluate", forceApply: Bool = false) {
-        purgeEndedWindows()
-        let active = activeWindows()
+    func evaluateSchedules(
+        source: String = "time_windows.evaluate",
+        forceApply: Bool = false,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) {
+        purgeEndedWindows(now: now)
+        purgeOccurrenceDecisions(now: now)
+        let active = confirmedActiveWindows(now: now, calendar: calendar)
         activeWindowIDs = Set(active.map(\.id))
         let nextScheduledApps = Set(active.flatMap(\.apps))
-        let activeEndDates = active.compactMap { TimeWindowScheduleEvaluator.activeEndDate(for: $0) }
+        let activeEndDates = active.compactMap {
+            TimeWindowScheduleEvaluator.activeEndDate(for: $0, now: now, calendar: calendar)
+        }
         ScheduledProtectionStateStore.persistScheduleEvaluation(
             appIDs: nextScheduledApps,
             windowIDs: activeWindowIDs,
             desiredUntil: activeEndDates.max(),
             source: source,
-            defaults: defaults
+            defaults: defaults,
+            now: now
         )
         let didChange = nextScheduledApps != scheduledAppIDs
         scheduledAppIDs = nextScheduledApps
@@ -241,10 +247,123 @@ final class TimeWindowStore {
     }
 
     func handleNotificationActivation(windowID: String) {
-        evaluateSchedules(source: "time_windows.notification_tap", forceApply: true)
         focusHome()
-        guard activeWindowIDs.contains(windowID), !scheduledAppIDs.isEmpty else { return }
-        startProtection?("time_windows.notification_tap")
+        refreshActivationPrompt(source: "time_windows.notification_tap", preferredWindowID: windowID)
+    }
+
+    func refreshActivationPrompt(
+        source: String = "time_windows.activation_prompt",
+        preferredWindowID: String? = nil,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) {
+        purgeEndedWindows(now: now)
+        purgeOccurrenceDecisions(now: now)
+
+        let manualApps = manuallyBlockedAppIDs?() ?? []
+        var promptItems: [TimeWindowActivationItem] = []
+        var didChangeDecisions = false
+
+        for window in eligibleWindows(now: now, calendar: calendar) {
+            guard let occurrence = TimeWindowScheduleEvaluator.activeOccurrence(
+                for: window,
+                now: now,
+                calendar: calendar,
+                pauseAll: pauseAll,
+                endedWindowIDs: activeEndedWindowIDs(now: now)
+            ) else { continue }
+
+            let existingDecision = occurrenceDecision(for: occurrence)
+            guard existingDecision == nil || existingDecision == .pending else { continue }
+
+            let normalizedApps = Set(window.apps).intersection(["instagram", "tiktok"])
+            let needsScheduledBlocking = !normalizedApps.subtracting(manualApps).isEmpty
+            let hasEnoughTime = occurrence.endDate.timeIntervalSince(now) >= Self.minimumActivationRemainingTime
+
+            guard needsScheduledBlocking, hasEnoughTime else {
+                occurrenceDecisions[occurrence.id] = PersistedTimeWindowOccurrenceDecision(
+                    occurrence: occurrence,
+                    decision: .declined
+                )
+                didChangeDecisions = true
+                continue
+            }
+
+            if existingDecision == nil {
+                occurrenceDecisions[occurrence.id] = PersistedTimeWindowOccurrenceDecision(
+                    occurrence: occurrence,
+                    decision: .pending
+                )
+                didChangeDecisions = true
+            }
+            promptItems.append(TimeWindowActivationItem(window: window, occurrence: occurrence))
+        }
+
+        promptItems.sort { lhs, rhs in
+            if let preferredWindowID {
+                if lhs.window.id == preferredWindowID { return true }
+                if rhs.window.id == preferredWindowID { return false }
+            }
+            if lhs.occurrence.startDate != rhs.occurrence.startDate {
+                return lhs.occurrence.startDate < rhs.occurrence.startDate
+            }
+            return lhs.window.id < rhs.window.id
+        }
+
+        if didChangeDecisions {
+            saveOccurrenceDecisions()
+        }
+
+        activationPrompt = promptItems.isEmpty ? nil : TimeWindowActivationPrompt(items: promptItems)
+        AppDiagnosticsLogger.log("TIME_WINDOW_PROMPT count=\(promptItems.count) source=\(source)")
+    }
+
+    func activatePromptedWindows(now: Date = Date(), calendar: Calendar = .current) {
+        guard let prompt = activationPrompt else { return }
+        let eligibleOccurrenceIDs = Set(eligibleWindows(now: now, calendar: calendar).compactMap { window in
+            TimeWindowScheduleEvaluator.activeOccurrence(
+                for: window,
+                now: now,
+                calendar: calendar,
+                pauseAll: pauseAll,
+                endedWindowIDs: activeEndedWindowIDs(now: now)
+            )?.id
+        })
+
+        var didActivate = false
+        for item in prompt.items where eligibleOccurrenceIDs.contains(item.occurrence.id) {
+            guard item.occurrence.endDate.timeIntervalSince(now) >= Self.minimumActivationRemainingTime else { continue }
+            occurrenceDecisions[item.occurrence.id] = PersistedTimeWindowOccurrenceDecision(
+                occurrence: item.occurrence,
+                decision: .activated
+            )
+            didActivate = true
+        }
+
+        activationPrompt = nil
+        saveOccurrenceDecisions()
+        evaluateSchedules(
+            source: "time_windows.activation_confirmed",
+            forceApply: true,
+            now: now,
+            calendar: calendar
+        )
+        if didActivate, !scheduledAppIDs.isEmpty {
+            startProtection?("time_windows.activation_confirmed")
+        }
+    }
+
+    func declinePromptedWindows(now: Date = Date()) {
+        guard let prompt = activationPrompt else { return }
+        for item in prompt.items where item.occurrence.endDate > now {
+            occurrenceDecisions[item.occurrence.id] = PersistedTimeWindowOccurrenceDecision(
+                occurrence: item.occurrence,
+                decision: .declined
+            )
+        }
+        activationPrompt = nil
+        saveOccurrenceDecisions()
+        evaluateSchedules(source: "time_windows.activation_declined", forceApply: true, now: now)
     }
 
     func handlePauseReminderActivation() {
@@ -264,12 +383,14 @@ final class TimeWindowStore {
         pauseAll = defaults?.bool(forKey: NimaConstants.timeWindowsPauseAllKey) ?? false
         pauseExpiresAt = defaults?.object(forKey: NimaConstants.timeWindowsPauseExpiresAtKey) as? Date
         loadEndedWindows()
-        guard let data = defaults?.data(forKey: NimaConstants.timeWindowsKey) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        if let decoded = try? decoder.decode([TimeWindow].self, from: data) {
-            windows = decoded
+        if let data = defaults?.data(forKey: NimaConstants.timeWindowsKey) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if let decoded = try? decoder.decode([TimeWindow].self, from: data) {
+                windows = decoded
+            }
         }
+        loadOccurrenceDecisions()
     }
 
     private func save() {
@@ -296,7 +417,8 @@ final class TimeWindowStore {
         pauseAll = true
         pauseExpiresAt = now.addingTimeInterval(TimeInterval(pauseIntervalMinutes * 60))
         savePauseState()
-        evaluateSchedules(source: "time_windows.pause_all.pause")
+        evaluateSchedules(source: "time_windows.pause_all.pause", now: now)
+        activationPrompt = nil
         rescheduleNotifications(requestAuthorizationIfNeeded: false)
         schedulePauseReminders(requestAuthorizationIfNeeded: true)
     }
@@ -312,6 +434,7 @@ final class TimeWindowStore {
         if !scheduledAppIDs.isEmpty {
             startProtection?(source)
         }
+        refreshActivationPrompt(source: source)
         if focusHome {
             self.focusHome()
         }
@@ -396,6 +519,7 @@ final class TimeWindowStore {
         lifecycleObservers = names.map { name in
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.evaluateSchedules(source: "time_windows.lifecycle")
+                self?.refreshActivationPrompt(source: "time_windows.lifecycle")
                 self?.rescheduleNotifications(requestAuthorizationIfNeeded: false)
             }
         }
@@ -416,6 +540,98 @@ final class TimeWindowStore {
     private var pauseIntervalMinutes: Int {
         AppSettingsStore.pauseIntervalMinutes(defaults: defaults)
     }
+
+    private func eligibleWindows(now: Date, calendar: Calendar) -> [TimeWindow] {
+        TimeWindowScheduleEvaluator.activeWindows(
+            from: windows,
+            now: now,
+            calendar: calendar,
+            pauseAll: pauseAll,
+            endedWindowIDs: activeEndedWindowIDs(now: now)
+        )
+    }
+
+    private func confirmedActiveWindows(now: Date, calendar: Calendar = .current) -> [TimeWindow] {
+        eligibleWindows(now: now, calendar: calendar).filter { window in
+            guard let occurrence = TimeWindowScheduleEvaluator.activeOccurrence(
+                for: window,
+                now: now,
+                calendar: calendar,
+                pauseAll: pauseAll,
+                endedWindowIDs: activeEndedWindowIDs(now: now)
+            ) else { return false }
+            return occurrenceDecision(for: occurrence) == .activated
+        }
+    }
+
+    private func occurrenceDecision(for occurrence: TimeWindowOccurrence) -> TimeWindowOccurrenceDecision? {
+        if let exact = occurrenceDecisions[occurrence.id]?.decision {
+            return exact
+        }
+        guard let matching = occurrenceDecisions.values.first(where: { record in
+            record.occurrence.windowID == occurrence.windowID &&
+                record.occurrence.startDate < occurrence.endDate &&
+                occurrence.startDate < record.occurrence.endDate
+        }) else {
+            return nil
+        }
+
+        occurrenceDecisions.removeValue(forKey: matching.occurrence.id)
+        occurrenceDecisions[occurrence.id] = PersistedTimeWindowOccurrenceDecision(
+            occurrence: occurrence,
+            decision: matching.decision
+        )
+        saveOccurrenceDecisions()
+        return matching.decision
+    }
+
+    private func loadOccurrenceDecisions() {
+        guard let data = defaults?.data(forKey: NimaConstants.timeWindowOccurrenceDecisionsKey),
+              let records = try? JSONDecoder().decode([PersistedTimeWindowOccurrenceDecision].self, from: data) else {
+            occurrenceDecisions = [:]
+            return
+        }
+        occurrenceDecisions = Dictionary(uniqueKeysWithValues: records.map { ($0.occurrence.id, $0) })
+        purgeOccurrenceDecisions()
+    }
+
+    private func saveOccurrenceDecisions() {
+        let records = occurrenceDecisions.values.sorted { $0.occurrence.id < $1.occurrence.id }
+        if records.isEmpty {
+            defaults?.removeObject(forKey: NimaConstants.timeWindowOccurrenceDecisionsKey)
+        } else if let data = try? JSONEncoder().encode(records) {
+            defaults?.set(data, forKey: NimaConstants.timeWindowOccurrenceDecisionsKey)
+        }
+    }
+
+    private func purgeOccurrenceDecisions(now: Date = Date()) {
+        let knownWindowIDs = Set(windows.map(\.id))
+        let current = occurrenceDecisions
+        occurrenceDecisions = current.filter {
+            $0.value.occurrence.endDate > now && knownWindowIDs.contains($0.value.occurrence.windowID)
+        }
+        if occurrenceDecisions != current {
+            saveOccurrenceDecisions()
+        }
+        if let activationPrompt {
+            let liveItems = activationPrompt.items.filter { $0.occurrence.endDate > now }
+            self.activationPrompt = liveItems.isEmpty ? nil : TimeWindowActivationPrompt(items: liveItems)
+        }
+    }
+}
+
+struct TimeWindowActivationItem: Identifiable, Equatable {
+    let window: TimeWindow
+    let occurrence: TimeWindowOccurrence
+
+    var id: String { occurrence.id }
+}
+
+struct TimeWindowActivationPrompt: Identifiable, Equatable {
+    let items: [TimeWindowActivationItem]
+
+    var id: String { items.map(\.id).sorted().joined(separator: ",") }
+    var soonestEndDate: Date? { items.map(\.occurrence.endDate).min() }
 }
 
 enum ScheduledProtectionStateStore {

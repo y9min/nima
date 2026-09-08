@@ -168,3 +168,55 @@ Nima uses HTTPS and Apple platform cryptography for authentication and service c
 - Upload the signed build and answer its export-compliance questions. Server-side App Store validation happens after upload.
 - Test purchase, restore, login, account deletion, VPN permission, and blocking on a physical iPhone/TestFlight build.
 - Attach both subscriptions to version 1.0 before adding the version for review.
+
+## App Store Connect API Automation
+
+The repository includes `apps/ios/scripts/app_store_connect.py` for credential checks,
+IPA uploads, and guarded subscription-price changes. Real credentials must stay local.
+
+1. Create a Team Key in App Store Connect under Users and Access > Integrations.
+   Use Admin or App Manager access and download its `.p8` file once.
+2. Store the key outside the repository, or under the ignored
+   `.secrets/app-store-connect/` directory, and restrict it with `chmod 600`.
+3. Export these variables in your terminal (or load them from an ignored `.env` file):
+
+   ```sh
+   export APP_STORE_CONNECT_KEY_ID="YOUR_KEY_ID"
+   export APP_STORE_CONNECT_ISSUER_ID="YOUR_ISSUER_UUID"
+   export APP_STORE_CONNECT_PRIVATE_KEY_PATH="/absolute/path/AuthKey_YOUR_KEY_ID.p8"
+   ```
+
+4. Verify access:
+
+   ```sh
+   pnpm --filter @nima/ios asc doctor
+   ```
+
+5. Validate an exported build, then upload it:
+
+   ```sh
+   pnpm --filter @nima/ios asc upload-build --ipa /absolute/path/Nima.ipa --validate-only
+   pnpm --filter @nima/ios asc upload-build --ipa /absolute/path/Nima.ipa --wait
+   ```
+
+6. Inspect and preview subscription pricing. `GBR` is the default base territory;
+   use another three-letter App Store territory code if needed.
+
+   ```sh
+   pnpm --filter @nima/ios asc list-prices \
+     --product-id so.nima.app.pro.monthly --territory GBR
+
+   pnpm --filter @nima/ios asc set-price \
+     --product-id so.nima.app.pro.monthly \
+     --territory GBR --customer-price 4.99 --start-date 2026-09-07 \
+     --equalize-all
+   ```
+
+   The last command is a read-only preview. Add `--confirm SET_PRICE` only after
+   checking the product, price, start date, territory count, and whether existing
+   subscribers should keep their current price (`--preserve-current-price`). Apple
+   warns that an effective price change cannot simply be reverted.
+
+Build upload places the binary in App Store Connect for processing. Selecting the
+processed build on a version and submitting that version for App Review remain
+separate release steps.

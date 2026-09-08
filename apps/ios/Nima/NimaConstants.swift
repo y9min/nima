@@ -91,6 +91,7 @@ enum NimaConstants {
     static let timeWindowsPauseAllKey = "timeWindows.pause_all"
     static let timeWindowsPauseExpiresAtKey = "timeWindows.pause_expires_at"
     static let timeWindowsEndedUntilKey = "timeWindows.ended_until"
+    static let timeWindowOccurrenceDecisionsKey = "timeWindows.occurrence_decisions_v1"
     static let scheduleDesiredVPNOnKey = "schedule.desired_vpn_on"
     static let scheduleDesiredReasonKey = "schedule.desired_reason"
     static let scheduleDesiredSourceKey = "schedule.desired_source"

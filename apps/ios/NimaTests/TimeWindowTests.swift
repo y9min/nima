@@ -133,6 +133,26 @@ final class TimeWindowScheduleTests: XCTestCase {
         )
     }
 
+    func testActiveOccurrenceUsesPreviousDayStartForOvernightWindow() {
+        let window = TimeWindow(
+            id: "overnight",
+            startTime: "22:00",
+            endTime: "09:00",
+            repeatDays: [.monday],
+            apps: ["instagram"]
+        )
+        let now = date(year: 2026, month: 6, day: 2, hour: 8, minute: 0)
+
+        let occurrence = TimeWindowScheduleEvaluator.activeOccurrence(
+            for: window,
+            now: now,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(occurrence?.startDate, date(year: 2026, month: 6, day: 1, hour: 22, minute: 0))
+        XCTAssertEqual(occurrence?.endDate, date(year: 2026, month: 6, day: 2, hour: 9, minute: 0))
+    }
+
     func testSoonestActiveEndDateForOverlappingWindows() {
         let tiktok = TimeWindow(startTime: "09:00", endTime: "17:00", repeatDays: [.monday], apps: ["tiktok"])
         let instagram = TimeWindow(startTime: "13:00", endTime: "18:00", repeatDays: [.monday], apps: ["instagram"])
@@ -264,6 +284,127 @@ final class TimeWindowNotificationRoutingTests: XCTestCase {
 }
 
 final class TimeWindowStorePauseTests: XCTestCase {
+    func testEligibleWindowWaitsForConfirmationBeforeBlocking() {
+        let store = makeStore()
+        let window = activeWindow(apps: ["instagram"])
+        store.windows = [window]
+
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+
+        XCTAssertTrue(store.scheduledAppIDs.isEmpty)
+        XCTAssertEqual(store.activationPrompt?.items.map(\.window.id), [window.id])
+
+        store.activatePromptedWindows()
+
+        XCTAssertEqual(store.scheduledAppIDs, Set(["instagram"]))
+        XCTAssertEqual(store.activeWindowIDs, Set([window.id]))
+    }
+
+    func testDeclinedOccurrenceStaysDeclinedAfterRelaunch() {
+        let defaults = testDefaults()
+        let firstStore = makeStore(defaults: defaults)
+        let window = activeWindow(apps: ["tiktok"])
+        firstStore.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+        firstStore.addWindow(window)
+        firstStore.refreshActivationPrompt(source: "test")
+        XCTAssertNotNil(firstStore.activationPrompt)
+        firstStore.declinePromptedWindows()
+
+        let relaunchedStore = makeStore(defaults: defaults)
+        relaunchedStore.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+
+        XCTAssertNil(relaunchedStore.activationPrompt)
+        XCTAssertTrue(relaunchedStore.scheduledAppIDs.isEmpty)
+    }
+
+    func testActivatedOccurrenceStaysActiveAfterRelaunch() {
+        let defaults = testDefaults()
+        let firstStore = makeStore(defaults: defaults)
+        let window = activeWindow(apps: ["instagram"])
+        firstStore.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+        firstStore.addWindow(window)
+        activateCurrentWindows(firstStore)
+
+        let relaunchedStore = makeStore(defaults: defaults)
+        relaunchedStore.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+
+        XCTAssertNil(relaunchedStore.activationPrompt)
+        XCTAssertEqual(relaunchedStore.scheduledAppIDs, Set(["instagram"]))
+    }
+
+    func testPromptIsSuppressedWhenEveryWindowAppIsAlreadyManuallyBlocked() {
+        let store = makeStore()
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            manuallyBlockedAppIDs: { ["instagram", "tiktok"] },
+            requestHomeFocus: {}
+        )
+        store.addWindow(activeWindow(apps: ["instagram", "tiktok"]))
+        store.refreshActivationPrompt(source: "test")
+
+        XCTAssertNil(store.activationPrompt)
+        XCTAssertTrue(store.scheduledAppIDs.isEmpty)
+    }
+
+    func testPromptIsSuppressedWithLessThanFiveMinutesRemaining() {
+        let store = makeStore()
+        store.windows = [currentWindow(id: "near-end", apps: ["instagram"], endOffsetMinutes: 4)]
+
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+
+        XCTAssertNil(store.activationPrompt)
+        XCTAssertTrue(store.scheduledAppIDs.isEmpty)
+    }
+
+    func testOverlappingWindowsUseOnePromptAndEndIndependently() throws {
+        let now = Date()
+        let instagram = currentWindow(id: "first", apps: ["instagram"], endOffsetMinutes: 20, now: now)
+        let tiktok = currentWindow(id: "second", apps: ["tiktok"], endOffsetMinutes: 40, now: now)
+        let store = makeStore()
+        store.windows = [instagram, tiktok]
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+
+        XCTAssertEqual(store.activationPrompt?.items.count, 2)
+        store.activatePromptedWindows(now: now)
+        XCTAssertEqual(store.scheduledAppIDs, Set(["instagram", "tiktok"]))
+
+        let firstEnd = try XCTUnwrap(
+            TimeWindowScheduleEvaluator.activeEndDate(for: instagram, now: now)
+        )
+        store.evaluateSchedules(source: "test.first_end", now: firstEnd)
+
+        XCTAssertEqual(store.scheduledAppIDs, Set(["tiktok"]))
+    }
+
     func testPauseClearsScheduledBlockersAndSchedulesReminder() {
         let scheduler = FakeTimeWindowNotificationScheduler()
         let defaults = testDefaults()
@@ -276,6 +417,7 @@ final class TimeWindowStorePauseTests: XCTestCase {
             requestHomeFocus: {}
         )
         store.addWindow(activeWindow(apps: ["tiktok"]))
+        activateCurrentWindows(store)
 
         XCTAssertEqual(applied.last, Set(["tiktok"]))
 
@@ -301,6 +443,7 @@ final class TimeWindowStorePauseTests: XCTestCase {
             requestHomeFocus: {}
         )
         store.addWindow(activeWindow(apps: ["instagram"]))
+        activateCurrentWindows(store)
         store.setPauseAll(true)
         store.setPauseAll(false)
 
@@ -419,6 +562,7 @@ final class TimeWindowStorePauseTests: XCTestCase {
             requestHomeFocus: { homeFocusCount += 1 }
         )
         store.addWindow(activeWindow(apps: ["instagram", "tiktok"]))
+        activateCurrentWindows(store)
         store.setPauseAll(true)
         store.handlePauseReminderActivation()
 
@@ -429,7 +573,7 @@ final class TimeWindowStorePauseTests: XCTestCase {
         XCTAssertNotNil(store.homeFocusRequestID)
     }
 
-    func testWindowStartNotificationTapStartsProtectionAndRequestsHome() {
+    func testWindowStartNotificationTapShowsConfirmationAndRequestsHome() {
         let store = makeStore()
         var startSources: [String] = []
         var homeFocusCount = 0
@@ -443,7 +587,8 @@ final class TimeWindowStorePauseTests: XCTestCase {
         store.addWindow(window)
         store.handleNotificationActivation(windowID: window.id)
 
-        XCTAssertEqual(startSources.last, "time_windows.notification_tap")
+        XCTAssertTrue(startSources.isEmpty)
+        XCTAssertEqual(store.activationPrompt?.items.map(\.window.id), [window.id])
         XCTAssertEqual(homeFocusCount, 1)
         XCTAssertNotNil(store.homeFocusRequestID)
     }
@@ -453,7 +598,7 @@ final class TimeWindowStorePauseTests: XCTestCase {
         var applied: [Set<String>] = []
 
         store.addWindow(activeWindow(apps: ["instagram"]))
-        XCTAssertEqual(store.scheduledAppIDs, Set(["instagram"]))
+        XCTAssertTrue(store.scheduledAppIDs.isEmpty)
 
         store.configure(
             applyScheduledApps: { appIDs, _ in applied.append(appIDs) },
@@ -461,6 +606,9 @@ final class TimeWindowStorePauseTests: XCTestCase {
             requestHomeFocus: {}
         )
 
+        XCTAssertEqual(applied.last, Set<String>())
+        XCTAssertNotNil(store.activationPrompt)
+        store.activatePromptedWindows()
         XCTAssertEqual(applied.last, Set(["instagram"]))
     }
 
@@ -476,6 +624,7 @@ final class TimeWindowStorePauseTests: XCTestCase {
         )
         let window = activeWindow(apps: ["instagram"])
         store.addWindow(window)
+        activateCurrentWindows(store)
 
         let snapshot = ScheduledProtectionStateStore.snapshot(defaults: defaults)
         XCTAssertEqual(applied.last, Set(["instagram"]))
@@ -496,6 +645,7 @@ final class TimeWindowStorePauseTests: XCTestCase {
             requestHomeFocus: {}
         )
         store.addWindow(activeWindow(apps: ["tiktok"]))
+        activateCurrentWindows(store)
 
         ScheduledProtectionStateStore.suppressCurrentScheduleWindow(defaults: defaults, source: "settings.toggle_button")
 
@@ -567,6 +717,7 @@ final class TimeWindowStorePauseTests: XCTestCase {
             requestHomeFocus: {}
         )
         store.addWindow(activeWindow(apps: ["instagram", "tiktok"]))
+        activateCurrentWindows(store)
 
         XCTAssertEqual(applied.last, Set(["instagram", "tiktok"]))
         XCTAssertTrue(store.endActiveWindow(for: "instagram"))
@@ -588,6 +739,7 @@ final class TimeWindowStorePauseTests: XCTestCase {
         )
         store.addWindow(activeWindow(apps: ["instagram"]))
         store.addWindow(activeWindow(apps: ["tiktok"]))
+        activateCurrentWindows(store)
 
         XCTAssertEqual(applied.last, Set(["instagram", "tiktok"]))
         XCTAssertTrue(store.endActiveWindow(for: "instagram"))
@@ -606,6 +758,12 @@ final class TimeWindowStorePauseTests: XCTestCase {
             shouldRegisterLifecycleObservers: false,
             startForegroundTimer: false
         )
+    }
+
+    private func activateCurrentWindows(_ store: TimeWindowStore) {
+        store.refreshActivationPrompt(source: "test")
+        XCTAssertNotNil(store.activationPrompt)
+        store.activatePromptedWindows()
     }
 
     private func testDefaults() -> UserDefaults {
@@ -628,6 +786,27 @@ final class TimeWindowStorePauseTests: XCTestCase {
             startTime: timeString(fromMinuteOfDay: startMinute),
             endTime: timeString(fromMinuteOfDay: endMinute),
             repeatDays: [today],
+            apps: apps
+        )
+    }
+
+    private func currentWindow(
+        id: String,
+        apps: [String],
+        endOffsetMinutes: Int,
+        now: Date = Date()
+    ) -> TimeWindow {
+        let calendar = Calendar.current
+        let startDate = calendar.date(byAdding: .minute, value: -1, to: now) ?? now
+        let endDate = calendar.date(byAdding: .minute, value: endOffsetMinutes, to: now) ?? now
+        let startWeekday = TimeWindowWeekday.from(
+            calendarWeekday: calendar.component(.weekday, from: startDate)
+        )
+        return TimeWindow(
+            id: id,
+            startTime: TimeWindowScheduleEvaluator.timeString(from: startDate, calendar: calendar),
+            endTime: TimeWindowScheduleEvaluator.timeString(from: endDate, calendar: calendar),
+            repeatDays: [startWeekday],
             apps: apps
         )
     }

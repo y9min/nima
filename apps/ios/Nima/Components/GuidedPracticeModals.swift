@@ -705,3 +705,246 @@ private enum GuidedPracticePalette {
     static let card = Color(red: 0.125, green: 0.118, blue: 0.13)
     static let accent = AppChromePalette.accent
 }
+
+struct TimeWindowActivationModal: View {
+    let prompt: TimeWindowActivationPrompt
+    var onActivate: () -> Void
+    var onDecline: () -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            let scale = min(1, max(0.82, proxy.size.width / 430))
+
+            ZStack {
+                Color.black.opacity(0.7)
+                    .ignoresSafeArea()
+
+                ViewThatFits(in: .vertical) {
+                    modalCard(scale: scale)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    scrollableModalCard(
+                        scale: scale,
+                        maxHeight: min(proxy.size.height - 72, 690)
+                    )
+                }
+                .frame(width: min(proxy.size.width - 40, 400))
+                .padding(.vertical, 36)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .accessibilityIdentifier("time_window_activation.modal")
+    }
+
+    private func modalCard(scale: CGFloat) -> some View {
+        modalContent(scale: scale)
+            .modalCardChrome(scale: scale)
+    }
+
+    private func scrollableModalCard(scale: CGFloat, maxHeight: CGFloat) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            modalContent(scale: scale)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: maxHeight)
+        .modalCardChrome(scale: scale)
+    }
+
+    private func modalContent(scale: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            emojiHeader(scale: scale)
+            title(scale: scale)
+
+            VStack(spacing: 10 * scale) {
+                ForEach(prompt.items) { item in
+                    occurrenceCard(item, scale: scale)
+                }
+            }
+            .padding(.top, 22 * scale)
+
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                VStack(spacing: 7 * scale) {
+                    Text(remainingText(at: context.date))
+                        .font(.system(size: 18 * scale, weight: .semibold, design: .rounded))
+                        .foregroundStyle(AppChromePalette.accent)
+
+                    Text(endExplanation)
+                        .font(.system(size: 14.5 * scale, weight: .regular, design: .rounded))
+                        .foregroundStyle(AppChromePalette.muted)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 18 * scale)
+            }
+
+            Button(action: onActivate) {
+                Text(activateButtonTitle)
+                    .font(.system(size: 18 * scale, weight: .bold, design: .rounded))
+                    .foregroundStyle(AppChromePalette.background)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54 * scale)
+                    .background(AppChromePalette.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 17 * scale, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 23 * scale)
+            .accessibilityIdentifier("time_window_activation.start")
+
+            Button("Not this time", action: onDecline)
+                .font(.system(size: 16 * scale, weight: .medium, design: .rounded))
+                .foregroundStyle(AppChromePalette.accent)
+                .buttonStyle(.plain)
+                .padding(.vertical, 19 * scale)
+                .accessibilityIdentifier("time_window_activation.decline")
+        }
+        .padding(.horizontal, 24 * scale)
+        .padding(.top, 30 * scale)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func emojiHeader(scale: CGFloat) -> some View {
+        HStack(spacing: -9 * scale) {
+            ForEach(Array(prompt.items.prefix(3).enumerated()), id: \.element.id) { index, item in
+                Text(item.window.emoji)
+                    .font(.system(size: 34 * scale))
+                    .frame(width: 66 * scale, height: 66 * scale)
+                    .background(Color.white.opacity(0.055))
+                    .clipShape(RoundedRectangle(cornerRadius: 20 * scale, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20 * scale, style: .continuous)
+                            .strokeBorder(AppChromePalette.border.opacity(0.55), lineWidth: 1)
+                    )
+                    .zIndex(Double(prompt.items.count - index))
+            }
+        }
+    }
+
+    private func title(scale: CGFloat) -> some View {
+        Text(prompt.items.count == 1
+             ? "Start \(prompt.items[0].window.name)?"
+             : "Start \(prompt.items.count) focus windows?")
+            .font(.system(size: 28 * scale, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.72)
+            .padding(.top, 16 * scale)
+    }
+
+    private func occurrenceCard(_ item: TimeWindowActivationItem, scale: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 10 * scale) {
+            if prompt.items.count > 1 {
+                HStack(spacing: 8 * scale) {
+                    Text(item.window.emoji)
+                    Text(item.window.name)
+                        .font(.system(size: 17 * scale, weight: .bold, design: .rounded))
+                }
+                .foregroundStyle(.white)
+            }
+
+            detailRow(
+                icon: "clock",
+                text: TimeWindowScheduleEvaluator.timeRangeSummary(
+                    startTime: item.window.startTime,
+                    endTime: item.window.endTime
+                ),
+                scale: scale
+            )
+            detailRow(
+                icon: "calendar",
+                text: TimeWindowScheduleEvaluator.repeatSummary(for: item.window.repeatDays),
+                scale: scale
+            )
+
+            HStack(spacing: 7 * scale) {
+                Image(systemName: "app.badge")
+                    .font(.system(size: 16 * scale, weight: .semibold))
+                    .foregroundStyle(AppChromePalette.accent)
+                    .frame(width: 22 * scale)
+
+                HStack(spacing: 5 * scale) {
+                    ForEach(item.window.apps, id: \.self) { appID in
+                        SocialMediaIcon(platform: appID, size: 18 * scale)
+                    }
+                    Text(appNames(item.window.apps))
+                        .font(.system(size: 15.5 * scale, weight: .regular, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+            }
+        }
+        .padding(16 * scale)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.045))
+        .clipShape(RoundedRectangle(cornerRadius: 20 * scale, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20 * scale, style: .continuous)
+                .strokeBorder(AppChromePalette.border.opacity(0.52), lineWidth: 1)
+        )
+    }
+
+    private func detailRow(icon: String, text: String, scale: CGFloat) -> some View {
+        HStack(spacing: 8 * scale) {
+            Image(systemName: icon)
+                .font(.system(size: 16 * scale, weight: .semibold))
+                .foregroundStyle(AppChromePalette.accent)
+                .frame(width: 22 * scale)
+            Text(text)
+                .font(.system(size: 15.5 * scale, weight: .regular, design: .rounded))
+                .foregroundStyle(.white)
+        }
+    }
+
+    private var activateButtonTitle: String {
+        let endDates = Set(prompt.items.map { Int($0.occurrence.endDate.timeIntervalSince1970) })
+        guard endDates.count == 1, let endDate = prompt.soonestEndDate else {
+            return "Start these windows"
+        }
+        return "Start until \(endDate.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private var endExplanation: String {
+        guard prompt.items.count == 1, let endDate = prompt.soonestEndDate else {
+            return "Each window will turn off automatically at its scheduled end time."
+        }
+        return "Blocking will turn off automatically at \(endDate.formatted(date: .omitted, time: .shortened))."
+    }
+
+    private func remainingText(at now: Date) -> String {
+        guard let endDate = prompt.soonestEndDate else { return "" }
+        let totalMinutes = max(0, Int(ceil(endDate.timeIntervalSince(now) / 60)))
+        if totalMinutes < 60 {
+            return "\(totalMinutes) \(totalMinutes == 1 ? "minute" : "minutes") remaining"
+        }
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        return minutes == 0 ? "\(hours) hr remaining" : "\(hours) hr \(minutes) min remaining"
+    }
+
+    private func appNames(_ appIDs: [String]) -> String {
+        let names = appIDs.map { appID in
+            switch appID.lowercased() {
+            case "instagram": return "Instagram"
+            case "tiktok": return "TikTok"
+            default: return appID.capitalized
+            }
+        }
+        guard names.count > 1 else { return names.first ?? "" }
+        return names.dropLast().joined(separator: ", ") + " and " + (names.last ?? "")
+    }
+}
+
+private extension View {
+    func modalCardChrome(scale: CGFloat) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: 32 * scale, style: .continuous)
+                .fill(AppChromePalette.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 32 * scale, style: .continuous)
+                .strokeBorder(AppChromePalette.border.opacity(0.85), lineWidth: 1.2)
+        )
+        .shadow(color: .black.opacity(0.45), radius: 30, y: 16)
+    }
+}

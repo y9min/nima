@@ -148,6 +148,27 @@ struct TimeWindow: Codable, Identifiable, Equatable {
     }
 }
 
+enum TimeWindowOccurrenceDecision: String, Codable, Equatable {
+    case pending
+    case activated
+    case declined
+}
+
+struct TimeWindowOccurrence: Codable, Identifiable, Equatable {
+    let windowID: String
+    let startDate: Date
+    let endDate: Date
+
+    var id: String {
+        "\(windowID)|\(Int(startDate.timeIntervalSince1970))|\(Int(endDate.timeIntervalSince1970))"
+    }
+}
+
+struct PersistedTimeWindowOccurrenceDecision: Codable, Equatable {
+    let occurrence: TimeWindowOccurrence
+    var decision: TimeWindowOccurrenceDecision
+}
+
 enum TimeWindowStatus: Equatable {
     case activeNow
     case upcoming
@@ -273,6 +294,47 @@ enum TimeWindowScheduleEvaluator {
             return date(onDayOffset: 1, minuteOfDay: end, from: now, calendar: calendar)
         }
         return nil
+    }
+
+    static func activeOccurrence(
+        for window: TimeWindow,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        pauseAll: Bool = false,
+        endedWindowIDs: Set<String> = []
+    ) -> TimeWindowOccurrence? {
+        guard isActive(
+            window,
+            now: now,
+            calendar: calendar,
+            pauseAll: pauseAll,
+            endedWindowIDs: endedWindowIDs
+        ),
+        let start = minutes(from: window.startTime),
+        let endDate = activeEndDate(
+            for: window,
+            now: now,
+            calendar: calendar,
+            pauseAll: pauseAll,
+            endedWindowIDs: endedWindowIDs
+        ) else {
+            return nil
+        }
+
+        let end = minutes(from: window.endTime) ?? start
+        let currentMinuteComponents = calendar.dateComponents([.hour, .minute], from: now)
+        let currentMinute = (currentMinuteComponents.hour ?? 0) * 60 + (currentMinuteComponents.minute ?? 0)
+        let startDayOffset = start > end && currentMinute < end ? -1 : 0
+        guard let startDate = date(
+            onDayOffset: startDayOffset,
+            minuteOfDay: start,
+            from: now,
+            calendar: calendar
+        ) else {
+            return nil
+        }
+
+        return TimeWindowOccurrence(windowID: window.id, startDate: startDate, endDate: endDate)
     }
 
     static func soonestActiveEndDate(

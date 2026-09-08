@@ -147,6 +147,14 @@ final class AppStore {
         optionsService.hasAnyManuallyEnabledBlockingOption
     }
 
+    var manuallyBlockedAppIDs: Set<String> {
+        Set(apps.compactMap { app in
+            app.options.contains {
+                optionsService.isOptionManuallySelected(appId: app.id, optionId: $0.id)
+            } ? app.id : nil
+        })
+    }
+
     var firstEnabledBlockerSource: String? {
         optionsService.firstEnabledBlockerSource
     }
