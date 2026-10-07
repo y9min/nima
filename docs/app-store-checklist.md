@@ -11,7 +11,7 @@ Use this as the launch-readiness checklist for Nima before App Store submission.
 ## Privacy And Account
 
 - Complete App Privacy labels using `docs/app-store-privacy-submission.md` as the source of truth.
-- Remove Browsing History and analytics-purpose disclosures after verifying the collection-free release is deployed.
+- Keep Browsing History removed. Add Product Interaction and Other Usage Data analytics disclosures, plus the Analytics purpose for User ID, before submitting the PostHog-enabled release.
 - Verify sign in works for the configured providers.
 - Verify account deletion or cancellation flow is available and documented.
 - Confirm privacy policy and terms links are live in the app and App Store Connect.

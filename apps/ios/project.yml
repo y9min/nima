@@ -23,6 +23,9 @@ packages:
   RevenueCat:
     url: https://github.com/RevenueCat/purchases-ios-spm.git
     from: "5.0.0"
+  PostHog:
+    url: https://github.com/PostHog/posthog-ios.git
+    exactVersion: "3.90.2"
 
 targets:
   Nima:
@@ -41,6 +44,8 @@ targets:
         product: RevenueCat
       - package: RevenueCat
         product: RevenueCatUI
+      - package: PostHog
+        product: PostHog
       - target: NimaTunnel
       - sdk: NetworkExtension.framework
     info:
@@ -48,8 +53,8 @@ targets:
       properties:
         CFBundleDisplayName: Nima
         CFBundleName: Nima
-        CFBundleShortVersionString: "1.1"
-        CFBundleVersion: "22"
+        CFBundleShortVersionString: "1.2"
+        CFBundleVersion: "23"
         UIAppFonts:
           - SK Pupok Solid 400.ttf
           - Coolvetica Rg.otf
@@ -69,6 +74,8 @@ targets:
           - CFBundleURLSchemes:
               - nima
         REVENUECAT_API_KEY: $(REVENUECAT_API_KEY)
+        POSTHOG_PROJECT_TOKEN: phc_mynhT9RrN7pmWn8AdwRYJr5PEHXiVPKezg98mATbtSfi
+        POSTHOG_HOST: https://eu.i.posthog.com
     entitlements:
       path: Nima/chungus.entitlements
       properties:
@@ -102,8 +109,8 @@ targets:
       path: NimaTunnel/Info.plist
       properties:
         CFBundleDisplayName: Nima Tunnel
-        CFBundleShortVersionString: "1.1"
-        CFBundleVersion: "22"
+        CFBundleShortVersionString: "1.2"
+        CFBundleVersion: "23"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider

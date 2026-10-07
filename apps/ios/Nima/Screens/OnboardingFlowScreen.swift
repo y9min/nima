@@ -83,7 +83,14 @@ struct OnboardingFlowScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .preferredColorScheme(.light)
-        .onAppear(perform: loadDraftState)
+        .onAppear {
+            loadDraftState()
+            AnalyticsService.shared.capture(AnalyticsEvent.onboardingStarted)
+            trackStepViewed(step)
+        }
+        .onChange(of: step) { _, nextStep in
+            trackStepViewed(nextStep)
+        }
     }
 
     @ViewBuilder
@@ -91,7 +98,7 @@ struct OnboardingFlowScreen: View {
         switch step {
         case .splash:
             OnboardingSplashPage {
-                step = .name
+                move(to: .name)
             }
         case .name:
             namePage
@@ -151,7 +158,7 @@ struct OnboardingFlowScreen: View {
             OnboardingPrimaryButton(title: "Continue", isDisabled: !hasValidDisplayName) {
                 guard hasValidDisplayName else { return }
                 appSettingsStore.setDisplayName(displayName)
-                step = .habits
+                move(to: .habits)
             }
             .accessibilityIdentifier("onboarding.name.continue")
         }
@@ -183,7 +190,7 @@ struct OnboardingFlowScreen: View {
             OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinuePhoneTime) {
                 guard canContinuePhoneTime else { return }
                 onboardingStore.setPhoneHours(Int(phoneHours.rounded()))
-                step = .calculating
+                move(to: .calculating)
             }
             .accessibilityIdentifier("onboarding.phone.continue")
         }
@@ -245,7 +252,7 @@ struct OnboardingFlowScreen: View {
             )
         } bottom: {
             OnboardingDelayedButton(title: "Fix this", delay: ProjectionRevealTiming.buttonDelay) {
-                step = .goodNews
+                move(to: .goodNews)
             }
             .accessibilityIdentifier("onboarding.bad-news.continue")
         }
@@ -273,7 +280,7 @@ struct OnboardingFlowScreen: View {
             )
         } bottom: {
             OnboardingDelayedButton(title: "Get years back", delay: ProjectionRevealTiming.buttonDelay) {
-                step = .stayConnected
+                move(to: .stayConnected)
             }
             .accessibilityIdentifier("onboarding.good-news.continue")
         }
@@ -291,7 +298,7 @@ struct OnboardingFlowScreen: View {
                     .minimumScaleFactor(0.75)
 
                 OnboardingPrimaryButton(title: "Set Up Nima") {
-                    step = .vpn
+                    move(to: .vpn)
                 }
                 .accessibilityIdentifier("onboarding.stay-connected.continue")
             }
@@ -345,7 +352,7 @@ struct OnboardingFlowScreen: View {
             OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinueAge) {
                 guard canContinueAge else { return }
                 onboardingStore.setAge(age)
-                step = .apps
+                move(to: .apps)
             }
             .accessibilityIdentifier("onboarding.age.continue")
         }
@@ -383,7 +390,7 @@ struct OnboardingFlowScreen: View {
             OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinueHabits) {
                 guard canContinueHabits else { return }
                 onboardingStore.setSelectedHabits(selectedHabits)
-                step = .age
+                move(to: .age)
             }
             .accessibilityIdentifier("onboarding.habits.continue")
         }
@@ -415,7 +422,7 @@ struct OnboardingFlowScreen: View {
             OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinueApps) {
                 guard canContinueApps else { return }
                 onboardingStore.setSelectedApps(selectedApps)
-                step = .phoneTime
+                move(to: .phoneTime)
             }
             .accessibilityIdentifier("onboarding.apps.continue")
         }
@@ -663,7 +670,7 @@ struct OnboardingFlowScreen: View {
     private func advanceAfterDelay(from expectedStep: OnboardingStep, to nextStep: OnboardingStep, delay: TimeInterval) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             guard step == expectedStep else { return }
-            step = nextStep
+            move(to: nextStep)
         }
     }
 
@@ -672,7 +679,7 @@ struct OnboardingFlowScreen: View {
         vpnManager.startVPN(source: "onboarding.vpn_permission")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             privacySheetStep = nil
-            step = .notifications
+            move(to: .notifications)
         }
     }
 
@@ -680,13 +687,33 @@ struct OnboardingFlowScreen: View {
         appSettingsStore.setWindowsNotificationsEnabled(true)
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
             DispatchQueue.main.async {
-                step = .account
+                AnalyticsService.shared.capture(
+                    AnalyticsEvent.onboardingStepCompleted,
+                    properties: ["step": OnboardingStep.notifications.analyticsName]
+                )
+                completeOnboarding()
             }
         }
     }
 
     private func completeOnboarding() {
+        AnalyticsService.shared.capture(AnalyticsEvent.onboardingCompleted)
         onboardingStore.markCompleted()
+    }
+
+    private func move(to nextStep: OnboardingStep) {
+        AnalyticsService.shared.capture(
+            AnalyticsEvent.onboardingStepCompleted,
+            properties: ["step": step.analyticsName]
+        )
+        step = nextStep
+    }
+
+    private func trackStepViewed(_ step: OnboardingStep) {
+        AnalyticsService.shared.capture(
+            AnalyticsEvent.onboardingStepViewed,
+            properties: ["step": step.analyticsName]
+        )
     }
 
     private func startEmailAuthFlow() {
@@ -810,6 +837,27 @@ private enum OnboardingStep {
     case account
     case emailEntry
     case emailLinkSent
+
+    var analyticsName: String {
+        switch self {
+        case .splash: return "splash"
+        case .name: return "name"
+        case .phoneTime: return "phone_time"
+        case .calculating: return "calculating"
+        case .newsTransition: return "news_transition"
+        case .badNews: return "bad_news"
+        case .goodNews: return "good_news"
+        case .stayConnected: return "stay_connected"
+        case .age: return "age"
+        case .habits: return "habits"
+        case .apps: return "apps"
+        case .vpn: return "vpn_permission"
+        case .notifications: return "notifications_permission"
+        case .account: return "legacy_account"
+        case .emailEntry: return "legacy_email_entry"
+        case .emailLinkSent: return "legacy_email_link_sent"
+        }
+    }
 
     var previous: OnboardingStep? {
         switch self {
@@ -1491,7 +1539,7 @@ private struct OnboardingDelayedButton: View {
     }
 }
 
-private enum OnboardingPalette {
+enum OnboardingPalette {
     static let green = Color(red: 0.0, green: 0.55, blue: 0.35)
     static let darkGreen = Color(red: 0.015, green: 0.22, blue: 0.12)
     static let progressLight = Color(red: 0.70, green: 0.95, blue: 0.72)
@@ -1506,7 +1554,7 @@ private enum OnboardingPalette {
     static let rowBackground = Color(red: 0.92, green: 0.92, blue: 0.92)
 }
 
-private enum OnboardingMetrics {
+enum OnboardingMetrics {
     static let horizontalPadding: CGFloat = 34
     static let topLogoWidth: CGFloat = 116
     static let titleFont: CGFloat = 28
@@ -1621,7 +1669,7 @@ private struct OnboardingSplashPage: View {
     }
 }
 
-private struct OnboardingWhitePage<Content: View, Bottom: View>: View {
+struct OnboardingWhitePage<Content: View, Bottom: View>: View {
     var showsSkip = false
     var skipTitle = "skip"
     var topLogoWidth: CGFloat = OnboardingMetrics.topLogoWidth
@@ -1764,7 +1812,7 @@ private struct OnboardingLogo: View {
     }
 }
 
-private struct OnboardingTitle: View {
+struct OnboardingTitle: View {
     let text: String
     let fontSize: CGFloat
     let minimumScale: CGFloat
@@ -1795,7 +1843,7 @@ private struct OnboardingTitle: View {
     }
 }
 
-private struct OnboardingPrimaryButton: View {
+struct OnboardingPrimaryButton: View {
     let title: String
     var isDisabled = false
     let action: () -> Void
@@ -2359,7 +2407,7 @@ private struct TopRoundedRectangle: Shape {
     }
 }
 
-private struct OnboardingAuthButton: View {
+struct OnboardingAuthButton: View {
     let title: String
     var systemImage: String?
     var letter: String?

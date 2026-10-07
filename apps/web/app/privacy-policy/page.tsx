@@ -5,14 +5,14 @@ export const metadata: Metadata = {
   description: "How Nima collects, uses, shares, and protects data.",
 };
 
-const lastUpdated = "June 24, 2026";
+const lastUpdated = "October 7, 2026";
 const contactEmail = "help@nima.so";
 
 const sections = [
   {
     title: "Who We Are",
     body: [
-      "Nima helps people reduce distracting app use with account features, subscriptions, VPN-based filtering, and related support services.",
+      "Nima is operated by 9INE LTD (company number 17294957), registered at 71-75 Shelton Street, Covent Garden, London, United Kingdom, WC2H 9JQ. Nima helps people reduce distracting app use with account features, subscriptions, VPN-based filtering, and related support services.",
       "This policy covers the Nima iOS app, Android waitlist, filtering systems, account and subscription systems, and support flows.",
       `Questions or privacy requests can be sent to ${contactEmail}.`,
     ],
@@ -22,6 +22,7 @@ const sections = [
     body: [
       "Account data: email address, Supabase user ID, authentication/session data, Apple Sign In data, and Google Sign-In data.",
       "Purchase data: subscription status, purchase history, entitlement state, RevenueCat app user ID, purchase, restore, and offering information.",
+      "Product analytics: randomly generated device/user identifier, onboarding screen reached, paywall and restore outcomes, account-linking outcomes, app version, device type, operating-system version, and event timestamps. After login, the analytics identifier may be linked to your Supabase user ID. Nima does not send your onboarding answers, display name, email address, or VPN/network activity to PostHog.",
       "Cancellation feedback: selected reason and optional free-text details.",
       "Android waitlist data: email address and signup timestamp.",
       "Support and diagnostics you choose to share: app/tunnel logs, VPN lifecycle state, connection errors, performance counters, crash-like or stop diagnostics, local traffic diagnostic files, and related troubleshooting details.",
@@ -37,6 +38,7 @@ const sections = [
       "Show local blocking status and local diagnostics on your device.",
       "Send Android waitlist updates and service communications.",
       "Handle cancellation feedback, account deletion, billing issues, abuse prevention, and reliability troubleshooting.",
+      "Measure where people leave onboarding, whether they reach the paywall, and whether purchase and account-linking flows work, so Nima can improve those flows.",
     ],
   },
   {
@@ -44,6 +46,7 @@ const sections = [
     body: [
       "Supabase provides authentication, sessions, waitlist storage, account deletion support, profile/blocker-state storage, and cancellation feedback storage.",
       "RevenueCat processes subscription status, purchase history, entitlements, offerings, purchases, and restores.",
+      "PostHog provides product analytics for the limited app events described above. Nima uses PostHog's EU service endpoint, disables session replay and automatic screen/tap capture, and disables IP-based location enrichment.",
       "Google Sign-In processes Google authentication data. Google states its iOS sign-in SDK may process identifiers and IP addresses for authentication, security, and fraud prevention.",
       "Apple processes Sign in with Apple and App Store purchase information.",
       "Hosting and infrastructure providers process the limited server, web app, database, and filtering traffic needed to operate Nima. Nima does not use those providers to retain ordinary browsing metadata for analytics.",
@@ -58,6 +61,7 @@ const sections = [
       "Local diagnostic files and logs are kept on your device until rotated, cleared, or removed during account deletion/local reset.",
       "Diagnostics you choose to share with support are kept only as long as needed to resolve the request or meet legal obligations.",
       "Purchase records are kept as required by Apple, RevenueCat, tax, fraud prevention, and subscription operations.",
+      "Product analytics is kept only as long as reasonably needed to understand onboarding and purchase performance, operate the service, and investigate reliability issues, then deleted or aggregated.",
     ],
   },
   {
@@ -85,6 +89,7 @@ const sections = [
       "Where available, you can delete your account in the app.",
       "Account deletion removes linked backend cancellation feedback, profile/blocker state, the authentication account, and local app-group data where available.",
       "You can also disable local notifications in iOS settings or in Nima settings where supported.",
+      `You can ask us to delete analytics linked to your account by emailing ${contactEmail}.`,
     ],
   },
   {
@@ -112,10 +117,13 @@ export default function PrivacyPolicyPage() {
       <section className="notice">
         <strong>Plain English summary:</strong> Nima uses account, purchase,
         waitlist, cancellation feedback, and support data to run the
-        service. Network signals are processed for blocking and local
-        diagnostics; ordinary browsing metadata is not stored for server
-        analytics or sent to OpenAI. Nima does not sell personal data or use it
-        for third-party advertising or cross-app tracking.
+        service. Nima uses limited PostHog events to see where onboarding,
+        purchase, and account-linking flows succeed or fail. It does not send
+        onboarding answers, email, or VPN/network activity to PostHog. Network
+        signals are processed for blocking and local diagnostics; ordinary
+        browsing metadata is not stored for server analytics or sent to OpenAI.
+        Nima does not sell personal data or use it for third-party advertising
+        or cross-app tracking.
       </section>
 
       <section className="content" aria-label="Privacy policy sections">

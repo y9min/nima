@@ -225,7 +225,7 @@ final class SubscriptionStoreTests: XCTestCase {
         }
     }
 
-    func testAppAccessPolicyUnlocksOnlyVerifiedPremiumAccount() {
+    func testAppAccessPolicyUnlocksVerifiedPremiumAccount() {
         XCTAssertEqual(
             AppAccessPolicy.destination(
                 onboardingCompleted: true,
@@ -243,8 +243,66 @@ final class SubscriptionStoreTests: XCTestCase {
                 hasPremium: true,
                 verificationState: .failed("offline")
             ),
-            .subscriptionLoading
+            .mainApp
         )
+    }
+
+    func testAppAccessPolicyRequiresAccountLinkingAfterAnonymousPurchase() {
+        XCTAssertEqual(
+            AppAccessPolicy.destination(
+                onboardingCompleted: true,
+                guidedExperienceCompleted: true,
+                hasPremium: true,
+                verificationState: .verified,
+                isAuthenticated: false
+            ),
+            .accountLinking
+        )
+
+        XCTAssertEqual(
+            AppAccessPolicy.destination(
+                onboardingCompleted: true,
+                guidedExperienceCompleted: true,
+                hasPremium: true,
+                verificationState: .verified,
+                isAuthenticated: false,
+                accountLinkingDeferred: true
+            ),
+            .mainApp
+        )
+    }
+
+    func testAppAccessPolicyKeepsTemporaryPayingUserUnlockedWhenOffline() {
+        XCTAssertEqual(
+            AppAccessPolicy.destination(
+                onboardingCompleted: true,
+                guidedExperienceCompleted: true,
+                hasPremium: true,
+                verificationState: .failed("offline"),
+                isAuthenticated: true
+            ),
+            .mainApp
+        )
+    }
+
+    func testVerifiedPremiumAccessCreatesOfflineGracePeriod() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        store.refreshCustomerInfo()
+        mock.customerInfoCompletions[0](
+            SubscriptionCustomerStatus(
+                activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
+                activeSubscriptionIDs: ["nima_monthly"]
+            ),
+            nil
+        )
+        await flushMainActorTasks()
+
+        XCTAssertTrue(store.hasPremium)
+        XCTAssertTrue(store.hasTemporaryPremiumAccess)
+        XCTAssertTrue(store.hasAccessForRouting)
     }
 
     func testDebugLaunchConfigurationCanSkipOnlyExternalPractice() {
@@ -913,8 +971,9 @@ private final class MockRevenueCatClient {
 
     lazy var client = RevenueCatClient(
         configure: { [weak self] _, appUserID, update in
-            self?.configuredAppUserIDs.append(appUserID)
-            self?.currentUserID = appUserID
+            let resolvedAppUserID = appUserID ?? "$RCAnonymousID:test"
+            self?.configuredAppUserIDs.append(resolvedAppUserID)
+            self?.currentUserID = resolvedAppUserID
             self?.customerStatusUpdate = update
         },
         currentAppUserID: { [weak self] in
@@ -944,6 +1003,8 @@ private final class MockRevenueCatClient {
                 }
                 completion(status, error)
             }
+        },
+        setAttributes: { _ in
         }
     )
 }

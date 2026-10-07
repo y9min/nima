@@ -27,9 +27,13 @@ struct NimaApp: App {
     @State private var pipInstructionController = PiPInstructionVideoController()
     @State private var didStartLaunchServices = false
     @State private var hasHandledGuidedPracticeReviewRequest = false
+    @State private var accountLinkingDeferredForLaunch = false
+    @State private var isSigningInExistingSubscriber = false
+    @State private var didTrackAppUnlock = false
     private let guidedPracticeReviewPromptStore = GuidedPracticeReviewPromptStore()
 
     init() {
+        AnalyticsService.shared.configure()
         TimeWindowNotificationCoordinator.shared.install()
         let sharedDefaults = UserDefaults(suiteName: NimaConstants.appGroupID)
         Self.migrateUDPSelectiveSafeModeDefault(sharedDefaults)
@@ -138,6 +142,10 @@ struct NimaApp: App {
                 }
                 .onAppear {
                     // Keep the first SwiftUI frame lightweight so iOS can leave the launch screen.
+                    trackAppUnlockIfNeeded(destination: rootDestination)
+                }
+                .onChange(of: rootDestination) { _, destination in
+                    trackAppUnlockIfNeeded(destination: destination)
                 }
                 .onChange(of: onboardingStore.isCompleted) { _, isCompleted in
                     guard isCompleted else {
@@ -165,7 +173,8 @@ struct NimaApp: App {
                         }
                         applySubscriptionIdentity()
                     } else {
-                        subscriptionStore.unbindUser()
+                        subscriptionStore.configureAnonymousUser()
+                        AnalyticsService.shared.resetIdentity()
                     }
                     presentGuidedOnboardingIfNeeded()
                 }
@@ -300,7 +309,24 @@ struct NimaApp: App {
         case .subscriptionLoading:
             SubscriptionStatusLoadingScreen()
         case .paywall:
-            PaywallScreen(onUnlocked: completePaywall)
+            PaywallScreen(
+                onUnlocked: completePaywall,
+                onSignIn: { isSigningInExistingSubscriber = true }
+            )
+        case .accountLinking:
+            PostPurchaseAccountScreen(
+                allowsTemporaryAccess: subscriptionStore.hasAccessForRouting,
+                onAuthenticationSucceeded: {
+                    isSigningInExistingSubscriber = false
+                },
+                onContinueTemporarily: {
+                    accountLinkingDeferredForLaunch = true
+                    isSigningInExistingSubscriber = false
+                },
+                onBackToPlans: {
+                    isSigningInExistingSubscriber = false
+                }
+            )
         }
     }
 
@@ -326,11 +352,16 @@ struct NimaApp: App {
     }
 
     private var rootDestination: AppRootDestination {
-        AppAccessPolicy.destination(
+        if isSigningInExistingSubscriber {
+            return .accountLinking
+        }
+        return AppAccessPolicy.destination(
             onboardingCompleted: onboardingStore.isCompleted,
             guidedExperienceCompleted: hasCompletedRequiredGuidedExperience,
-            hasPremium: subscriptionStore.hasPremium,
-            verificationState: subscriptionStore.verificationState
+            hasPremium: subscriptionStore.hasAccessForRouting,
+            verificationState: subscriptionStore.verificationState,
+            isAuthenticated: authStore.isLoggedIn,
+            accountLinkingDeferred: accountLinkingDeferredForLaunch
         )
     }
 
@@ -385,7 +416,7 @@ struct NimaApp: App {
         case .authenticated(let userID, _):
             subscriptionStore.bindAuthenticatedUser(userID: userID)
         case .none:
-            subscriptionStore.unbindUser()
+            subscriptionStore.configureAnonymousUser()
         }
     }
 
@@ -521,7 +552,17 @@ struct NimaApp: App {
 
     private func completePaywall() {
         path = NavigationPath()
+        AnalyticsService.shared.capture(AnalyticsEvent.paywallUnlocked)
         presentGuidedOnboardingIfNeeded()
+    }
+
+    private func trackAppUnlockIfNeeded(destination: AppRootDestination) {
+        guard destination == .mainApp, !didTrackAppUnlock else { return }
+        didTrackAppUnlock = true
+        AnalyticsService.shared.capture(
+            AnalyticsEvent.appUnlocked,
+            properties: ["mode": authStore.isLoggedIn ? "authenticated" : "temporary"]
+        )
     }
 
     private func beginGuidedPractice() {
@@ -779,9 +820,6 @@ struct NimaApp: App {
             do {
                 let handled = try await authStore.handleEmailMagicLink(url)
                 guard handled else { return }
-                await MainActor.run {
-                    onboardingStore.markCompleted()
-                }
             } catch {}
         }
     }

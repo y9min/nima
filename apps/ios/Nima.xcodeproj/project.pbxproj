@@ -29,6 +29,7 @@
 		25D2DFE1E7EF7E78519C6B36 /* OnboardingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F009426C200AC3558CDEF18 /* OnboardingStore.swift */; };
 		26D600D90BEC0EA5FDC77D57 /* NimaConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 921CC0957632C44E00AD9C6F /* NimaConstants.swift */; };
 		281240CB3974FBE4BCE0C8E1 /* TunnelLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB171C4EB89D104C345EEF8 /* TunnelLogger.swift */; };
+		29FC4F3FB1066207726ACF64 /* AnalyticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCAAA7C67E48E967CA64B3BD /* AnalyticsService.swift */; };
 		301D8571AAA95AC76BA00940 /* nima_logo_green.png in Resources */ = {isa = PBXBuildFile; fileRef = 563285F2A3B005DE2D8E9077 /* nima_logo_green.png */; };
 		312D6C7F3336D2CE2C06420C /* TimeWindowCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A874B2926B91419186BA8F /* TimeWindowCore.swift */; };
 		31ECD1ECE60434E4A468A3A6 /* BlockedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47545C93357327545B171412 /* BlockedApp.swift */; };
@@ -38,6 +39,7 @@
 		381868C320A4F16088044CB3 /* NimaTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AC61AF93D5CDA279171EC746 /* NimaTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3A86C52E20409A281B08170F /* home_tiktok_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = DCDA7346E9105DB99EEB265D /* home_tiktok_icon.png */; };
 		3BB3CE7FD7C7F525EC5D3C85 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 6A337E7969CF08D8D6FE872F /* LaunchScreen.storyboard */; };
+		3F6E324E9161F276669188F4 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 59A645D60FB953462604E402 /* PostHog */; };
 		3FAC86E35CA85ADDF0E9BC6D /* DialSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA882E4A9482E432717819B6 /* DialSelector.swift */; };
 		448ED71176CC45C9F70C3D2E /* HomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649EEF9455088B1E328E37BE /* HomeScreen.swift */; };
 		44E3628AB4041D923B70F731 /* UDPControlStreamDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 572F72616968EC95681D51F8 /* UDPControlStreamDecoder.swift */; };
@@ -79,6 +81,7 @@
 		8D6C4268741BE8C317A3FE2B /* HarnessScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4C8AB88931C3E196EA826A /* HarnessScenarioTests.swift */; };
 		90A96573A81867F4F06FD1C0 /* SubscriptionCancellationFeedbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50B33AA9B7B092B9BA9F30E7 /* SubscriptionCancellationFeedbackService.swift */; };
 		93956780AD7713A8A080687E /* app_options.json in Resources */ = {isa = PBXBuildFile; fileRef = 4742AA24B2D7795D406B0595 /* app_options.json */; };
+		95EE24E49E297E190E105D2A /* PostPurchaseAccountScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4F7E2F1284A499DDC5DF73E /* PostPurchaseAccountScreen.swift */; };
 		964126FA621A59A1D1BDFB3F /* TrafficStatsSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750E4B0AAE4B3F00014CB1C4 /* TrafficStatsSnapshotTests.swift */; };
 		980E2D72613FE35923D41C74 /* AppSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A12F62FF8F624CB4CB6FBA /* AppSettingsStoreTests.swift */; };
 		9954B147B11B9CF751AB2727 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6857448E98372373096907E3 /* PrivacyInfo.xcprivacy */; };
@@ -268,6 +271,7 @@
 		C96ACD5DCD75F6DDC46533CD /* TimeWindowStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowStore.swift; sourceTree = "<group>"; };
 		CAB0D12A57875587755CB93B /* nima_logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = nima_logo.png; sourceTree = "<group>"; };
 		CACD5CD3B8E39723C301EE96 /* TimeWindowNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeWindowNotificationCoordinator.swift; sourceTree = "<group>"; };
+		CCAAA7C67E48E967CA64B3BD /* AnalyticsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsService.swift; sourceTree = "<group>"; };
 		D18B86CED7F94FF7AF8C6737 /* guided_practice_tiktok_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = guided_practice_tiktok_icon.png; sourceTree = "<group>"; };
 		D21E311BD4AD22DE250FA78A /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
 		D507CB42186B41E6A2F49704 /* OnboardingStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStoreTests.swift; sourceTree = "<group>"; };
@@ -297,6 +301,7 @@
 		F3BB3FBAFBF64B122C2D99F5 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 		F43783F755A94A6EE866EB87 /* SVGCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGCache.swift; sourceTree = "<group>"; };
 		F47B517FE3D6ABE29BCD33A1 /* NimaConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NimaConstants.swift; sourceTree = "<group>"; };
+		F4F7E2F1284A499DDC5DF73E /* PostPurchaseAccountScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostPurchaseAccountScreen.swift; sourceTree = "<group>"; };
 		F5347A4D3B752D4E5B8F8834 /* AppOptionsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOptionsService.swift; sourceTree = "<group>"; };
 		F92A3DE8837AED24F6FDC5D7 /* PiPInstructionVideoController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPInstructionVideoController.swift; sourceTree = "<group>"; };
 		F9457EB75E7D1145A6AEDF58 /* generate_app_icons.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = generate_app_icons.sh; sourceTree = "<group>"; };
@@ -321,6 +326,7 @@
 				243AF29AE06AA5104F2BFC4A /* GoogleSignIn in Frameworks */,
 				18C9CC88050D26EE2F4AA7F1 /* RevenueCat in Frameworks */,
 				5A011E68B110970A34888CF5 /* RevenueCatUI in Frameworks */,
+				3F6E324E9161F276669188F4 /* PostHog in Frameworks */,
 				88FA3084942CACD24AD6FB28 /* NetworkExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -357,10 +363,19 @@
 				D1AE99CF3115D64DAD9BF6FB /* Models */,
 				DEE08A5ED0FD2435142F27B3 /* Resources */,
 				4D987D2C4A23C93E0DCD7308 /* Screens */,
+				11499403263765D56EDEA186 /* Services */,
 				D07495A2E07611CA070848BE /* Theme */,
 				7309958D54EF4FF00566D933 /* Widgets */,
 			);
 			path = Nima;
+			sourceTree = "<group>";
+		};
+		11499403263765D56EDEA186 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				CCAAA7C67E48E967CA64B3BD /* AnalyticsService.swift */,
+			);
+			path = Services;
 			sourceTree = "<group>";
 		};
 		4D987D2C4A23C93E0DCD7308 /* Screens */ = {
@@ -372,6 +387,7 @@
 				E565B604226C26895D6A2CF7 /* MainTabsScreen.swift */,
 				5B8C1E033F7A2A7FC232550D /* OnboardingFlowScreen.swift */,
 				9EE3122BA921188A5F1441AC /* PaywallScreen.swift */,
+				F4F7E2F1284A499DDC5DF73E /* PostPurchaseAccountScreen.swift */,
 				02FC2C8C821BCBDE64C42478 /* SettingsScreen.swift */,
 				5712EB34DF0892F6E958C4EE /* TimeWindowsScreen.swift */,
 				53FC66CD9461BB7DB3C25FAD /* TrafficDashboardView.swift */,
@@ -702,6 +718,7 @@
 				C10F7670F1F7F8F9E669C17E /* GoogleSignIn */,
 				DAAB4498D69DB3BBCA0E4372 /* RevenueCat */,
 				324DD16958586EBB08ADB9BB /* RevenueCatUI */,
+				59A645D60FB953462604E402 /* PostHog */,
 			);
 			productName = Nima;
 			productReference = FCD531BF32F67820A1BA7524 /* Nima.app */;
@@ -747,6 +764,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				48845825FDA15CD561CFAD94 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				6309D4BC0C2993DA1C9AFBC7 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				031A2FF6EA17FB11BDA4A1E9 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 				E2241AD5785C79842930BD57 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 				CA19F2A81AFF6CA625668DE0 /* XCRemoteSwiftPackageReference "Tun2SocksKit" */,
@@ -877,6 +895,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				29FC4F3FB1066207726ACF64 /* AnalyticsService.swift in Sources */,
 				8D1CC0F80FACD90F8F6D8A7C /* AppChrome.swift in Sources */,
 				4B11644ABAF06AC58618B289 /* AppCluster.swift in Sources */,
 				D498F45F2E53667DBA7AB335 /* AppIconCircle.swift in Sources */,
@@ -917,6 +936,7 @@
 				006EA4083175AD6634FAB5FE /* PageIndicator.swift in Sources */,
 				9AF74B78685A73BD2EE12F6D /* PaywallScreen.swift in Sources */,
 				B509D06BEFACD0609277934A /* PiPInstructionVideoController.swift in Sources */,
+				95EE24E49E297E190E105D2A /* PostPurchaseAccountScreen.swift in Sources */,
 				CE1F06A7AC4FF97D174EFC9D /* ProtectionIntent.swift in Sources */,
 				10343D4CE68415BFE0725E3C /* Route.swift in Sources */,
 				3276027BC5D7F0A6A8AE11AE /* SVGCache.swift in Sources */,
@@ -1343,6 +1363,14 @@
 				minimumVersion = 9.0.0;
 			};
 		};
+		6309D4BC0C2993DA1C9AFBC7 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PostHog/posthog-ios.git";
+			requirement = {
+				kind = exactVersion;
+				version = 3.90.2;
+			};
+		};
 		CA19F2A81AFF6CA625668DE0 /* XCRemoteSwiftPackageReference "Tun2SocksKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/EbrahimTahernejad/Tun2SocksKit";
@@ -1366,6 +1394,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 031A2FF6EA17FB11BDA4A1E9 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
 			productName = RevenueCatUI;
+		};
+		59A645D60FB953462604E402 /* PostHog */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6309D4BC0C2993DA1C9AFBC7 /* XCRemoteSwiftPackageReference "posthog-ios" */;
+			productName = PostHog;
 		};
 		B435AD87518D22EAD9AB1B69 /* Supabase */ = {
 			isa = XCSwiftPackageProductDependency;

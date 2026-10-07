@@ -5,6 +5,7 @@ enum AppRootDestination: Equatable {
     case guidedExperience
     case subscriptionLoading
     case paywall
+    case accountLinking
     case mainApp
 }
 
@@ -13,16 +14,20 @@ struct AppAccessPolicy {
         onboardingCompleted: Bool,
         guidedExperienceCompleted: Bool,
         hasPremium: Bool,
-        verificationState: SubscriptionVerificationState
+        verificationState: SubscriptionVerificationState,
+        isAuthenticated: Bool = true,
+        accountLinkingDeferred: Bool = false
     ) -> AppRootDestination {
         guard onboardingCompleted else { return .onboarding }
         guard guidedExperienceCompleted else { return .guidedExperience }
 
         switch verificationState {
         case .verified:
-            return hasPremium ? .mainApp : .paywall
+            guard hasPremium else { return .paywall }
+            return !isAuthenticated && !accountLinkingDeferred ? .accountLinking : .mainApp
         case .idle, .loading, .failed:
-            return .subscriptionLoading
+            guard hasPremium else { return .subscriptionLoading }
+            return !isAuthenticated && !accountLinkingDeferred ? .accountLinking : .mainApp
         }
     }
 }

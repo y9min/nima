@@ -27,7 +27,7 @@ Mark the following data types as collected when they are transmitted for the lis
 
 Use `Other Data` for cancellation reasons and optional cancellation details that App Store Connect cannot cleanly represent elsewhere.
 
-Do not declare Browsing History, Product Interaction analytics, Other Usage Data analytics, location, contacts, camera, microphone, photos, health, IDFA, advertising data, or payment-card financial data unless new code transmits those data types.
+Do not declare Browsing History, location, contacts, camera, microphone, photos, health, IDFA, advertising data, or payment-card financial data unless new code transmits those data types. Declare Product Interaction and Other Usage Data for analytics because the app sends limited onboarding, paywall, restore, authentication-outcome, and account-linking events to PostHog. Declare User ID for both app functionality and analytics because events are identified with the Supabase UUID after login.
 
 ## Third-Party Processing
 
@@ -53,6 +53,6 @@ Nima does not sell, use, or disclose data derived from VPN use to third parties 
 - `PrivacyInfo.xcprivacy` is present in the app target.
 - Xcode archive/privacy report has no missing privacy manifest warnings.
 - Account deletion removes linked backend rows and local app-group data.
-- Browsing History and analytics-purpose labels are removed from App Store Connect.
+- Browsing History remains removed. Product Interaction, Other Usage Data, and User ID analytics labels match the PostHog integration and state that the data is linked after login but is not used for tracking.
 - Ordinary VPN use produces no Supabase or OpenAI traffic-analytics requests.
 - No ATT prompt is required because no cross-app tracking, IDFA, ad SDK, or third-party advertising use is present.

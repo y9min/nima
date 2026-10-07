@@ -32,7 +32,7 @@ struct RevenueCatClient {
     typealias PurchaseCompletion = (SubscriptionCustomerStatus?, Error?, Bool) -> Void
     typealias CustomerStatusUpdate = (SubscriptionCustomerStatus) -> Void
 
-    let configure: (String, String, @escaping CustomerStatusUpdate) -> Void
+    let configure: (String, String?, @escaping CustomerStatusUpdate) -> Void
     let currentAppUserID: () -> String?
     let getCustomerInfo: (Bool, @escaping CustomerStatusCompletion) -> Void
     let getOfferings: (@escaping OfferingsCompletion) -> Void
@@ -40,6 +40,7 @@ struct RevenueCatClient {
     let restorePurchases: (@escaping CustomerStatusCompletion) -> Void
     let syncPurchases: (@escaping CustomerStatusCompletion) -> Void
     let logIn: (String, @escaping CustomerStatusCompletion) -> Void
+    let setAttributes: ([String: String]) -> Void
 
     static let live = RevenueCatClient(
         configure: { apiKey, appUserID, customerStatusUpdate in
@@ -48,7 +49,11 @@ struct RevenueCatClient {
             #else
             Purchases.logLevel = .warn
             #endif
-            Purchases.configure(withAPIKey: apiKey, appUserID: appUserID)
+            if let appUserID {
+                Purchases.configure(withAPIKey: apiKey, appUserID: appUserID)
+            } else {
+                Purchases.configure(withAPIKey: apiKey)
+            }
             RevenueCatRuntime.delegate.onUpdate = customerStatusUpdate
             Purchases.shared.delegate = RevenueCatRuntime.delegate
         },
@@ -83,6 +88,9 @@ struct RevenueCatClient {
             Purchases.shared.logIn(appUserID) { customerInfo, _, error in
                 completion(customerInfo.map(SubscriptionCustomerStatus.init), error)
             }
+        },
+        setAttributes: { attributes in
+            Purchases.shared.attribution.setAttributes(attributes)
         }
     )
 }
@@ -118,6 +126,8 @@ final class SubscriptionStore {
     private static let reviewUnlockedSessionIDKey = "subscription.reviewUnlockedSessionID"
     private static let migrationKeyPrefix = "subscription.identityMigration.v1."
     private static let cachedPremiumKeyPrefix = "subscription.hasPremium."
+    private static let temporaryPremiumUntilKey = "subscription.temporaryPremiumUntil"
+    private static let temporaryPremiumDuration: TimeInterval = 72 * 60 * 60
 
     var hasPremium: Bool
     var verificationState: SubscriptionVerificationState = .idle
@@ -132,6 +142,15 @@ final class SubscriptionStore {
 
     var hasPendingPurchase: Bool {
         purchaseRequestID != nil
+    }
+
+    var hasTemporaryPremiumAccess: Bool {
+        guard let expiry = defaults.object(forKey: Self.temporaryPremiumUntilKey) as? Date else { return false }
+        return expiry > Date()
+    }
+
+    var hasAccessForRouting: Bool {
+        hasPremium || hasTemporaryPremiumAccess
     }
 
     var isLoadingOfferings: Bool {
@@ -193,7 +212,44 @@ final class SubscriptionStore {
     func bindAuthenticatedUser(userID: UUID) {
         clearReviewSession()
         let appUserID = userID.uuidString.lowercased()
+        AnalyticsService.shared.identify(userID: userID)
         bindAppUserID(appUserID)
+        if let postHogUserID = AnalyticsService.shared.distinctID {
+            client.setAttributes(["$posthogUserId": postHogUserID])
+        }
+    }
+
+    func configureAnonymousUser() {
+        guard intendedAppUserID == nil else { return }
+
+        if !isConfigured {
+            guard let apiKey = Self.apiKey, !apiKey.isEmpty else {
+                verificationState = .failed("Missing RevenueCat API key.")
+                return
+            }
+            client.configure(apiKey, nil) { [weak self] status in
+                Task { @MainActor in
+                    guard let self,
+                          self.intendedAppUserID == self.client.currentAppUserID() else { return }
+                    _ = self.apply(status)
+                }
+            }
+            isConfigured = true
+        }
+
+        guard let anonymousID = client.currentAppUserID(), !anonymousID.isEmpty else {
+            verificationState = .failed("Subscriptions are unavailable right now.")
+            return
+        }
+        intendedAppUserID = anonymousID
+        hasConfirmedIdentity = true
+        hasPremium = defaults.bool(forKey: Self.cachedPremiumKey(for: anonymousID))
+        verificationState = .loading
+        refreshCustomerInfo()
+        loadOfferings()
+        if let postHogUserID = AnalyticsService.shared.distinctID {
+            client.setAttributes(["$posthogUserId": postHogUserID])
+        }
     }
 
     func bindAppStoreReviewUser(sessionID: String) {
@@ -746,6 +802,14 @@ final class SubscriptionStore {
 
     private func setPremiumAccess(_ hasAccess: Bool) {
         hasPremium = hasAccess
+        if hasAccess {
+            defaults.set(
+                Date().addingTimeInterval(Self.temporaryPremiumDuration),
+                forKey: Self.temporaryPremiumUntilKey
+            )
+        } else {
+            defaults.removeObject(forKey: Self.temporaryPremiumUntilKey)
+        }
         guard let appUserID = intendedAppUserID else { return }
         defaults.set(hasAccess, forKey: Self.cachedPremiumKey(for: appUserID))
     }
