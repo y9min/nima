@@ -10,6 +10,9 @@ configFiles:
   Release: Secrets.xcconfig
 
 packages:
+  Facebook:
+    url: https://github.com/facebook/facebook-ios-sdk
+    exactVersion: "18.1.1"
   Tun2SocksKit:
     # Keep exact pin aligned with UDP decoder framing assumptions.
     url: https://github.com/EbrahimTahernejad/Tun2SocksKit
@@ -17,9 +20,6 @@ packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
     from: "2.0.0"
-  GoogleSignIn:
-    url: https://github.com/google/GoogleSignIn-iOS
-    from: "9.0.0"
   RevenueCat:
     url: https://github.com/RevenueCat/purchases-ios-spm.git
     from: "5.0.0"
@@ -38,23 +38,31 @@ targets:
       - path: Nima/PrivacyInfo.xcprivacy
     dependencies:
       - package: Supabase
-      - package: GoogleSignIn
-        product: GoogleSignIn
       - package: RevenueCat
         product: RevenueCat
       - package: RevenueCat
         product: RevenueCatUI
+      - package: Facebook
+        product: FacebookCore
+      - sdk: AppTrackingTransparency.framework
+      - sdk: AdSupport.framework
       - package: PostHog
         product: PostHog
       - target: NimaTunnel
       - sdk: NetworkExtension.framework
+      - sdk: FamilyControls.framework
+      - sdk: ManagedSettings.framework
+      - sdk: DeviceActivity.framework
+      - target: NimaDeviceActivity
+      - target: NimaShieldConfiguration
+      - target: NimaShieldAction
     info:
       path: Nima/Info.plist
       properties:
         CFBundleDisplayName: Nima
         CFBundleName: Nima
-        CFBundleShortVersionString: "1.2"
-        CFBundleVersion: "23"
+        CFBundleShortVersionString: "1.3"
+        CFBundleVersion: "25"
         UIAppFonts:
           - SK Pupok Solid 400.ttf
           - Coolvetica Rg.otf
@@ -66,23 +74,29 @@ targets:
           - audio
         SUPABASE_URL: $(SUPABASE_URL)
         SUPABASE_KEY: $(SUPABASE_KEY)
-        GOOGLE_IOS_CLIENT_ID: $(GOOGLE_IOS_CLIENT_ID)
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
           - CFBundleURLSchemes:
-              - $(GOOGLE_REVERSED_CLIENT_ID)
-          - CFBundleURLSchemes:
               - nima
+        FacebookAppID: $(META_APP_ID)
+        FacebookClientToken: $(META_CLIENT_TOKEN)
+        FacebookDisplayName: Nima
+        META_ADS_ENABLED: $(META_ADS_ENABLED)
+        FacebookAutoInitEnabled: false
+        FacebookAutoLogAppEventsEnabled: false
+        FacebookAdvertiserIDCollectionEnabled: false
+        NSUserTrackingUsageDescription: Your permission helps us measure which Nima ads lead to downloads and subscriptions.
+        NSCameraUsageDescription: Allow Instagram inside Nima to take photos and videos when you choose to create a post or message.
+        NSMicrophoneUsageDescription: Allow Instagram inside Nima to record audio when you choose to create a post or message.
         REVENUECAT_API_KEY: $(REVENUECAT_API_KEY)
         POSTHOG_PROJECT_TOKEN: phc_mynhT9RrN7pmWn8AdwRYJr5PEHXiVPKezg98mATbtSfi
         POSTHOG_HOST: https://eu.i.posthog.com
     entitlements:
       path: Nima/chungus.entitlements
       properties:
-        com.apple.developer.applesignin:
-          - Default
         com.apple.developer.networking.networkextension:
           - packet-tunnel-provider
+        com.apple.developer.family-controls: true
         com.apple.security.application-groups:
           - group.so.nima.app
     settings:
@@ -109,8 +123,8 @@ targets:
       path: NimaTunnel/Info.plist
       properties:
         CFBundleDisplayName: Nima Tunnel
-        CFBundleShortVersionString: "1.2"
-        CFBundleVersion: "23"
+        CFBundleShortVersionString: "1.3"
+        CFBundleVersion: "25"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
@@ -124,6 +138,97 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: so.nima.app.NimaTunnel
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: SSTZYP6ZWB
+        TARGETED_DEVICE_FAMILY: 1
+
+  NimaDeviceActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NimaDeviceActivity
+      - Nima/NimaConstants.swift
+    dependencies:
+      - sdk: DeviceActivity.framework
+      - sdk: FamilyControls.framework
+      - sdk: ManagedSettings.framework
+    info:
+      path: NimaDeviceActivity/Info.plist
+      properties:
+        CFBundleDisplayName: Nima Device Activity
+        CFBundleShortVersionString: "1.3"
+        CFBundleVersion: "25"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.deviceactivity.monitor-extension
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).DeviceActivityMonitorExtension
+    entitlements:
+      path: NimaDeviceActivity/NimaDeviceActivity.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups:
+          - group.so.nima.app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: so.nima.app.DeviceActivityMonitor
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: SSTZYP6ZWB
+        TARGETED_DEVICE_FAMILY: 1
+
+  NimaShieldConfiguration:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NimaShieldConfiguration
+    resources:
+      - path: Nima/Assets.xcassets/AppIcon.appiconset/AppIcon-1024x1024.png
+    dependencies:
+      - sdk: ManagedSettings.framework
+      - sdk: ManagedSettingsUI.framework
+    info:
+      path: NimaShieldConfiguration/Info.plist
+      properties:
+        CFBundleDisplayName: Nima Shield Configuration
+        CFBundleShortVersionString: "1.3"
+        CFBundleVersion: "25"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ManagedSettingsUI.shield-configuration-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldConfigurationExtension
+    entitlements:
+      path: NimaShieldConfiguration/NimaShieldConfiguration.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: so.nima.app.ShieldConfiguration
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: SSTZYP6ZWB
+        TARGETED_DEVICE_FAMILY: 1
+
+  NimaShieldAction:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NimaShieldAction
+    dependencies:
+      - sdk: ManagedSettings.framework
+    info:
+      path: NimaShieldAction/Info.plist
+      properties:
+        CFBundleDisplayName: Nima Shield Action
+        CFBundleShortVersionString: "1.3"
+        CFBundleVersion: "25"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ManagedSettings.shield-action-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldActionExtension
+    entitlements:
+      path: NimaShieldAction/NimaShieldAction.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups:
+          - group.so.nima.app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: so.nima.app.ShieldAction
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SSTZYP6ZWB
         TARGETED_DEVICE_FAMILY: 1
@@ -174,6 +279,20 @@ targets:
           - "@executable_path/Frameworks"
           - "@loader_path/Frameworks"
 
+  NimaStoreKitHarness:
+    type: application
+    platform: iOS
+    sources:
+      - path: NimaStoreKitHarness
+    dependencies:
+      - sdk: StoreKit.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: so.nima.app.storekit-harness
+        DEVELOPMENT_TEAM: SSTZYP6ZWB
+        TARGETED_DEVICE_FAMILY: 1
+        GENERATE_INFOPLIST_FILE: YES
+
   TikTokVPNDropUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -210,6 +329,15 @@ schemes:
     test:
       targets:
         - TikTokVPNDropUITests
+
+  NimaStoreKitHarness:
+    build:
+      targets:
+        NimaStoreKitHarness: all
+    run:
+      config: Debug
+      debugEnabled: false
+      storeKitConfiguration: NimaStoreKitTests/NimaSubscriptions.storekit
 
   NimaTunnel:
     build:

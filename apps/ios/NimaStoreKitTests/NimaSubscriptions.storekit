@@ -1,0 +1,70 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "D51B5E32",
+  "nonRenewingSubscriptions" : [
+  ],
+  "products" : [
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : true,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "GBR",
+    "_storeKitErrors" : [
+    ],
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "3E539CA9",
+      "localizations" : [
+      ],
+      "name" : "Nima Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+          ],
+          "codeOffers" : [
+          ],
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "3A5E9E40",
+          "introductoryOffers" : [
+          ],
+          "localizations" : [
+            {
+              "description" : "Nima Pro monthly subscription for automated StoreKit testing.",
+              "displayName" : "Nima Pro Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "so.nima.app.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Nima Pro Monthly",
+          "subscriptionGroupID" : "3E539CA9",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 5,
+    "minor" : 0
+  }
+}
