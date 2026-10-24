@@ -1,0 +1,22 @@
+{
+  "name": "nima-social-ad",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts NimaSocialAd out/nima-social-ad.mp4",
+    "still": "remotion still src/index.ts NimaSocialAd out/preview.png --frame=430"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.373",
+    "@remotion/google-fonts": "4.0.373",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.373"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "typescript": "5.9.3"
+  }
+}

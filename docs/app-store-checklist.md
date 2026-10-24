@@ -8,12 +8,12 @@ Use this as the launch-readiness checklist for Nima before App Store submission.
 - Prepare final App Store screenshots for each required device size.
 - Verify the screenshots match the current release build and do not include simulator/debug UI.
 
-## Privacy And Account
+## Privacy And Access
 
 - Complete App Privacy labels using `docs/app-store-privacy-submission.md` as the source of truth.
 - Keep Browsing History removed. Add Product Interaction and Other Usage Data analytics disclosures, plus the Analytics purpose for User ID, before submitting the PostHog-enabled release.
-- Verify sign in works for the configured providers.
-- Verify account deletion or cancellation flow is available and documented.
+- Verify the app has no sign-in screen, provider buttons, or account-linking prompt.
+- Verify legacy account deletion requests are documented through `help@nima.so` until the old backend records are retired.
 - Confirm privacy policy and terms links are live in the app and App Store Connect.
 - Confirm `https://nima.so/privacy-policy` is public and does not redirect to login.
 - Run an archive/privacy report check and resolve any privacy manifest warnings before upload.
@@ -23,7 +23,7 @@ Use this as the launch-readiness checklist for Nima before App Store submission.
 - Confirm RevenueCat API key is configured through release secrets, not hardcoded.
 - Confirm the RevenueCat entitlement ID is `nima Pro`.
 - Verify monthly and yearly products are active in App Store Connect and mapped in RevenueCat.
-- Test purchase, restore, entitlement refresh, and logged-out behavior in sandbox/TestFlight.
+- Test anonymous purchase, restore after reinstall/on another device with the same Apple ID, and entitlement refresh in sandbox/TestFlight.
 
 ## VPN And Entitlements
 

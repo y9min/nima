@@ -66,9 +66,8 @@ Terms & Conditions: https://nima.so/terms-and-conditions
 - Contact name: **ACTION REQUIRED — enter the person Apple should contact during review**
 - Phone: **ACTION REQUIRED — enter a monitored phone number**
 - Email: `help@nima.so` or the monitored review-contact address
-- Sign-in required: `Yes`
-- Demo email: `review@nima.so`
-- Demo password: `Not required`
+- Sign-in required: `No`
+- Demo account: `Not applicable — Nima does not have customer accounts`
 
 ### Review Notes
 
@@ -76,15 +75,14 @@ Nima is a content-blocking app that uses Apple's Network Extension framework and
 
 Before requesting VPN permission, Nima displays a disclosure explaining that it processes domains, SNI, ports, connection metadata, byte counts, and block decisions to apply the user's rules. Nima does not sell, use, or disclose data derived from VPN use to third parties for any purpose. Ordinary browsing metadata is not sent to Supabase or OpenAI. Local diagnostics are shared only when the user explicitly chooses to send them to support.
 
-To review the full app without purchasing:
+To review the app:
 
 1. Launch Nima and complete the onboarding questions using any sample answers.
 2. On "Let Nima block the scroll," tap Continue, read the privacy disclosure, then continue to Apple's VPN configuration prompt.
 3. Allow the VPN configuration. Notification permission may be allowed or declined.
-4. On the account screen choose "Continue with email."
-5. Enter `review@nima.so`. No password or email-link access is required for this review account.
-6. The review account receives demo annual access and opens the main Nima experience.
-7. From Home, enable a supported app/feed or create a time window. The system VPN indicator confirms that the local filter is active.
+4. Complete the guided setup. Nima then shows its subscription paywall; no sign-in or account linking is required.
+5. Use Apple's review purchase environment to start a subscription, or use Restore Purchases for an Apple ID that already owns one.
+6. From Home, enable a supported app/feed or create a time window. The system VPN indicator confirms that the local filter is active.
 
 The app includes Restore Purchases on the RevenueCat-hosted paywall and Apple subscription management under Settings > Manage Subscription.
 
@@ -95,13 +93,12 @@ Use `docs/app-store-privacy-submission.md` as the source of truth.
 - Tracking: `No`
 - Data used for third-party advertising: `No`
 - Data used to track users: `No`
-- Email Address: linked, App Functionality / Account Management
-- User ID: linked, App Functionality / Account Management
-- Purchase History: linked, App Functionality / Account Management
+- User ID: linked pseudonymous RevenueCat/analytics/advertising identifiers, App Functionality / Analytics / advertising purposes as detailed in `docs/app-store-privacy-submission.md`
+- Purchase History: linked, App Functionality and the analytics/advertising purposes detailed in `docs/app-store-privacy-submission.md`
 - Performance Data: linked, App Functionality / Diagnostics when shared for support
 - Other Diagnostic Data: linked, App Functionality / Diagnostics when shared for support
 - Customer Support: linked, Customer Support / App Functionality
-- Other Data: linked, App Functionality (cancellation reason and optional details)
+- Do not declare Email Address or Other Data for this iOS build; customer sign-in and cancellation feedback have been removed.
 - Do not declare Browsing History for local-only filtering signals.
 
 ## Age Rating Questionnaire Draft
@@ -120,7 +117,7 @@ Answer based on the shipped app rather than selecting a rating manually:
 
 ## Export Compliance Draft
 
-Nima uses HTTPS and Apple platform cryptography for authentication and service communication. Its local packet tunnel does not add proprietary encryption or operate a remote encrypted VPN service.
+Nima uses HTTPS and Apple platform cryptography for service communication. Its local packet tunnel does not add proprietary encryption or operate a remote encrypted VPN service.
 
 - Complete Apple's export-compliance questionnaire for the first uploaded build.
 - Expected result: exempt/no documentation required, subject to Apple's questionnaire and the exact linked SDK behavior.
@@ -151,7 +148,7 @@ Nima uses HTTPS and Apple platform cryptography for authentication and service c
 ## Verified Live Setup
 
 - Apple Developer organization: `9INE LTD` (`SSTZYP6ZWB`).
-- App ID `so.nima.app`: App Groups, Network Extensions, and Sign in with Apple enabled.
+- App ID `so.nima.app`: App Groups and Network Extensions enabled. The build no longer requests the Sign in with Apple entitlement; disable the unused capability in the Apple Developer portal when provisioning allows.
 - Extension ID `so.nima.app.NimaTunnel`: App Groups and Network Extensions enabled.
 - App Group `group.so.nima.app`: present in the signed entitlements for both targets.
 - App Store Connect record uses `so.nima.app`, version `1.0`, Apple ID `6790122342`.
@@ -166,7 +163,7 @@ Nima uses HTTPS and Apple platform cryptography for authentication and service c
 - Set Content Rights, primary/secondary categories, age rating, App Privacy answers, review contact details, and review notes.
 - Finish the two subscription records and correct their RevenueCat product mappings.
 - Upload the signed build and answer its export-compliance questions. Server-side App Store validation happens after upload.
-- Test purchase, restore, login, account deletion, VPN permission, and blocking on a physical iPhone/TestFlight build.
+- Test anonymous purchase, restore after reinstall/on another device with the same Apple ID, VPN permission, and blocking on a physical iPhone/TestFlight build.
 - Attach both subscriptions to version 1.0 before adding the version for review.
 
 ## App Store Connect API Automation

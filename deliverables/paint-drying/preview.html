@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nima Paint Drying — 60 Second Preview</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #101512; color: #f4f4ef; }
+    main { width: min(94vw, 760px); padding: 28px; }
+    h1 { margin: 0 0 4px; font-size: clamp(22px, 4vw, 34px); letter-spacing: -0.03em; }
+    .sub { margin: 0 0 20px; color: #aeb9b3; }
+    .stage { overflow: hidden; border: 1px solid #31443a; border-radius: 22px; background-color: #18201c; background-image: linear-gradient(45deg,#1d2822 25%,transparent 25%),linear-gradient(-45deg,#1d2822 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1d2822 75%),linear-gradient(-45deg,transparent 75%,#1d2822 75%); background-size: 24px 24px; background-position: 0 0,0 12px,12px -12px,-12px 0; }
+    #animation { width: 100%; aspect-ratio: 1; }
+    .readout { display: flex; align-items: baseline; justify-content: space-between; margin: 18px 2px 8px; }
+    #countdown { font-variant-numeric: tabular-nums; font-size: 32px; font-weight: 700; }
+    #state { color: #9fb3a7; }
+    input[type="range"] { width: 100%; accent-color: #629580; }
+    .buttons { display: flex; gap: 10px; margin-top: 14px; }
+    button { appearance: none; border: 1px solid #3a5144; border-radius: 12px; background: #233028; color: inherit; padding: 10px 16px; font: inherit; cursor: pointer; }
+    button:hover { background: #2d3c33; }
+    button.primary { background: #008053; border-color: #008053; }
+    button.primary:hover { background: #079363; }
+    .error { color: #ffb4ab; padding: 18px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Watch paint dry</h1>
+    <p class="sub">Nima Hard Mode · 60-second production preview</p>
+    <div class="stage"><div id="animation"></div></div>
+    <div class="readout">
+      <span id="countdown">01:00.0</span>
+      <span id="state">Fresh paint · 0%</span>
+    </div>
+    <input id="timeline" type="range" min="0" max="1" step="0.000555556" value="0" aria-label="Animation progress">
+    <div class="buttons">
+      <button id="play" class="primary">Play</button>
+      <button id="pause">Pause</button>
+      <button id="reset">Reset</button>
+    </div>
+  </main>
+  <script src="vendor/lottie.min.js"></script>
+  <script>
+    const duration = 60;
+    const requestedProgress = Math.max(0, Math.min(1, Number(new URLSearchParams(location.search).get('progress')) || 0));
+    const timeline = document.querySelector('#timeline');
+    const countdown = document.querySelector('#countdown');
+    const state = document.querySelector('#state');
+
+    function formatRemaining(progress) {
+      const remaining = Math.max(0, duration * (1 - progress));
+      const minutes = Math.floor(remaining / 60);
+      const seconds = remaining - minutes * 60;
+      return `${String(minutes).padStart(2, '0')}:${seconds.toFixed(1).padStart(4, '0')}`;
+    }
+
+    function updateUI(progress) {
+      const clamped = Math.max(0, Math.min(1, progress));
+      timeline.value = clamped;
+      countdown.textContent = formatRemaining(clamped);
+      const label = clamped >= 0.999 ? 'Completely dry' : clamped >= 0.5 ? 'Drying' : 'Fresh paint';
+      state.textContent = `${label} · ${Math.round(clamped * 100)}%`;
+    }
+
+    if (!window.lottie) {
+      document.querySelector('#animation').innerHTML = '<p class="error">The local Lottie player could not be loaded.</p>';
+    } else {
+      const animation = lottie.loadAnimation({
+        container: document.querySelector('#animation'),
+        renderer: 'svg',
+        loop: false,
+        autoplay: false,
+        path: 'nima_paint_drying.json',
+        rendererSettings: { preserveAspectRatio: 'xMidYMid meet', progressiveLoad: true }
+      });
+      window.previewAnimation = animation;
+
+      animation.addEventListener('DOMLoaded', () => {
+        animation.goToAndStop(requestedProgress * (animation.totalFrames - 1), true);
+        updateUI(requestedProgress);
+      });
+      animation.addEventListener('enterFrame', ({ currentTime }) => updateUI(currentTime / animation.totalFrames));
+      animation.addEventListener('complete', () => updateUI(1));
+      animation.addEventListener('data_failed', () => {
+        document.querySelector('#animation').innerHTML = '<p class="error">Could not load the animation. Open this folder through a local web server; see README.md.</p>';
+      });
+
+      document.querySelector('#play').addEventListener('click', () => animation.play());
+      document.querySelector('#pause').addEventListener('click', () => animation.pause());
+      document.querySelector('#reset').addEventListener('click', () => { animation.goToAndStop(0, true); updateUI(0); });
+      timeline.addEventListener('input', event => {
+        const progress = Number(event.target.value);
+        animation.goToAndStop(progress * (animation.totalFrames - 1), true);
+        updateUI(progress);
+      });
+    }
+  </script>
+</body>
+</html>

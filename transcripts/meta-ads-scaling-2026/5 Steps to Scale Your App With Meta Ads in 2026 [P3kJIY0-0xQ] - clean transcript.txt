@@ -1,0 +1,120 @@
+5 Steps to Scale Your App With Meta Ads in 2026
+Channel: Benji
+Video: https://youtu.be/P3kJIY0-0xQ
+Duration: 12:57
+
+Note: Cleaned from YouTube auto-generated English captions; minor transcription errors may remain.
+
+By watching until the end of this video, you're going to understand how to set up your own campaign, how do you adjust different budget, how do you [music] track whether paid ads is performing well or not, how do you ensure you're getting the correct data points, but most importantly you're going to take
+
+away a growth playbook that you can apply to any other products out there. [music] Step one is to actually pick a proven idea. So, I know this is very cliche, but you need to have a product that could [music] actually scale and make a profit on the market. What do I mean by
+
+that? Well, just have an idea that has already proven product market fit. Super easy, go to Sensor Tower, search [music] for an app that you personally find interest in. If they're making a few hundred thousand dollars a month in monthly recurring revenue, [music] great. That means there is product
+
+market fit. Obviously, assuming that the API costs would be very low, you can just scale [music] this indefinitely without incurring too much cost on your end. That's going to be good. The problem with majority of app founders out there is that obviously people reverse engineer how to market that the
+
+idea that they currently have on [music] social media, but a lot of times they just don't have a good enough idea that could actually monetize. Ultimately, every single product out there on the market is just a productized solution towards a problem that people are willing to pay for.
+
+>> [music] >> So, so make sure you're solving a good enough problem. What if you have 20 competitors out there? It doesn't matter. Well, obviously there's going to be less alpha in the market, but what if why don't you geo arbitrage? [music] You can run the same app concept in Asia, in
+
+a different country, in a different language. There are all sorts [music] of different place that you could do it. There are already hundreds of habit trackers. Don't build another generic one. [music] The core product might be very similar, but the habits you track, the visuals, the language, the
+
+onboarding, the whole experience can be designed around another ICP. For example, >> [music] >> a habit tracker is generic, but a habit tracker for women building a healthy routine in their 40s in the country of Germany might be a good example [music]
+
+of a good product that you could go with. Bible Chat is a great example. Bible apps already existed for decades. [music] However, they're they're able to add an AI angle to it and you're able to chat with AI to understand more about the Bible. >> [music]
+
+>> They're still selling on the Bible knowledge, yet the approach is different and they're making hundreds of thousands of dollars a month. >> [music] >> So, the same problem can be solved with different solutions. The second step is just to ship the product. So, I don't
+
+want to get into too much details, but use Cloud and obviously [music] have a proper backend, run through different security measures, submit it on the App Store, make sure you're enrolled in Apple's Small Business Program, and [music] then obviously if you're running paywall, use Superwall or
+
+Revenue Cat, have Mixpanel set up to track your analytics, >> [music] >> and make sure you have decent UI. And obviously consistently AB test different offers, different onboarding, so that you're optimizing your product so that you can have higher conversions [music]
+
+so that you have more leeway when you're scaling your app. Speed is the moat. If you have a product and you run your paid ad strategy, it does not work out. [music] Great, just build another one. Speed is everything. So, obviously product matters a lot as well, but it gets to a point where, you know, once
+
+you build your fourth [music] app or fifth app, it kind of just comes like a procedure. You have onboarding, you have paywall, and then you have the main app. Now, let's actually get into what you clicked for, >> [music] >> which is how do you actually run paid
+
+ads? Paid ads were probably the biggest unlock for me because they make growth predictable instead of relying on influencers and UGC creators, where [music] it's a bit harder to attribute. Obviously, I know the overall blended CAC of my organic content, but I want to be able to stably scale [music]
+
+my growth. Or else, let's say if one of my UGC creators flopped or their account got banned, what what should I do? So, paid ads removed a lot of that. It comes down to one question, [music] which is if I spend $1, how much money does that dollar bring back? If $1 of spend eventually brings back $1.30, you have
+
+something you can [music] work with. And then, the paid ads game becomes you want to spend more without destroying the economics [music] because you hit diminishing returns. If you want the full math of how you calculate CAC versus LTV, I have a whole 'nother video about this. So, [music] feel free to
+
+check it out. Majority of people think Meta ads is a targeting system, it's not. It's a prediction machine running a live auction. Every time somebody [music] opens Instagram or Facebook, Meta Ads algorithm is already determining whether they want to serve your ad [music] or not. They're
+
+determining the user's intent, whether that person would likely to care about your product at all or not. And if yes, should they show you or your competitors? And it will [music] just keep learning from its results. Therefore, this brings me to the settings that most beginners get wrong,
+
+which is they're optimizing for the wrong thing. [music] So, in Meta Ads campaign, you can set your optimization event, which is basically what do you want to >> [music] >> What do you want to get out of Meta Ads? There are different types of events you
+
+can optimize for. Some people optimize for purchase, [music] so they want Meta Ads to just drive more subscriptions to their app and actually make money. [music] Or there are people optimizing for downloads, so they just want more downloads because maybe their app is a
+
+very [music] network-based app. They just want more users and the values will come from increasing users. [music] But you have to understand the event will decide the level of customers [music] you're getting. Most likely, if you're running a hard paywall consumer
+
+app, you want to optimize for purchase. All right, the second is warming up an ad account. [music] So, you go to Meta Ads, you create a business portfolio, and then you create an ad account under that. Don't just start throwing a bunch of untested conversion ads into it on day one [music] because Meta knows
+
+nothing about you yet. There's no history of people engaging with your ads, there's very little delivery data, and there's no [music] track record. Obviously, Meta would also rank different ad accounts in in accordance to tier. So, if you have an ad account that spent a few million dollars a year
+
+in [music] ad spend, they treat that account better than you with zero ad spend. So, in order to give the account a few days of clean positive activity, >> [music] >> I would just warm up a new account, set up an engagement campaign, just run some harmless static ads, [music] put them on
+
+5 days through 7 days of engagement, and then just set up conversion campaigns. Don't try to sell anything yet. You just want the account delivering [music] ads and getting real engagement. Obviously, Meta won't show you your public reputation score, [music] but you have to know that on the back end, they're
+
+consistently scoring you as a company. There's so many times where I just directly started a new Meta Ads account and I just started running ads on it and it [music] just won't spend at all. So, I think I was shadowbanned or something. But, definitely this is will be my approach. There's just simply no need to
+
+rush a fresh account. So, I would just let it marinate for a few days. >> [music] >> Realize that for attribution, use your SDK first, then use your mobile app, then use your MMP. Understand a mobile measurement partner like AppsFlyer and Adjust will give you better attribution
+
+data compared to Meta Pixel. [music] And that's what every single person who knows what they're doing in the app space is using. However, don't just jump straight into an MMP campaign. First, implement the Meta SDK, set up your important [music] conversion events, and start running SDK
+
+conversion campaigns right away. Second, set up your MMP alongside it. [music] While those campaigns run, the MMP collects conversion data and builds history. [music] Finally, once there is enough data, move to MMP campaigns. You usually can't optimize on MMP from day one because there's simply no data to
+
+optimize around yet. This is why SDK comes first. [music] You start getting user data immediately instead of waiting for your MMP to start building up data. So, you're not choosing between, "Oh, should I use the native SDK or the MMP?" Just understand that SDK gets [music] things moving a lot faster, and which
+
+would enable you to use your MMP in the long run. Part three is how do you actually set up the campaign structures? There are different approaches people take. My personal recommendation is to set up an and a CBO. [music] An gives you control over how much budget goes into each ad set. So, every new
+
+creative gets a fair test. The goal here isn't scaling. [music] It's finding out which creatives and which angles can actually make conversions profitably. Once something clearly works, move it out of testing [music] and into a CBO campaign. What is a CBO, you ask? With CBO, you give Meta one bigger budget for
+
+the entire CBO campaign, which is what we usually called a scaling campaign. And it sends more spend to the ads and ad sets [music] that it would expect to perform best. In Ads Manager, it's now called Advantage Campaign Budget. [music] When you're starting out, don't set up 100 different ad sets. It's going
+
+to confuse yourself. Keep testing new creatives in Once you're doing good, put them [music] in CBO and it's going to start scaling. All right, just a quick plug. If you haven't subscribed, please subscribe because [music] I want you to subscribe. Let's move on to testing creatives. When you start, don't
+
+mix five slightly different versions of the same ad. Test completely [music] different concepts, hooks, formats, angles, and visuals. If something hasn't been properly tested yet, >> [music] >> you don't know whether something works or not. All right, remember to judge ads
+
+by spend, not by days. So, [music] one ad can spend $100 in 10 days, another can spend 10 in one day. Those are completely different tests. [music] Just understand that the most important metric to look for is CPA. What you pay for each customer. CTR, CPC, hook rate, CPM matter slightly less, but obviously
+
+they help you diagnose whether the creative grabs attention and moves people [music] through the funnel that you want to move them through. If an ad has spent enough and it's beating your no low CPA, mark it as a potential [music] winner and if it's clearly worse after enough spend, kill it. Once a
+
+winner shows up, start testing variations around it. [music] Keep the core idea, but change the delivery, the opening visual, the font, the color, the person, the ICP that you're targeting, [music] the hooks. If you keep making variations of the winning format and does not work, great. Just go on your
+
+day and just focus on finding another winning format. But, most likely, based on my experience, a winning format would just be able [music] to scale with different variants. And here's the most important thing. Test more as you scale. An ad that works at $100 a day won't necessarily work at 1,000. [music] As
+
+you're scaling, you're entering a new level because Meta has to find way more customers to fit your niche and you're going to hit diminishing returns, [music] which is what we call creative fatigues. Your creative strategy has to scale alongside your ad spend. [music] You cannot rely, and I repeat, cannot
+
+rely on a winning ad to perform consistently well for 20 years and just to [music] scale you from $0 to $100,000. But also understand that Meta has become extremely good at targeting your ICP. So don't obsess over campaign settings. Just have an have a CBO, [music]
+
+and then the creatives would do the targeting themselves. They're going to transcribe your video. They're going to read [music] the text on your static ads, and they're going to try to find the best ICP. Trust me, there's not much optimization you can do [music] other than just deliver the best performing
+
+creatives and an approach to testing creatives scientifically. Meta has way more data that they train on on consumer retention, on consumer [music] trends, on consumer data than you would ever be able to access to. So just trust them on this. So let's say if an ad clearly speaks to women, the women who engage
+
+and convert gives Meta signals to find more people like them. If an ad is specifically about older soccer players, the visuals, language, the hook, and the earlier engagement [music] all tell Meta who it's for. Your target customer should see the ad and think, this is literally for me. You could have your ad
+
+literally call out the ICP itself as well. [music] So for example, if I'm building an app that is a study tool, I could have hooks that says, "If you are a middle schooler in America studying math and you're struggling in class, this is [music] the tool for you." Or you can run another hook that says, "If
+
+you're a 13-year-old girl who's struggling in her geometry class and her geography class, [music] here is the tool that you have to use." And it's going to go out and find those ICP for you. But how do you actually scale a winner ad? Let's go back [music] into the weeds. There are two ways:
+
+vertical scaling and horizontal scaling. Vertical scaling is the simplest. You take a winning asset and gradually raise its budget. >> [music] >> A good rule is about 20% every 48 hours. So as long as the creative keeps showing, it can handle more spend. Let's
+
+say if an ad set is spending $500 a day, >> [music] >> move it to 600. Let it run, then raise it again if the numbers still make sense. Your CPA will move around while you raise the budget because every time spend goes up, Meta has to expand delivery and find more new customers.
+
+Eventually, you're going to hit diminishing return where [music] more spend will simply just hit performance and your unit economics will not be working out. This is where horizontal scaling comes in. [music] What is horizontal scaling? Instead of forcing one winner to absorb more and more
+
+budget, you just create more winners and run them side by side. As I stated before, make a variations of your winning creative. Find another one that performs at a similar level and give each one its own budget. [music] So, instead of pushing one ad set from $1,000 to $2,000 a day, you run winner A
+
+at $1,000 and winner B at another $1,000. >> [music] >> Same $2,000 a day in total and you didn't force one creative to carry all of it. This is why testing creative angles matters so much more as you scale. Because if you have simply just
+
+more winner formats, [music] you're going to be able to scale more aggressively. In practice, the strongest approach is usually both vertical and horizontal scaling. >> [music] >> Slowly raise your best winners, keep testing new creatives that can run next
+
+to them. This is how you go from a one winning ad to an actual [music] scaling system for your app. Ultimately, I think growth is just a math problem because once you figure out your unit economics, you understand what is your break even LTV, [music] you can scale aggressively. Obviously, you can optimize for annual
+
+subscriptions to decrease the payback period so that you have more cash so you can [music] scale even more aggressively. It's really just understanding how to not lose too much money while you're scaling. As long as you're scaling at break even, [music] ultimately you're going to recover your
+
+cash from your current customers. Obviously, building a great product matters, but also having a methodical approach to growth is what creates the [music] alpha. I hope you guys all the best in your growth journey and if you have any questions, feel free to let me know. I'll see you in the next [music]
+
+one. Thank you for watching.
