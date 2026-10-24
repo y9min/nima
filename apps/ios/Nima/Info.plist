@@ -17,15 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2</string>
+	<string>1.3</string>
 	<key>CFBundleURLTypes</key>
 	<array>
-		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
-			</array>
-		</dict>
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
@@ -34,11 +28,29 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>23</string>
-	<key>GOOGLE_IOS_CLIENT_ID</key>
-	<string>$(GOOGLE_IOS_CLIENT_ID)</string>
+	<string>25</string>
+	<key>FacebookAdvertiserIDCollectionEnabled</key>
+	<false/>
+	<key>FacebookAppID</key>
+	<string>$(META_APP_ID)</string>
+	<key>FacebookAutoInitEnabled</key>
+	<false/>
+	<key>FacebookAutoLogAppEventsEnabled</key>
+	<false/>
+	<key>FacebookClientToken</key>
+	<string>$(META_CLIENT_TOKEN)</string>
+	<key>FacebookDisplayName</key>
+	<string>Nima</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>META_ADS_ENABLED</key>
+	<string>$(META_ADS_ENABLED)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Allow Instagram inside Nima to take photos and videos when you choose to create a post or message.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Allow Instagram inside Nima to record audio when you choose to create a post or message.</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>Your permission helps us measure which Nima ads lead to downloads and subscriptions.</string>
 	<key>POSTHOG_HOST</key>
 	<string>https://eu.i.posthog.com</string>
 	<key>POSTHOG_PROJECT_TOKEN</key>

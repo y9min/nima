@@ -6,25 +6,141 @@ enum AnalyticsEvent {
     static let onboardingStepViewed = "onboarding_step_viewed"
     static let onboardingStepCompleted = "onboarding_step_completed"
     static let onboardingCompleted = "onboarding_completed"
+    static let permissionRequested = "permission_requested"
+    static let permissionResolved = "permission_resolved"
+    static let guidedPracticeStarted = "guided_practice_started"
+    static let guidedPracticeCompleted = "guided_practice_completed"
+    static let guidedWindowsStarted = "guided_windows_started"
+    static let guidedWindowsStepViewed = "guided_windows_step_viewed"
+    static let guidedWindowsCompleted = "guided_windows_completed"
     static let paywallViewed = "paywall_screen_viewed"
+    static let paywallLoadStarted = "paywall_load_started"
+    static let paywallLoaded = "paywall_loaded"
+    static let paywallLoadFailed = "paywall_load_failed"
+    static let paywallClosed = "paywall_closed"
     static let paywallUnlocked = "paywall_unlocked"
     static let purchaseStarted = "purchase_started"
+    static let purchaseCancelled = "purchase_cancelled"
+    static let purchasePending = "purchase_pending"
     static let purchaseSucceeded = "purchase_succeeded"
     static let purchaseFailed = "purchase_failed"
-    static let accountScreenViewed = "account_screen_viewed"
-    static let authStarted = "auth_started"
-    static let authSucceeded = "auth_succeeded"
-    static let authFailed = "auth_failed"
-    static let accountLinkDeferred = "account_link_deferred"
+    static let entitlementActivated = "entitlement_activated"
+    static let purchaseSucceededWithoutEntitlement = "purchase_succeeded_without_entitlement"
     static let restoreStarted = "restore_started"
     static let restoreSucceeded = "restore_succeeded"
     static let restoreFailed = "restore_failed"
     static let appUnlocked = "app_unlocked"
 }
 
+struct PurchaseAnalyticsAttempt {
+    let id: UUID
+    let startedAt: Date
+    let offeringID: String
+    let packageID: String
+    let productID: String
+    let price: Double
+    let currencyCode: String?
+    let localizedPrice: String
+
+    init(
+        id: UUID = UUID(),
+        startedAt: Date = Date(),
+        offeringID: String,
+        packageID: String,
+        productID: String,
+        price: Double,
+        currencyCode: String?,
+        localizedPrice: String
+    ) {
+        self.id = id
+        self.startedAt = startedAt
+        self.offeringID = offeringID
+        self.packageID = packageID
+        self.productID = productID
+        self.price = price
+        self.currencyCode = currencyCode
+        self.localizedPrice = localizedPrice
+    }
+
+    func properties(now: Date = Date()) -> [String: Any] {
+        var properties: [String: Any] = [
+            "purchase_attempt_id": id.uuidString.lowercased(),
+            "offering_id": offeringID,
+            "package_id": packageID,
+            "product_id": productID,
+            "price": price,
+            "localized_price": localizedPrice,
+            "duration_ms": max(0, Int(now.timeIntervalSince(startedAt) * 1_000)),
+        ]
+        if let currencyCode, !currencyCode.isEmpty {
+            properties["currency"] = currencyCode
+        }
+        return properties
+    }
+}
+
+enum PurchaseAnalytics {
+    static func errorProperties(_ error: NSError) -> [String: Any] {
+        var properties: [String: Any] = [
+            "error_source": errorSource(error),
+            "revenuecat_error_code": error.code,
+            "revenuecat_error_domain": error.domain,
+        ]
+
+        if let readableCode = stringValue(error.userInfo["readable_error_code"])
+            ?? stringValue(error.userInfo["rc_code_name"]) {
+            properties["revenuecat_error_name"] = readableCode
+        }
+        if let backendCode = scalarValue(error.userInfo["rc_backend_error_code"]) {
+            properties["revenuecat_backend_error_code"] = backendCode
+        }
+        if let statusCode = scalarValue(error.userInfo["rc_response_status_code"]) {
+            properties["http_status_code"] = statusCode
+        }
+        if let underlying = underlyingError(error) {
+            properties["store_error_domain"] = underlying.domain
+            properties["store_error_code"] = underlying.code
+        }
+        return properties
+    }
+
+    static func errorSource(_ error: NSError) -> String {
+        if error.userInfo["rc_backend_error_code"] != nil || [11, 12, 16, 17, 23, 29, 33, 37].contains(error.code) {
+            return "revenuecat_backend"
+        }
+        if [10, 35].contains(error.code) {
+            return "network"
+        }
+        if underlyingError(error) != nil || [2, 3, 4, 5, 6, 8, 9, 18, 19, 20, 32].contains(error.code) {
+            return "apple_storekit"
+        }
+        return "revenuecat_sdk"
+    }
+
+    private static func underlyingError(_ error: NSError) -> NSError? {
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            return underlying
+        }
+        return error.userInfo["rc_root_error"] as? NSError
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        value as? String
+    }
+
+    private static func scalarValue(_ value: Any?) -> Any? {
+        switch value {
+        case let value as String: return value
+        case let value as NSNumber: return value
+        case let value as Int: return value
+        default: return nil
+        }
+    }
+}
+
 final class AnalyticsService {
     static let shared = AnalyticsService()
-    static let flowVersion = "post_paywall_account_v1"
+    static let flowVersion = "anonymous_restore_v2"
 
     private(set) var isConfigured = false
 
@@ -55,16 +171,6 @@ final class AnalyticsService {
         var safeProperties = properties
         safeProperties["flow_version"] = Self.flowVersion
         PostHogSDK.shared.capture(event, properties: safeProperties)
-    }
-
-    func identify(userID: UUID) {
-        guard isConfigured else { return }
-        PostHogSDK.shared.identify(userID.uuidString.lowercased())
-    }
-
-    func resetIdentity() {
-        guard isConfigured else { return }
-        PostHogSDK.shared.reset()
     }
 
     var distinctID: String? {

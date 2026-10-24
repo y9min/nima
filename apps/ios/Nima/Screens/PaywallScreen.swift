@@ -5,39 +5,57 @@ import SwiftUI
 struct PaywallScreen: View {
     @Environment(SubscriptionStore.self) private var subscriptionStore
 
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var didPrepareMeasurement = false
+    @State private var loadStartedAt: Date?
+    @State private var didTrackLoadResult = false
+
     let onUnlocked: () -> Void
+    let context: String
     var onClose: (() -> Void)?
-    var onSignIn: (() -> Void)?
 
     init(
         onUnlocked: @escaping () -> Void,
-        onClose: (() -> Void)? = nil,
-        onSignIn: (() -> Void)? = nil
+        context: String = "onboarding_gate",
+        onClose: (() -> Void)? = nil
     ) {
         self.onUnlocked = onUnlocked
+        self.context = context
         self.onClose = onClose
-        self.onSignIn = onSignIn
     }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Group {
-                switch subscriptionStore.offeringsState {
-                case .idle, .loading:
+                if !didPrepareMeasurement {
                     PaywallLoadingView()
-                case .loaded:
-                    if let offering = subscriptionStore.currentOffering, offering.hasPaywall {
-                        RevenueCatPaywallView(offering: offering)
-                    } else {
-                        PaywallUnavailableView(message: "The subscription screen is unavailable right now.")
+                } else {
+                    switch subscriptionStore.offeringsState {
+                    case .idle, .loading:
+                        PaywallLoadingView()
+                    case .loaded:
+                        if let offering = subscriptionStore.currentOffering, offering.hasPaywall {
+                            RevenueCatPaywallView(offering: offering, context: context)
+                        } else {
+                            PaywallUnavailableView(
+                                message: "The subscription screen is unavailable right now.",
+                                onRetry: retryOfferings
+                            )
+                        }
+                    case .failed(let message):
+                        PaywallUnavailableView(message: message, onRetry: retryOfferings)
                     }
-                case .failed(let message):
-                    PaywallUnavailableView(message: message)
                 }
             }
 
             if let onClose {
-                Button(action: onClose) {
+                Button {
+                    AnalyticsService.shared.capture(
+                        AnalyticsEvent.paywallClosed,
+                        properties: ["context": context]
+                    )
+                    onClose()
+                } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(.white)
@@ -49,28 +67,25 @@ struct PaywallScreen: View {
                 .padding(.trailing, 16)
             }
 
-            if let onSignIn {
-                VStack {
-                    Spacer()
-                    Button("Already subscribed? Sign in") {
-                        onSignIn()
-                    }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 20)
-                    .frame(height: 46)
-                    .background(.black.opacity(0.55), in: Capsule())
-                    .padding(.bottom, 18)
-                    .accessibilityIdentifier("subscription.sign_in")
-                }
-                .frame(maxWidth: .infinity)
+        }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            await MetaAdsService.shared.requestPermissionBeforePaywall()
+            if !didPrepareMeasurement {
+                didPrepareMeasurement = true
+                AnalyticsService.shared.capture(
+                    AnalyticsEvent.paywallViewed,
+                    properties: ["context": context]
+                )
+            }
+            if subscriptionStore.offeringsState == .idle {
+                startLoadingOfferings()
+            } else {
+                trackOfferingsResult(subscriptionStore.offeringsState)
             }
         }
-        .task {
-            AnalyticsService.shared.capture(AnalyticsEvent.paywallViewed)
-            if subscriptionStore.offeringsState == .idle {
-                subscriptionStore.loadOfferings()
-            }
+        .onChange(of: subscriptionStore.offeringsState) { _, state in
+            trackOfferingsResult(state)
         }
         .onChange(of: subscriptionStore.hasPremium) { _, hasPremium in
             if hasPremium {
@@ -81,31 +96,117 @@ struct PaywallScreen: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
     }
+
+    private func startLoadingOfferings() {
+        loadStartedAt = Date()
+        didTrackLoadResult = false
+        AnalyticsService.shared.capture(
+            AnalyticsEvent.paywallLoadStarted,
+            properties: ["context": context]
+        )
+        subscriptionStore.loadOfferings()
+    }
+
+    private func retryOfferings() {
+        startLoadingOfferings()
+    }
+
+    private func trackOfferingsResult(_ state: OfferingsLoadState) {
+        guard !didTrackLoadResult else { return }
+        let duration = max(0, Int(Date().timeIntervalSince(loadStartedAt ?? Date()) * 1_000))
+        switch state {
+        case .loaded:
+            didTrackLoadResult = true
+            AnalyticsService.shared.capture(
+                AnalyticsEvent.paywallLoaded,
+                properties: [
+                    "context": context,
+                    "duration_ms": duration,
+                    "load_source": loadStartedAt == nil ? "cache" : "network",
+                    "offering_id": subscriptionStore.currentOffering?.identifier ?? "unknown",
+                    "has_revenuecat_paywall": subscriptionStore.currentOffering?.hasPaywall == true,
+                ]
+            )
+        case .failed(let message):
+            didTrackLoadResult = true
+            AnalyticsService.shared.capture(
+                AnalyticsEvent.paywallLoadFailed,
+                properties: [
+                    "context": context,
+                    "duration_ms": duration,
+                    "load_source": loadStartedAt == nil ? "cache" : "network",
+                    "reason": message.contains("too long") ? "timeout" : "offerings_unavailable",
+                ]
+            )
+        case .idle, .loading:
+            break
+        }
+    }
 }
 
 private struct RevenueCatPaywallView: View {
     @Environment(SubscriptionStore.self) private var subscriptionStore
 
     let offering: RevenueCat.Offering
+    let context: String
+    @State private var purchaseAttempt: PurchaseAnalyticsAttempt?
 
     var body: some View {
         PaywallView(offering: offering, displayCloseButton: false)
             .onPurchaseStarted { package in
+                let attempt = PurchaseAnalyticsAttempt(
+                    offeringID: offering.identifier,
+                    packageID: package.identifier,
+                    productID: package.storeProduct.productIdentifier,
+                    price: NSDecimalNumber(decimal: package.storeProduct.price).doubleValue,
+                    currencyCode: package.storeProduct.currencyCode,
+                    localizedPrice: package.localizedPriceString
+                )
+                purchaseAttempt = attempt
                 AnalyticsService.shared.capture(
                     AnalyticsEvent.purchaseStarted,
-                    properties: ["package": package.identifier]
+                    properties: attempt.properties().merging(["context": context]) { current, _ in current }
                 )
             }
             .onPurchaseCompleted { _, customerInfo in
                 subscriptionStore.handlePaywallCustomerInfo(customerInfo)
-                AnalyticsService.shared.capture(AnalyticsEvent.purchaseSucceeded)
+                let entitlementActive = customerInfo.entitlements.active[SubscriptionStore.premiumEntitlementID] != nil
+                let properties = purchaseProperties().merging([
+                    "context": context,
+                    "entitlement_active": entitlementActive,
+                ]) { current, _ in current }
+                AnalyticsService.shared.capture(AnalyticsEvent.purchaseSucceeded, properties: properties)
+                AnalyticsService.shared.capture(
+                    entitlementActive
+                        ? AnalyticsEvent.entitlementActivated
+                        : AnalyticsEvent.purchaseSucceededWithoutEntitlement,
+                    properties: properties
+                )
+                purchaseAttempt = nil
+            }
+            .onPurchaseCancelled {
+                AnalyticsService.shared.capture(
+                    AnalyticsEvent.purchaseCancelled,
+                    properties: purchaseProperties().merging(["context": context]) { current, _ in current }
+                )
+                purchaseAttempt = nil
             }
             .onPurchaseFailure { error in
-                AnalyticsService.shared.capture(
-                    AnalyticsEvent.purchaseFailed,
-                    properties: ["reason": "purchase_error"]
-                )
-                switch RevenueCat.ErrorCode(rawValue: error.code) {
+                let code = RevenueCat.ErrorCode(rawValue: error.code)
+                let event: String
+                if code == .purchaseCancelledError {
+                    event = AnalyticsEvent.purchaseCancelled
+                } else if code == .paymentPendingError {
+                    event = AnalyticsEvent.purchasePending
+                } else {
+                    event = AnalyticsEvent.purchaseFailed
+                }
+                let properties = purchaseProperties()
+                    .merging(PurchaseAnalytics.errorProperties(error)) { current, _ in current }
+                    .merging(["context": context]) { current, _ in current }
+                AnalyticsService.shared.capture(event, properties: properties)
+                purchaseAttempt = nil
+                switch code {
                 case .productAlreadyPurchasedError,
                      .receiptAlreadyInUseError,
                      .receiptInUseByOtherSubscriberError,
@@ -118,15 +219,22 @@ private struct RevenueCatPaywallView: View {
                 }
             }
             .onRestoreStarted {
-                AnalyticsService.shared.capture(AnalyticsEvent.restoreStarted, properties: ["context": "paywall"])
+                AnalyticsService.shared.capture(AnalyticsEvent.restoreStarted, properties: ["context": context])
             }
             .onRestoreCompleted { customerInfo in
                 subscriptionStore.handlePaywallCustomerInfo(customerInfo)
-                AnalyticsService.shared.capture(AnalyticsEvent.restoreSucceeded, properties: ["context": "paywall"])
+                AnalyticsService.shared.capture(AnalyticsEvent.restoreSucceeded, properties: ["context": context])
             }
             .onRestoreFailure { _ in
-                AnalyticsService.shared.capture(AnalyticsEvent.restoreFailed, properties: ["context": "paywall"])
+                AnalyticsService.shared.capture(AnalyticsEvent.restoreFailed, properties: ["context": context])
             }
+    }
+
+    private func purchaseProperties() -> [String: Any] {
+        purchaseAttempt?.properties() ?? [
+            "purchase_attempt_id": UUID().uuidString.lowercased(),
+            "offering_id": offering.identifier,
+        ]
     }
 }
 
@@ -143,9 +251,8 @@ private struct PaywallLoadingView: View {
 }
 
 private struct PaywallUnavailableView: View {
-    @Environment(SubscriptionStore.self) private var subscriptionStore
-
     let message: String
+    let onRetry: () -> Void
 
     var body: some View {
         ZStack {
@@ -158,7 +265,7 @@ private struct PaywallUnavailableView: View {
                     .foregroundStyle(.white)
 
                 Button("Try Again") {
-                    subscriptionStore.retryOfferings()
+                    onRetry()
                 }
                 .foregroundStyle(Color(red: 0.71, green: 0.95, blue: 0.08))
             }
