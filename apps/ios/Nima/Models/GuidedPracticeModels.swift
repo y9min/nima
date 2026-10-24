@@ -1,11 +1,12 @@
+import FamilyControls
 import Foundation
+import ManagedSettings
 
 enum AppRootDestination: Equatable {
     case onboarding
     case guidedExperience
     case subscriptionLoading
     case paywall
-    case accountLinking
     case mainApp
 }
 
@@ -14,9 +15,7 @@ struct AppAccessPolicy {
         onboardingCompleted: Bool,
         guidedExperienceCompleted: Bool,
         hasPremium: Bool,
-        verificationState: SubscriptionVerificationState,
-        isAuthenticated: Bool = true,
-        accountLinkingDeferred: Bool = false
+        verificationState: SubscriptionVerificationState
     ) -> AppRootDestination {
         guard onboardingCompleted else { return .onboarding }
         guard guidedExperienceCompleted else { return .guidedExperience }
@@ -24,25 +23,29 @@ struct AppAccessPolicy {
         switch verificationState {
         case .verified:
             guard hasPremium else { return .paywall }
-            return !isAuthenticated && !accountLinkingDeferred ? .accountLinking : .mainApp
+            return .mainApp
         case .idle, .loading, .failed:
             guard hasPremium else { return .subscriptionLoading }
-            return !isAuthenticated && !accountLinkingDeferred ? .accountLinking : .mainApp
+            return .mainApp
         }
     }
 }
 
-struct GuidedPracticeAccessPolicy {
-    static func showsSkipPractice(for identity: SubscriptionIdentity) -> Bool {
-        guard case .demo(let email) = identity else { return false }
-        return AuthStore.isAppStoreReviewAccount(email: email)
+struct InstagramGuidedPracticePolicy {
+    static func isReadyForControlsExplanation(
+        sessionStatus: InstagramSessionStatus,
+        mode: InstagramMode,
+        filteringHealth: InstagramFilteringHealth
+    ) -> Bool {
+        sessionStatus == .authenticated
+            && mode == .clean
+            && filteringHealth == .healthy
     }
 }
 
 enum NimaLaunchConfiguration {
     #if DEBUG
     static let skipExternalGuidedPracticeArgument = "-NimaSkipExternalGuidedPractice"
-    static let simulateExpiredReviewSubscriptionArgument = "-NimaSimulateExpiredReviewSubscription"
     #endif
 
     static func skipsExternalGuidedPractice(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
@@ -53,13 +56,6 @@ enum NimaLaunchConfiguration {
         #endif
     }
 
-    static func simulatesExpiredReviewSubscription(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
-        #if DEBUG
-        arguments.contains(simulateExpiredReviewSubscriptionArgument)
-        #else
-        false
-        #endif
-    }
 }
 
 enum GuidedOnboardingPresentationMode: Equatable {
@@ -80,6 +76,9 @@ enum GuidedPracticePhase: Equatable {
     case hidden
     case introSlides
     case readyCoachMark
+    case appSelection
+    case familyPickerVideo
+    case appConnections
     case dragTikTokCoachMark
     case openAppPrompt
     case waitingForReturn
@@ -90,6 +89,43 @@ enum GuidedPracticePhase: Equatable {
     case reviewPrompt
     case troubleshooting
     case completed
+}
+
+struct ScreenTimeAppConnections: Codable {
+    private(set) var selectionsByAppID: [String: FamilyActivitySelection] = [:]
+
+    static func load(
+        defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID)
+    ) -> ScreenTimeAppConnections {
+        guard let data = defaults?.data(forKey: NimaConstants.screenTimeAppConnectionsKey),
+              let connections = try? JSONDecoder().decode(ScreenTimeAppConnections.self, from: data) else {
+            return ScreenTimeAppConnections()
+        }
+        return connections
+    }
+
+    func selection(for appID: String) -> FamilyActivitySelection? {
+        selectionsByAppID[appID]
+    }
+
+    mutating func connect(_ appID: String, to token: ApplicationToken) {
+        var selection = FamilyActivitySelection()
+        selection.applicationTokens = [token]
+        selectionsByAppID[appID] = selection
+    }
+
+    func save(
+        defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID)
+    ) {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        defaults?.set(data, forKey: NimaConstants.screenTimeAppConnectionsKey)
+    }
+
+    static func reset(
+        defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID)
+    ) {
+        defaults?.removeObject(forKey: NimaConstants.screenTimeAppConnectionsKey)
+    }
 }
 
 enum GuidedPracticeCardStep: Equatable {
@@ -104,11 +140,23 @@ enum GuidedWindowsEditorStep: Equatable {
     case repeatDays
     case icon
     case saveOrCancel
+
+    var analyticsName: String {
+        switch self {
+        case .name: return "name"
+        case .time: return "time"
+        case .apps: return "apps"
+        case .repeatDays: return "repeat_days"
+        case .icon: return "icon"
+        case .saveOrCancel: return "save_or_cancel"
+        }
+    }
 }
 
 enum GuidedPracticeLaunchApp: String, CaseIterable, Identifiable {
     case instagram
     case tiktok
+    case x
 
     var id: String { rawValue }
 
@@ -118,6 +166,8 @@ enum GuidedPracticeLaunchApp: String, CaseIterable, Identifiable {
             return "Instagram"
         case .tiktok:
             return "TikTok"
+        case .x:
+            return "X/Twitter"
         }
     }
 
@@ -137,6 +187,11 @@ enum GuidedPracticeLaunchApp: String, CaseIterable, Identifiable {
                 URL(string: "snssdk1233://"),
                 URL(string: "musically://"),
                 URL(string: "https://www.tiktok.com/")
+            ].compactMap { $0 }
+        case .x:
+            return [
+                URL(string: "twitter://"),
+                URL(string: "https://x.com/")
             ].compactMap { $0 }
         }
     }

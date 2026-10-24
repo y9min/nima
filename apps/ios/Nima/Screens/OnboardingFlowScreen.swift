@@ -2,12 +2,12 @@ import SwiftUI
 import UIKit
 import Combine
 import UserNotifications
+import FamilyControls
 
 struct OnboardingFlowScreen: View {
-    @Environment(AuthStore.self) private var authStore
     @Environment(OnboardingStore.self) private var onboardingStore
     @Environment(AppSettingsStore.self) private var appSettingsStore
-    @EnvironmentObject private var vpnManager: VPNManager
+    @Environment(InstagramProtectionStore.self) private var instagramProtectionStore
 
     @State private var step: OnboardingStep = .splash
     @State private var displayName = ""
@@ -16,12 +16,6 @@ struct OnboardingFlowScreen: View {
     @State private var didProvidePhoneHours = false
     @State private var didProvideAge = false
     @State private var selectedHabits: Set<String> = []
-    @State private var selectedApps: Set<String> = []
-    @State private var privacySheetStep: OnboardingPrivacySheetStep?
-    @State private var isAuthenticating = false
-    @State private var authErrorMessage: String?
-    @State private var emailAuthAddress = ""
-    @State private var pendingEmailAuthAddress = ""
 
     private var hasValidDisplayName: Bool {
         AppSettingsStore.normalizedDisplayName(displayName) != nil
@@ -39,46 +33,10 @@ struct OnboardingFlowScreen: View {
         !selectedHabits.isEmpty
     }
 
-    private var canContinueApps: Bool {
-        !selectedApps.isEmpty
-    }
-
-    private var normalizedEmailAuthAddress: String {
-        AuthStore.normalizedEmail(emailAuthAddress)
-    }
-
-    private var canSendEmailAuthLink: Bool {
-        isValidEmail(normalizedEmailAuthAddress)
-    }
-
     var body: some View {
-        ZStack {
-            currentScreen
-                .transition(.opacity)
-
-            if let privacySheetStep {
-                Color.black.opacity(0.22)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-
-                Group {
-                    switch privacySheetStep {
-                    case .checklist:
-                        OnboardingPrivacyChecklistSheet {
-                            self.privacySheetStep = .vpnData
-                        }
-                    case .vpnData:
-                        OnboardingVPNDataSheet(
-                            onContinue: triggerVPNPermissionAndContinue
-                        )
-                    }
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .zIndex(2)
-            }
-        }
+        currentScreen
+            .transition(.opacity)
         .animation(.easeInOut(duration: 0.2), value: step)
-        .animation(.easeInOut(duration: 0.2), value: privacySheetStep)
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
@@ -118,18 +76,10 @@ struct OnboardingFlowScreen: View {
             agePage
         case .habits:
             habitsPage
-        case .apps:
-            appsPage
-        case .vpn:
-            vpnEducationPage
+        case .screenTime:
+            screenTimeEducationPage
         case .notifications:
             notificationsPage
-        case .account:
-            accountPage
-        case .emailEntry:
-            emailEntryPage
-        case .emailLinkSent:
-            emailLinkSentPage
         }
     }
 
@@ -298,7 +248,7 @@ struct OnboardingFlowScreen: View {
                     .minimumScaleFactor(0.75)
 
                 OnboardingPrimaryButton(title: "Set Up Nima") {
-                    move(to: .vpn)
+                    move(to: .screenTime)
                 }
                 .accessibilityIdentifier("onboarding.stay-connected.continue")
             }
@@ -352,7 +302,7 @@ struct OnboardingFlowScreen: View {
             OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinueAge) {
                 guard canContinueAge else { return }
                 onboardingStore.setAge(age)
-                move(to: .apps)
+                move(to: .phoneTime)
             }
             .accessibilityIdentifier("onboarding.age.continue")
         }
@@ -396,45 +346,13 @@ struct OnboardingFlowScreen: View {
         }
     }
 
-    private var appsPage: some View {
-        OnboardingWhitePage(onBack: goBack) {
-            VStack(spacing: 12) {
-                OnboardingTitle("Where do you spend the\nmost time scrolling?")
-                    .padding(.top, 20)
-
-                Text("select one or more")
-                    .font(.system(size: OnboardingMetrics.subtitleFont, weight: .regular))
-                    .foregroundStyle(OnboardingPalette.secondaryText)
-
-                VStack(spacing: 22) {
-                    ForEach(OnboardingCopy.apps, id: \.self) { app in
-                        OnboardingSelectableRow(
-                            title: app,
-                            isSelected: selectedApps.contains(app)
-                        ) {
-                            toggle(app, in: &selectedApps)
-                        }
-                    }
-                }
-                .padding(.top, 26)
-            }
-        } bottom: {
-            OnboardingPrimaryButton(title: "Continue", isDisabled: !canContinueApps) {
-                guard canContinueApps else { return }
-                onboardingStore.setSelectedApps(selectedApps)
-                move(to: .phoneTime)
-            }
-            .accessibilityIdentifier("onboarding.apps.continue")
-        }
-    }
-
-    private var vpnEducationPage: some View {
+    private var screenTimeEducationPage: some View {
         OnboardingWhitePage(onBack: goBack) {
             VStack(spacing: 14) {
                 OnboardingTitle("Let Nima block the scroll")
                     .padding(.top, 22)
 
-                Text("Nima uses a local VPN configuration to\nblock short-form feeds while keeping the\nuseful parts of social apps working")
+                Text("Nima uses Apple’s built-in Screen Time controls to limit distracting content while keeping your favourite apps accessible")
                     .font(.system(size: 20, weight: .regular))
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
@@ -444,15 +362,15 @@ struct OnboardingFlowScreen: View {
                 Spacer()
                     .frame(height: 30)
 
-                VPNPermissionIllustration()
-                    .frame(width: 270, height: 255)
+                ScreenTimePermissionIllustration()
+                    .frame(maxWidth: 340, maxHeight: 330)
                     .offset(y: -8)
             }
         } bottom: {
-            OnboardingPrimaryButton(title: "Continue") {
-                privacySheetStep = .checklist
+            OnboardingPrimaryButton(title: "Allow Screen Time Access") {
+                requestScreenTimeAuthorizationAndContinue()
             }
-            .accessibilityIdentifier("onboarding.vpn.continue")
+            .accessibilityIdentifier("onboarding.screen-time.continue")
         }
     }
 
@@ -493,163 +411,6 @@ struct OnboardingFlowScreen: View {
         }
     }
 
-    private var accountPage: some View {
-        OnboardingWhitePage(topLogoWidth: OnboardingMetrics.topLogoWidth, onBack: goBack) {
-            VStack(spacing: 32) {
-                Spacer()
-                    .frame(height: 54)
-
-                OnboardingTitle("Let’s create your account")
-
-                VStack(spacing: 18) {
-                    OnboardingAuthButton(title: "Continue with Apple", systemImage: "apple.logo") {
-                        signInWithAppleAndComplete()
-                    }
-                    .disabled(isAuthenticating)
-                    OnboardingAuthButton(title: "Continue with Google", letter: "G") {
-                        signInWithGoogleAndComplete()
-                    }
-                    .disabled(isAuthenticating)
-                    OnboardingAuthButton(title: "Continue with email", systemImage: "envelope", isOutlined: true) {
-                        startEmailAuthFlow()
-                    }
-                    .disabled(isAuthenticating)
-
-                    if isAuthenticating {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .tint(OnboardingPalette.darkGreen)
-                    }
-
-                    if let authErrorMessage {
-                        Text(authErrorMessage)
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundStyle(.red.opacity(0.9))
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Button("Already have an account? Log in") {
-                        startEmailAuthFlow()
-                    }
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(OnboardingPalette.placeholder)
-                    .buttonStyle(.plain)
-                    .padding(.top, 6)
-                    .disabled(isAuthenticating)
-                }
-            }
-        } bottom: {
-            EmptyView()
-        }
-    }
-
-    private var emailEntryPage: some View {
-        OnboardingWhitePage(keyboardAvoidance: true, onBack: goBack) {
-            VStack(spacing: 28) {
-                Spacer()
-                    .frame(height: 44)
-
-                OnboardingTitle("Continue with email")
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Email")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(OnboardingPalette.darkGreen)
-
-                    TextField("", text: $emailAuthAddress, prompt: Text("you@example.com")
-                        .foregroundStyle(OnboardingPalette.placeholder))
-                        .font(.system(size: 22, weight: .regular))
-                        .foregroundStyle(.black)
-                        .textInputAutocapitalization(.never)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .autocorrectionDisabled()
-                        .submitLabel(.continue)
-                        .onSubmit(sendEmailAuthLink)
-                        .padding(.horizontal, 18)
-                        .frame(height: 58)
-                        .background(Color.black.opacity(0.04))
-                        .clipShape(Capsule())
-                        .overlay {
-                            Capsule()
-                                .stroke(OnboardingPalette.darkGreen.opacity(0.22), lineWidth: 1)
-                        }
-                        .accessibilityIdentifier("onboarding.email.input")
-                }
-
-                if isAuthenticating {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .tint(OnboardingPalette.darkGreen)
-                }
-
-                if let authErrorMessage {
-                    Text(authErrorMessage)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(.red.opacity(0.9))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Text("We’ll send a sign-in link to this email. Tap the link to open Nima and finish login.")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(OnboardingPalette.secondaryText)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        } bottom: {
-            OnboardingPrimaryButton(
-                title: isAuthenticating ? "Sending..." : "Send link",
-                isDisabled: isAuthenticating || !canSendEmailAuthLink,
-                action: sendEmailAuthLink
-            )
-            .accessibilityIdentifier("onboarding.email.send_link")
-        }
-    }
-
-    private var emailLinkSentPage: some View {
-        OnboardingWhitePage(keyboardAvoidance: true, onBack: goBack) {
-            VStack(spacing: 26) {
-                Spacer()
-                    .frame(height: 44)
-
-                OnboardingTitle("Check your email")
-
-                Text("We sent a Nima sign-in link to \(pendingEmailAuthAddress). Tap that link to open the app and finish login.")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(OnboardingPalette.secondaryText)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if isAuthenticating {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .tint(OnboardingPalette.darkGreen)
-                }
-
-                if let authErrorMessage {
-                    Text(authErrorMessage)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(.red.opacity(0.9))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Button("Resend link") {
-                    resendEmailAuthLink()
-                }
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(OnboardingPalette.darkGreen)
-                .buttonStyle(.plain)
-                .disabled(isAuthenticating)
-                .accessibilityIdentifier("onboarding.email.resend_link")
-            }
-        } bottom: {
-            EmptyView()
-        }
-    }
-
     private func loadDraftState() {
         displayName = appSettingsStore.displayName
         phoneHours = Double(onboardingStore.phoneHours ?? 0)
@@ -657,7 +418,6 @@ struct OnboardingFlowScreen: View {
         didProvidePhoneHours = onboardingStore.phoneHours != nil
         didProvideAge = onboardingStore.age != nil
         selectedHabits = onboardingStore.selectedHabits
-        selectedApps = onboardingStore.selectedApps
     }
 
     private var currentProjection: OnboardingProjection {
@@ -674,19 +434,43 @@ struct OnboardingFlowScreen: View {
         }
     }
 
-    private func triggerVPNPermissionAndContinue() {
-        onboardingStore.markVPNPermissionRequested()
-        vpnManager.startVPN(source: "onboarding.vpn_permission")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            privacySheetStep = nil
-            move(to: .notifications)
+    private func requestScreenTimeAuthorizationAndContinue() {
+        Task {
+            do {
+                if instagramProtectionStore.authorizationStatus != .approved {
+                    try await instagramProtectionStore.requestAuthorization()
+                }
+                finishPermissionsSetup()
+            } catch {
+                finishPermissionsSetup()
+            }
         }
+    }
+
+    private func finishPermissionsSetup() {
+        move(to: .notifications)
     }
 
     private func requestNotificationPermissionAndContinue() {
         appSettingsStore.setWindowsNotificationsEnabled(true)
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
+        AnalyticsService.shared.capture(
+            AnalyticsEvent.permissionRequested,
+            properties: ["permission": "notifications"]
+        )
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             DispatchQueue.main.async {
+                var properties: [String: Any] = [
+                    "permission": "notifications",
+                    "status": granted ? "granted" : "denied",
+                ]
+                if let error = error as NSError? {
+                    properties["error_domain"] = error.domain
+                    properties["error_code"] = error.code
+                }
+                AnalyticsService.shared.capture(
+                    AnalyticsEvent.permissionResolved,
+                    properties: properties
+                )
                 AnalyticsService.shared.capture(
                     AnalyticsEvent.onboardingStepCompleted,
                     properties: ["step": OnboardingStep.notifications.analyticsName]
@@ -716,93 +500,8 @@ struct OnboardingFlowScreen: View {
         )
     }
 
-    private func startEmailAuthFlow() {
-        authErrorMessage = nil
-        step = .emailEntry
-    }
-
-    private func sendEmailAuthLink() {
-        guard !isAuthenticating, canSendEmailAuthLink else { return }
-        let email = normalizedEmailAuthAddress
-        sendEmailAuthLink(to: email, shouldAdvance: true)
-    }
-
-    private func resendEmailAuthLink() {
-        guard !isAuthenticating, !pendingEmailAuthAddress.isEmpty else { return }
-        sendEmailAuthLink(to: pendingEmailAuthAddress, shouldAdvance: false)
-    }
-
-    private func sendEmailAuthLink(to email: String, shouldAdvance: Bool) {
-        if AuthStore.isDemoLoginAccount(email: email) {
-            authStore.login(email: AuthStore.normalizedEmail(email), demo: true)
-            completeOnboarding()
-            return
-        }
-
-        isAuthenticating = true
-        authErrorMessage = nil
-
-        Task {
-            do {
-                try await authStore.sendEmailMagicLink(to: email)
-                await MainActor.run {
-                    pendingEmailAuthAddress = email
-                    emailAuthAddress = email
-                    isAuthenticating = false
-                    if shouldAdvance {
-                        step = .emailLinkSent
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    isAuthenticating = false
-                    authErrorMessage = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    private func signInWithAppleAndComplete() {
-        signInAndComplete {
-            try await authStore.signInWithApple()
-        }
-    }
-
-    private func signInWithGoogleAndComplete() {
-        signInAndComplete {
-            try await authStore.signInWithGoogle()
-        }
-    }
-
-    private func signInAndComplete(_ action: @escaping () async throws -> Void) {
-        guard !isAuthenticating else { return }
-        isAuthenticating = true
-        authErrorMessage = nil
-
-        Task {
-            do {
-                try await action()
-                await MainActor.run {
-                    isAuthenticating = false
-                    completeOnboarding()
-                }
-            } catch {
-                await MainActor.run {
-                    isAuthenticating = false
-                    authErrorMessage = error.localizedDescription
-                }
-            }
-        }
-    }
-
     private func goBack() {
         guard let previousStep = step.previous else { return }
-        if privacySheetStep != nil {
-            privacySheetStep = nil
-        }
-        if step == .emailEntry || step == .emailLinkSent {
-            authErrorMessage = nil
-        }
         step = previousStep
     }
 
@@ -814,10 +513,6 @@ struct OnboardingFlowScreen: View {
         }
     }
 
-    private func isValidEmail(_ email: String) -> Bool {
-        let emailPattern = #"^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,64}$"#
-        return email.range(of: emailPattern, options: .regularExpression) != nil
-    }
 }
 
 private enum OnboardingStep {
@@ -831,12 +526,8 @@ private enum OnboardingStep {
     case stayConnected
     case age
     case habits
-    case apps
-    case vpn
+    case screenTime
     case notifications
-    case account
-    case emailEntry
-    case emailLinkSent
 
     var analyticsName: String {
         switch self {
@@ -850,12 +541,8 @@ private enum OnboardingStep {
         case .stayConnected: return "stay_connected"
         case .age: return "age"
         case .habits: return "habits"
-        case .apps: return "apps"
-        case .vpn: return "vpn_permission"
+        case .screenTime: return "screen_time_permission"
         case .notifications: return "notifications_permission"
-        case .account: return "legacy_account"
-        case .emailEntry: return "legacy_email_entry"
-        case .emailLinkSent: return "legacy_email_link_sent"
         }
     }
 
@@ -866,7 +553,7 @@ private enum OnboardingStep {
         case .name:
             return .splash
         case .phoneTime:
-            return .apps
+            return .age
         case .calculating:
             return .phoneTime
         case .newsTransition:
@@ -881,18 +568,10 @@ private enum OnboardingStep {
             return .habits
         case .habits:
             return .name
-        case .apps:
-            return .age
-        case .vpn:
+        case .screenTime:
             return .stayConnected
         case .notifications:
-            return .vpn
-        case .account:
-            return .notifications
-        case .emailEntry:
-            return .account
-        case .emailLinkSent:
-            return .emailEntry
+            return .screenTime
         }
     }
 }
@@ -1544,8 +1223,6 @@ enum OnboardingPalette {
     static let darkGreen = Color(red: 0.015, green: 0.22, blue: 0.12)
     static let progressLight = Color(red: 0.70, green: 0.95, blue: 0.72)
     static let progressMid = Color(red: 0.24, green: 0.80, blue: 0.42)
-    static let privacySheet = Color(red: 0.105, green: 0.095, blue: 0.11)
-    static let privacyCard = Color(red: 0.22, green: 0.21, blue: 0.23)
     static let lime = Color(red: 0.78, green: 0.93, blue: 0.18)
     static let secondaryText = Color(red: 0.43, green: 0.44, blue: 0.41)
     static let skipText = secondaryText.opacity(0.72)
@@ -1854,7 +1531,9 @@ struct OnboardingPrimaryButton: View {
                 .font(.system(size: OnboardingMetrics.buttonFont, weight: .regular))
                 .foregroundStyle(.white)
                 .lineLimit(1)
-                .minimumScaleFactor(0.82)
+                .minimumScaleFactor(0.68)
+                .allowsTightening(true)
+                .padding(.horizontal, 20)
                 .frame(maxWidth: .infinity)
                 .frame(height: OnboardingMetrics.buttonHeight)
                 .background(OnboardingPalette.darkGreen)
@@ -2128,76 +1807,13 @@ private struct GaugeArc: Shape {
     }
 }
 
-private struct VPNPermissionIllustration: View {
+private struct ScreenTimePermissionIllustration: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.blue)
-                    .frame(width: 50, height: 50)
-                    .overlay {
-                        Image(systemName: "globe")
-                            .font(.system(size: 31, weight: .medium))
-                            .foregroundStyle(.white)
-                    }
-
-                Circle()
-                    .fill(Color.blue)
-                    .frame(width: 24, height: 24)
-                    .overlay {
-                        Image(systemName: "hand.raised.fill")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                    .offset(x: 6, y: 6)
-            }
-
-            Text("“Nima” Would Like to Add VPN\nConfigurations")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("All network activity on this iPhone\nmay be filtered or monitored when\nusing VPN.")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(.white.opacity(0.62))
-                .lineSpacing(2)
-
-            Spacer()
-
-            HStack(spacing: 10) {
-                Text("Allow")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
-                    .background(Color.white.opacity(0.14))
-                    .clipShape(Capsule())
-
-                Text("Don’t Allow")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
-                    .background(Color.blue)
-                    .clipShape(Capsule())
-            }
-        }
-        .padding(22)
-        .background {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color.black.opacity(0.94))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .stroke(OnboardingPalette.green.opacity(0.42), lineWidth: 1)
-                }
-        }
-        .overlay(alignment: .bottomLeading) {
-            CurvedArrow()
-                .stroke(OnboardingPalette.green, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                .frame(width: 70, height: 84)
-                .offset(x: 60, y: 34)
-        }
-        .accessibilityLabel("Example VPN permission dialog")
+        Image("ScreenTimePermissionPrompt")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .accessibilityLabel("Example Screen Time permission dialog")
     }
 }
 
@@ -2270,188 +1886,9 @@ private struct CurvedArrow: Shape {
     }
 }
 
-private enum OnboardingPrivacySheetStep: Equatable {
-    case checklist
-    case vpnData
-}
-
-private struct OnboardingPrivacyChecklistSheet: View {
-    let onContinue: () -> Void
-
-    var body: some View {
-        GeometryReader { proxy in
-            VStack {
-                Spacer()
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 18) {
-                        Text("Your privacy matters")
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Nima does not read:")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundStyle(.white)
-
-                            ForEach(["Messages", "Passwords", "Photos", "Message content"], id: \.self) { item in
-                                HStack(spacing: 10) {
-                                    Circle()
-                                        .fill(Color.white.opacity(0.14))
-                                        .frame(width: 21, height: 21)
-                                        .overlay {
-                                            Image(systemName: "xmark")
-                                                .font(.system(size: 11, weight: .bold))
-                                                .foregroundStyle(.white)
-                                        }
-                                    Text(item)
-                                        .font(.system(size: 21, weight: .regular))
-                                        .foregroundStyle(.white)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 26)
-                        .padding(.vertical, 24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(OnboardingPalette.privacyCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-
-                        OnboardingPrimaryButton(title: "Continue", action: onContinue)
-                            .padding(.horizontal, 40)
-                            .accessibilityIdentifier("onboarding.privacy-checklist.continue")
-                    }
-                    .padding(.horizontal, 30)
-                    .padding(.top, 34)
-                    .padding(.bottom, max(42, proxy.safeAreaInsets.bottom + 30))
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(maxWidth: .infinity)
-                .frame(maxHeight: max(420, proxy.size.height - max(12, proxy.safeAreaInsets.top)))
-                .background(OnboardingPalette.privacySheet)
-                .clipShape(TopRoundedRectangle(radius: 40))
-            }
-            .ignoresSafeArea(edges: .bottom)
-        }
-    }
-}
-
-private struct OnboardingVPNDataSheet: View {
-    let onContinue: () -> Void
-
-    var body: some View {
-        GeometryReader { proxy in
-            VStack {
-                Spacer()
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 18) {
-                        Text("How Nima uses VPN data")
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Nima checks destination domains and basic connection details on your device to apply your blocking rules.")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Text("This data stays on your device and is never automatically uploaded. Nima does not collect page contents, passwords, messages, or browsing history.")
-                            .font(.system(size: 18, weight: .regular))
-                            .foregroundStyle(.white)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Text("If you choose to send diagnostics to support, we’ll show you what will be shared and ask for permission first.")
-                            .font(.system(size: 18, weight: .regular))
-                            .foregroundStyle(.white)
-                            .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(.horizontal, 26)
-                        .padding(.vertical, 24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(OnboardingPalette.privacyCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-
-                        OnboardingPrimaryButton(title: "Continue & Enable VPN", action: onContinue)
-                            .padding(.horizontal, 40)
-                            .accessibilityIdentifier("onboarding.vpn-data.continue")
-                    }
-                    .padding(.horizontal, 30)
-                    .padding(.top, 34)
-                    .padding(.bottom, max(42, proxy.safeAreaInsets.bottom + 30))
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(maxWidth: .infinity)
-                .frame(maxHeight: max(420, proxy.size.height - max(12, proxy.safeAreaInsets.top)))
-                .background(OnboardingPalette.privacySheet)
-                .clipShape(TopRoundedRectangle(radius: 40))
-            }
-            .ignoresSafeArea(edges: .bottom)
-        }
-    }
-}
-
-private struct TopRoundedRectangle: Shape {
-    let radius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let path = UIBezierPath(
-            roundedRect: rect,
-            byRoundingCorners: [.topLeft, .topRight],
-            cornerRadii: CGSize(width: radius, height: radius)
-        )
-        return Path(path.cgPath)
-    }
-}
-
-struct OnboardingAuthButton: View {
-    let title: String
-    var systemImage: String?
-    var letter: String?
-    var isOutlined = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 22, weight: .semibold))
-                        .frame(width: 28)
-                } else if let letter {
-                    Text(letter)
-                        .font(.system(size: 26, weight: .black))
-                        .frame(width: 28)
-                }
-
-                Text(title)
-                    .font(.system(size: 22, weight: .regular))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-            }
-            .foregroundStyle(isOutlined ? OnboardingPalette.darkGreen : .white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 56)
-            .background(isOutlined ? Color.white : OnboardingPalette.darkGreen)
-            .clipShape(Capsule())
-            .overlay {
-                if isOutlined {
-                    Capsule()
-                        .stroke(OnboardingPalette.darkGreen, lineWidth: 3)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("onboarding.account.\(title.lowercased().replacingOccurrences(of: " ", with: "_"))")
-    }
-}
-
 #Preview {
     OnboardingFlowScreen()
         .environment(OnboardingStore(defaults: nil))
         .environment(AppSettingsStore(defaults: nil))
-        .environmentObject(VPNManager())
+        .environment(InstagramProtectionStore())
 }

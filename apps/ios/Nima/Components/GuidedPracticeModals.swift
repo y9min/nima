@@ -1,105 +1,635 @@
 import AVFoundation
+import FamilyControls
+import ManagedSettings
 import SwiftUI
 import UIKit
 
-struct GuidedPracticeOpenAppPromptModal: View {
-    let activeApps: Set<GuidedPracticeLaunchApp>
-    let isStartingPIP: Bool
+struct GuidedPracticeAppSelectionModal: View {
+    @Binding var selectedAppIDs: Set<String>
+    var onContinue: () -> Void
+
+    private let apps = [
+        GuidedPracticeAppChoice(id: "instagram", title: "Instagram"),
+        GuidedPracticeAppChoice(id: "tiktok", title: "TikTok"),
+        GuidedPracticeAppChoice(id: "x", title: "X/Twitter"),
+    ]
+
+    var body: some View {
+        GuidedPracticeOverlay {
+            GeometryReader { proxy in
+                let scale = min(1, max(0.76, min(proxy.size.width / 390, proxy.size.height / 700)))
+
+                VStack(spacing: 0) {
+                    Text("Which apps would you like infinite feeds removed from?")
+                        .font(.system(size: 28 * scale, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2 * scale)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 42 * scale)
+
+                    VStack(spacing: 13 * scale) {
+                        ForEach(apps) { app in
+                            GuidedPracticeAppChoiceRow(
+                                app: app,
+                                isSelected: selectedAppIDs.contains(app.id),
+                                scale: scale,
+                                action: { toggle(app.id) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 36)
+                    .padding(.top, 44 * scale)
+
+                    Spacer(minLength: 28 * scale)
+
+                    Button(action: onContinue) {
+                        Text("Continue")
+                            .font(.system(size: 18 * scale, weight: .semibold, design: .rounded))
+                            .foregroundStyle(GuidedPracticePalette.card)
+                            .frame(width: 186 * scale, height: 44 * scale)
+                            .background(GuidedPracticePalette.accent)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selectedAppIDs.isEmpty)
+                    .opacity(selectedAppIDs.isEmpty ? 0.38 : 1)
+                    .accessibilityIdentifier("guided_practice.app_selection.continue")
+                    .padding(.bottom, 46 * scale)
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+        }
+        .accessibilityIdentifier("guided_practice.app_selection")
+    }
+
+    private func toggle(_ appID: String) {
+        if selectedAppIDs.contains(appID) {
+            selectedAppIDs.remove(appID)
+        } else {
+            selectedAppIDs.insert(appID)
+        }
+    }
+}
+
+struct GuidedPracticeFamilyPickerVideoModal: View {
     let errorMessage: String?
-    let showsSkipPractice: Bool
-    var onOpenApp: (GuidedPracticeLaunchApp) -> Void
-    var onSkipPractice: () -> Void
+    var onContinue: () -> Void
+
+    @State private var hasFinishedPlayback = false
+
+    var body: some View {
+        GuidedPracticeOverlay {
+            GeometryReader { proxy in
+                let scale = min(1, max(0.72, min(proxy.size.width / 390, proxy.size.height / 760)))
+
+                VStack(spacing: 0) {
+                    Text("Search and select each app")
+                        .font(.system(size: 28 * scale, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 32 * scale)
+
+                    Spacer(minLength: 18 * scale)
+
+                    GuidedFamilyPickerInstructionVideo(
+                        onFinished: { hasFinishedPlayback = true }
+                    )
+                        .aspectRatio(888.0 / 958.0, contentMode: .fit)
+                        .frame(maxWidth: 292 * scale)
+                        .clipShape(RoundedRectangle(cornerRadius: 18 * scale, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18 * scale, style: .continuous)
+                                .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+                        )
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    Spacer(minLength: 18 * scale)
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 14 * scale, weight: .medium, design: .rounded))
+                            .foregroundStyle(GuidedPracticePalette.accent)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 30)
+                            .padding(.bottom, 12 * scale)
+                    }
+
+                    Button(action: onContinue) {
+                        Text("Continue")
+                            .font(.system(size: 18 * scale, weight: .semibold, design: .rounded))
+                            .foregroundStyle(
+                                hasFinishedPlayback
+                                    ? GuidedPracticePalette.card
+                                    : .white.opacity(0.42)
+                            )
+                            .frame(width: 186 * scale, height: 44 * scale)
+                            .background(
+                                hasFinishedPlayback
+                                    ? GuidedPracticePalette.accent
+                                    : Color.white.opacity(0.12)
+                            )
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!hasFinishedPlayback)
+                    .accessibilityIdentifier("guided_practice.family_picker_video.continue")
+                    .padding(.bottom, 46 * scale)
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+        }
+        .accessibilityIdentifier("guided_practice.family_picker_video")
+    }
+}
+
+struct GuidedPracticeAppConnectionsModal: View {
+    let applicationTokens: [ApplicationToken]
+    let selectedApps: [GuidedPracticeLaunchApp]
+    @Binding var assignments: [ApplicationToken: String]
+    var onChooseAppsAgain: () -> Void
+    var onContinue: () -> Void
+
+    private var selectedAppIDs: Set<String> {
+        Set(selectedApps.map(\.rawValue))
+    }
+
+    private var connectedCount: Int {
+        Set(assignments.values).intersection(selectedAppIDs).count
+    }
+
+    private var isComplete: Bool {
+        applicationTokens.count == selectedApps.count
+            && applicationTokens.allSatisfy { assignments[$0] != nil }
+            && Set(assignments.values) == selectedAppIDs
+    }
+
+    var body: some View {
+        GuidedPracticeOverlay {
+            GeometryReader { proxy in
+                let scale = min(1, max(0.7, min(proxy.size.width / 390, proxy.size.height / 760)))
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Text("Connect your apps")
+                            .font(.system(size: 30 * scale, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 28)
+                            .padding(.top, 34 * scale)
+
+                        Text("Match each app on your phone with its Nima experience")
+                            .font(.system(size: 16 * scale, weight: .regular, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.68))
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(2 * scale)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 36)
+                            .padding(.top, 10 * scale)
+
+                        if applicationTokens.count != selectedApps.count {
+                            connectionCountMessage(scale: scale)
+                                .padding(.horizontal, 28)
+                                .padding(.top, 18 * scale)
+                        }
+
+                        VStack(spacing: 12 * scale) {
+                            ForEach(applicationTokens, id: \.self) { token in
+                                connectionRow(for: token, scale: scale)
+                            }
+                        }
+                        .padding(.horizontal, 22)
+                        .padding(.top, 24 * scale)
+
+                        Button("Choose apps again", action: onChooseAppsAgain)
+                            .font(.system(size: 14 * scale, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.74))
+                            .buttonStyle(.plain)
+                            .padding(.top, 18 * scale)
+                            .accessibilityIdentifier("guided_practice.app_connections.choose_again")
+
+                        Spacer(minLength: 28 * scale)
+
+                        Text("\(connectedCount) of \(selectedApps.count) connected")
+                            .font(.system(size: 14 * scale, weight: .semibold, design: .rounded))
+                            .foregroundStyle(isComplete ? GuidedPracticePalette.accent : .white.opacity(0.58))
+                            .padding(.bottom, 12 * scale)
+
+                        Button(action: onContinue) {
+                            Text("Continue")
+                                .font(.system(size: 18 * scale, weight: .semibold, design: .rounded))
+                                .foregroundStyle(isComplete ? GuidedPracticePalette.card : .white.opacity(0.42))
+                                .frame(width: 210 * scale, height: 44 * scale)
+                                .background(isComplete ? GuidedPracticePalette.accent : Color.white.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!isComplete)
+                        .accessibilityIdentifier("guided_practice.app_connections.continue")
+                        .padding(.bottom, 38 * scale)
+                    }
+                    .frame(width: proxy.size.width)
+                    .frame(minHeight: proxy.size.height)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+        }
+        .accessibilityIdentifier("guided_practice.app_connections")
+    }
+
+    @ViewBuilder
+    private func connectionCountMessage(scale: CGFloat) -> some View {
+        Text("You chose \(selectedApps.count) in Nima but selected \(applicationTokens.count) in Apple’s picker. Choose the same apps in both places.")
+            .font(.system(size: 13 * scale, weight: .medium, design: .rounded))
+            .foregroundStyle(GuidedPracticePalette.accent)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func connectionRow(for token: ApplicationToken, scale: CGFloat) -> some View {
+        HStack(spacing: 10 * scale) {
+            Label(token)
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 15 * scale, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "arrow.right")
+                .font(.system(size: 14 * scale, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.42))
+
+            Menu {
+                ForEach(selectedApps) { app in
+                    Button {
+                        assign(app.rawValue, to: token)
+                    } label: {
+                        if assignments[token] == app.rawValue {
+                            Label(app.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(app.displayName)
+                        }
+                    }
+                }
+
+                if assignments[token] != nil {
+                    Divider()
+                    Button("Disconnect", role: .destructive) {
+                        assignments.removeValue(forKey: token)
+                    }
+                }
+            } label: {
+                HStack(spacing: 7 * scale) {
+                    if let app = assignedApp(for: token) {
+                        SocialMediaIcon(platform: app.platform, size: 24 * scale)
+                            .frame(width: 26 * scale, height: 26 * scale)
+                        Text(app.displayName)
+                            .lineLimit(1)
+                    } else {
+                        Text("Choose app")
+                            .foregroundStyle(.white.opacity(0.72))
+                    }
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 10 * scale, weight: .bold))
+                }
+                .font(.system(size: 14 * scale, weight: .semibold, design: .rounded))
+                .foregroundStyle(assignments[token] == nil ? .white.opacity(0.72) : GuidedPracticePalette.accent)
+                .padding(.horizontal, 11 * scale)
+                .frame(minWidth: 118 * scale, minHeight: 44 * scale)
+                .background(Color.black.opacity(0.2))
+                .clipShape(RoundedRectangle(cornerRadius: 12 * scale, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12 * scale, style: .continuous)
+                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                )
+            }
+            .accessibilityLabel("Connect selected app")
+            .accessibilityValue(assignedApp(for: token)?.displayName ?? "Not connected")
+        }
+        .padding(.horizontal, 14 * scale)
+        .frame(minHeight: 76 * scale)
+        .background(Color.white.opacity(0.075))
+        .clipShape(RoundedRectangle(cornerRadius: 16 * scale, style: .continuous))
+    }
+
+    private func assignedApp(for token: ApplicationToken) -> GuidedPracticeLaunchApp? {
+        guard let appID = assignments[token] else { return nil }
+        return GuidedPracticeLaunchApp(rawValue: appID)
+    }
+
+    private func assign(_ appID: String, to token: ApplicationToken) {
+        let previousAppID = assignments[token]
+
+        if let otherToken = assignments.first(where: { $0.key != token && $0.value == appID })?.key {
+            if let previousAppID {
+                assignments[otherToken] = previousAppID
+            } else {
+                assignments.removeValue(forKey: otherToken)
+            }
+        }
+
+        assignments[token] = appID
+    }
+}
+
+private struct GuidedPracticeAppChoice: Identifiable {
+    let id: String
+    let title: String
+}
+
+private struct GuidedPracticeAppChoiceRow: View {
+    let app: GuidedPracticeAppChoice
+    let isSelected: Bool
+    let scale: CGFloat
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14 * scale) {
+                SocialMediaIcon(platform: app.id, size: 34 * scale)
+                    .frame(width: 36 * scale, height: 36 * scale)
+
+                Text(app.title)
+                    .font(.system(size: 19 * scale, weight: .regular, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                ZStack {
+                    Circle()
+                        .fill(isSelected ? GuidedPracticePalette.accent : .clear)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(
+                                    isSelected ? GuidedPracticePalette.accent : .white.opacity(0.2),
+                                    lineWidth: 2 * scale
+                                )
+                        )
+
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 15 * scale, weight: .bold))
+                            .foregroundStyle(GuidedPracticePalette.card)
+                    }
+                }
+                .frame(width: 29 * scale, height: 29 * scale)
+            }
+            .padding(.horizontal, 18 * scale)
+            .frame(height: 68 * scale)
+            .background(Color.white.opacity(0.075))
+            .clipShape(RoundedRectangle(cornerRadius: 15 * scale, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(app.title)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityIdentifier("guided_practice.app_selection.\(app.id)")
+    }
+}
+
+private struct GuidedFamilyPickerInstructionVideo: UIViewRepresentable {
+    var onFinished: () -> Void
+
+    func makeUIView(context: Context) -> GuidedFamilyPickerInstructionVideoView {
+        let view = GuidedFamilyPickerInstructionVideoView()
+        view.configure(onFinished: onFinished)
+        return view
+    }
+
+    func updateUIView(_ uiView: GuidedFamilyPickerInstructionVideoView, context: Context) {
+        uiView.configure(onFinished: onFinished)
+    }
+}
+
+private final class GuidedFamilyPickerInstructionVideoView: UIView {
+    private let player = AVPlayer()
+    private var endObserver: NSObjectProtocol?
+    private var onFinished: (() -> Void)?
+    private var isConfigured = false
+
+    override static var layerClass: AnyClass {
+        AVPlayerLayer.self
+    }
+
+    private var playerLayer: AVPlayerLayer {
+        layer as! AVPlayerLayer
+    }
+
+    func configure(onFinished: @escaping () -> Void) {
+        self.onFinished = onFinished
+        playerLayer.player = player
+        playerLayer.videoGravity = .resizeAspect
+
+        guard !isConfigured else { return }
+        isConfigured = true
+
+        guard let videoURL = Bundle.main.url(
+            forResource: "guided_family_picker",
+            withExtension: "mov"
+        ) else { return }
+
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+
+        let item = AVPlayerItem(url: videoURL)
+        player.replaceCurrentItem(with: item)
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.onFinished?()
+            self.player.seek(to: .zero)
+            self.player.play()
+        }
+        player.play()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            player.pause()
+        } else if player.currentItem?.status == .readyToPlay,
+                  player.currentTime() < (player.currentItem?.duration ?? .zero) {
+            player.play()
+        }
+    }
+
+    deinit {
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+    }
+}
+
+struct GuidedPracticeOpenAppPromptModal: View {
+    var onContinue: () -> Void
+
+    @State private var selectedPage = 0
+
+    private let pages = [
+        GuidedPracticeOpenAppPage(
+            title: "Perfect! Open Instagram through Nima to see Clean Mode",
+            imageName: "guided_practice_open_through_nima",
+            imageWidth: 294,
+            imageHeight: 500
+        ),
+        GuidedPracticeOpenAppPage(
+            title: "Infinite feeds are removed. Posts and stories are still viewable",
+            imageName: "guided_practice_feed_removed",
+            imageWidth: 292,
+            imageHeight: 410
+        ),
+    ]
 
     var body: some View {
         GuidedPracticeOverlay {
             GeometryReader { proxy in
                 let scale = min(1, max(0.68, min(proxy.size.width / 390, proxy.size.height / 760)))
-                let videoWidth = 196 * scale
-                let videoHeight = 384 * scale
-                let iconSize = 48 * scale
+                let page = pages[selectedPage]
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        Text("Perfect! now open the app like normal and attempt to scroll or send a dm")
-                            .font(.system(size: 21 * scale, weight: .regular, design: .rounded))
-                            .foregroundStyle(.white)
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(3 * scale)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 30)
-                            .padding(.vertical, 24 * scale)
-                            .frame(minHeight: 122 * scale, alignment: .center)
+                VStack(spacing: 0) {
+                    Text(page.title)
+                        .font(.system(size: 21 * scale, weight: .regular, design: .rounded))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3 * scale)
+                        .minimumScaleFactor(0.82)
+                        .padding(.horizontal, 28)
+                        .frame(height: 126 * scale, alignment: .center)
 
-                    Color.clear.frame(height: 14 * scale)
-
-                    GuidedPracticePromptVideo()
-                        .frame(width: videoWidth, height: videoHeight)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 384 * scale)
-
-                    Color.clear.frame(height: 10 * scale)
-
-                    GuidedPracticeOpenAppCoachRow(activeApps: activeApps, scale: scale)
-                        .frame(height: 30 * scale)
-
-                    HStack(spacing: 64 * scale) {
-                        ForEach(GuidedPracticeLaunchApp.allCases) { app in
-                            GuidedPracticeOpenAppButton(
-                                app: app,
-                                scale: scale,
-                                iconSize: iconSize,
-                                isSuggested: activeApps.contains(app),
-                                isDisabled: isStartingPIP,
-                                action: {
-                                    onOpenApp(app)
-                                }
+                    ZStack {
+                        GuidedPracticeBundledImage(name: page.imageName)
+                            .frame(
+                                width: page.imageWidth * scale,
+                                height: page.imageHeight * scale
                             )
+
+                        HStack {
+                            if selectedPage > 0 {
+                                pageArrow(systemName: "chevron.left", scale: scale) {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        selectedPage -= 1
+                                    }
+                                }
+                                .accessibilityLabel("Previous page")
+                            } else {
+                                Color.clear.frame(width: 46 * scale)
+                            }
+
+                            Spacer()
+
+                            if selectedPage < pages.count - 1 {
+                                pageArrow(systemName: "chevron.right", scale: scale) {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        selectedPage += 1
+                                    }
+                                }
+                                .accessibilityLabel("Next page")
+                            } else {
+                                Color.clear.frame(width: 46 * scale)
+                            }
+                        }
+                        .padding(.horizontal, 24 * scale)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 500 * scale)
+
+                    HStack(spacing: 12 * scale) {
+                        ForEach(pages.indices, id: \.self) { index in
+                            Circle()
+                                .fill(index == selectedPage ? .white.opacity(0.9) : .white.opacity(0.38))
+                                .frame(width: 15 * scale, height: 15 * scale)
+                                .onTapGesture {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        selectedPage = index
+                                    }
+                                }
                         }
                     }
-                    .frame(height: 78 * scale)
+                    .frame(height: 34 * scale)
 
-                    Color.clear.frame(height: 4 * scale)
-
-                        Text("Short form videos are blocked. Posts or stories may also be interrupted")
-                            .font(.system(size: 16.5 * scale, weight: .regular, design: .rounded))
-                            .foregroundStyle(.white)
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(1.5 * scale)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 44)
-                            .frame(minHeight: 68 * scale)
-
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.system(size: 14 * scale, weight: .medium, design: .rounded))
-                                .foregroundStyle(GuidedPracticePalette.accent)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.horizontal, 28)
-                                .frame(minHeight: 34 * scale)
+                    Group {
+                        if selectedPage == pages.count - 1 {
+                            Button(action: onContinue) {
+                                HStack(spacing: 8 * scale) {
+                                    GuidedPracticePromptAppIcon(platform: "instagram")
+                                        .frame(width: 23 * scale, height: 23 * scale)
+                                    Text("Open Instagram")
+                                        .font(.system(size: 17 * scale, weight: .semibold, design: .rounded))
+                                }
+                                .foregroundStyle(GuidedPracticePalette.card)
+                                .frame(width: 196 * scale, height: 44 * scale)
+                                .background(GuidedPracticePalette.accent)
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("guided_practice.open_app_prompt.continue")
                         } else {
-                            Color.clear.frame(height: 34 * scale)
+                            Color.clear
                         }
-
-                        if showsSkipPractice {
-                            Button("Skip practice", action: onSkipPractice)
-                                .font(.system(size: 14 * scale, weight: .regular, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.82))
-                                .buttonStyle(.plain)
-                                .disabled(isStartingPIP)
-                                .accessibilityIdentifier("guided_practice.skip_external_app")
-                        }
-
-                        Color.clear.frame(height: 18 * scale)
                     }
-                    .frame(width: proxy.size.width)
-                    .frame(minHeight: proxy.size.height, alignment: .top)
+                    .frame(height: 44 * scale)
+                    .padding(.top, 6 * scale)
+
+                    Spacer(minLength: 14 * scale)
                 }
-                .scrollBounceBehavior(.basedOnSize)
+                .frame(width: proxy.size.width, height: proxy.size.height)
             }
         }
         .accessibilityIdentifier("guided_practice.open_app_prompt")
     }
+
+    private func pageArrow(
+        systemName: String,
+        scale: CGFloat,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 28 * scale, weight: .light))
+                .foregroundStyle(.white)
+                .frame(width: 46 * scale, height: 58 * scale)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+}
+
+private struct GuidedPracticeBundledImage: View {
+    let name: String
+
+    var body: some View {
+        Group {
+            if let url = Bundle.main.url(forResource: name, withExtension: "png"),
+               let image = UIImage(contentsOfFile: url.path) {
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else {
+                Image(name)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            }
+        }
+    }
+}
+
+private struct GuidedPracticeOpenAppPage {
+    let title: String
+    let imageName: String
+    let imageWidth: CGFloat
+    let imageHeight: CGFloat
 }
 
 private struct GuidedPracticeOpenAppCoachRow: View {
@@ -112,7 +642,7 @@ private struct GuidedPracticeOpenAppCoachRow: View {
                 GuidedPracticeOpenAppCoachNima(text: "Open either app to test", scale: scale)
                     .frame(maxWidth: .infinity)
             } else {
-                HStack(spacing: 64 * scale) {
+                HStack(spacing: 30 * scale) {
                     ForEach(GuidedPracticeLaunchApp.allCases) { app in
                         Group {
                             if activeApps.contains(app) {
@@ -121,7 +651,7 @@ private struct GuidedPracticeOpenAppCoachRow: View {
                                 Color.clear
                             }
                         }
-                        .frame(width: 118 * scale, height: 30 * scale)
+                        .frame(width: 82 * scale, height: 30 * scale)
                     }
                 }
                 .frame(maxWidth: .infinity)

@@ -60,7 +60,9 @@ private struct GuidedOnboardingCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
-                .frame(minHeight: layout.subtitleHeight, alignment: .center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .frame(height: layout.subtitleHeight, alignment: .center)
 
             ZStack {
                 TabView(selection: $currentPage) {
@@ -106,9 +108,10 @@ private struct GuidedOnboardingCard: View {
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 26)
-                .frame(minHeight: layout.bodyHeight)
+                .lineLimit(3)
+                .minimumScaleFactor(0.85)
+                .frame(height: layout.bodyHeight)
                 .padding(.top, layout.bodyTopPadding)
-                .offset(y: currentPage == slides.count - 1 ? -8 : 0)
 
             Group {
                 if currentPage == slides.count - 1 {
@@ -129,8 +132,9 @@ private struct GuidedOnboardingCard: View {
                         .frame(width: 116, height: 42)
                 }
             }
-            .frame(height: layout.doneAreaHeight)
-            .offset(y: currentPage == slides.count - 1 ? -10 : 0)
+            .frame(
+                height: layout.doneAreaHeight
+            )
 
             GuidedOnboardingDots(total: slides.count, current: currentPage)
                 .padding(.top, layout.dotsTopPadding)
@@ -180,6 +184,7 @@ private struct GuidedOnboardingSlideView: View {
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
+                .scaleEffect(slide.mediaScale)
                 .accessibilityHidden(true)
         } else {
             LinearGradient(
@@ -337,6 +342,7 @@ private struct GuidedOnboardingSlide: Identifiable {
     let subtitle: String
     let imageName: String
     let body: String
+    var mediaScale: CGFloat = 1
 
     var id: Int { index }
 
@@ -345,19 +351,22 @@ private struct GuidedOnboardingSlide: Identifiable {
             index: 0,
             subtitle: "Drag an app to block short form feeds",
             imageName: "guided_onboarding_block_placeholder",
-            body: "Pick the apps where you want short form feeds blocked"
+            body: "Pick the apps where you want short form feeds blocked",
+            mediaScale: 0.87
         ),
         GuidedOnboardingSlide(
             index: 1,
             subtitle: "Open the app like normal",
             imageName: "guided_onboarding_feed_placeholder",
-            body: "Short form videos are blocked. Posts or stories may also be interrupted"
+            body: "Short form feeds are removed. Posts and stories are still viewable",
+            mediaScale: 1
         ),
         GuidedOnboardingSlide(
             index: 2,
             subtitle: "Keep messaging freely",
             imageName: "guided_onboarding_chat_placeholder",
-            body: "DMs and chats stay usable, so you can stay connected without the scroll"
+            body: "DMs and chats stay usable, so you can stay connected without the scroll",
+            mediaScale: 0.93
         )
     ]
 }
