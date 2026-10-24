@@ -1,3 +1,4 @@
+import FamilyControls
 import SwiftUI
 import NetworkExtension
 import UIKit
@@ -6,11 +7,14 @@ struct HomeScreen: View {
     @Environment(AppStore.self) private var store
     @Environment(StreakStore.self) private var streakStore
     @Environment(TimeWindowStore.self) private var timeWindowStore
-    @Environment(AuthStore.self) private var authStore
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(InstagramProtectionStore.self) private var instagramProtectionStore
     @Environment(\.sizeCategory) private var contentSizeCategory
     @EnvironmentObject private var vpnManager: VPNManager
     @State private var appIDPendingWindowEnd: String?
+    @State private var isShowingInstagramPicker = false
+    @State private var shouldEnableInstagramAfterSelection = false
+    @State private var instagramSetupError: String?
 
     var onSelectApp: (BlockedApp) -> Void
     var onTimeWindows: (() -> Void)? = nil
@@ -74,6 +78,30 @@ struct HomeScreen: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
+        .familyActivityPicker(
+            isPresented: $isShowingInstagramPicker,
+            selection: Binding(
+                get: { instagramProtectionStore.familySelection },
+                set: { instagramProtectionStore.familySelection = $0 }
+            )
+        )
+        .onChange(of: isShowingInstagramPicker) { wasShowing, isShowing in
+            guard wasShowing, !isShowing, shouldEnableInstagramAfterSelection else { return }
+            shouldEnableInstagramAfterSelection = false
+            guard !instagramProtectionStore.familySelection.applicationTokens.isEmpty else { return }
+            instagramProtectionStore.setProtectionEnabled(
+                true,
+                source: "blocking_status_card.family_picker"
+            )
+        }
+        .alert("Instagram setup", isPresented: Binding(
+            get: { instagramSetupError != nil },
+            set: { if !$0 { instagramSetupError = nil } }
+        )) {
+            Button("OK", role: .cancel) { instagramSetupError = nil }
+        } message: {
+            Text(instagramSetupError ?? "Please try again.")
+        }
         .alert("End current window?", isPresented: isShowingEndWindowConfirmation) {
             Button("End Window", role: .destructive) {
                 if let appIDPendingWindowEnd {
@@ -109,6 +137,10 @@ struct HomeScreen: View {
                 sessionEndsAt: blockerSessionEndsAt,
                 onToggleApp: { appId in
                     toggleBlockState(for: appId)
+                },
+                onOpenApp: { appId in
+                    guard let app = store.app(for: appId) else { return }
+                    onSelectApp(app)
                 },
                 onRequestVPNPermission: {
                     requestVPNPermission()
@@ -152,8 +184,13 @@ struct HomeScreen: View {
                 id: app.id,
                 name: app.name,
                 platform: app.platform ?? app.id,
-                isBlocked: app.options.contains { $0.isEnabled } || isScheduled,
-                isScheduled: isScheduled
+                isBlocked: app.id == "instagram"
+                    ? (instagramProtectionStore.protectionEnabled || isScheduled)
+                    : (app.options.contains { $0.isEnabled } || isScheduled),
+                isScheduled: isScheduled,
+                instagramMode: app.id == "instagram"
+                    ? instagramProtectionStore.effectiveMode
+                    : nil
             )
         }
     }
@@ -182,12 +219,16 @@ struct HomeScreen: View {
 
     private var displayName: String {
         AppSettingsStore.resolvedDisplayName(
-            localOverride: appSettingsStore.normalizedDisplayName,
-            userEmail: authStore.userEmail
+            localOverride: appSettingsStore.normalizedDisplayName
         )
     }
 
     private var blockingVPNState: BlockingVPNState {
+        let tiktokRequiresVPN = dashboardApps.contains { $0.id == "tiktok" && $0.isBlocked }
+        if !tiktokRequiresVPN,
+           dashboardApps.contains(where: { $0.id == "instagram" && $0.isBlocked }) {
+            return .connected
+        }
         switch vpnManager.vpnStatus {
         case .invalid:
             return blockedAppIDs.isEmpty ? .disconnected : .permissionRequired
@@ -205,6 +246,18 @@ struct HomeScreen: View {
     }
 
     private func toggleBlockState(for appId: String) {
+        if appId == "instagram" {
+            guard !timeWindowStore.isAppScheduled(appId) else { return }
+            if instagramProtectionStore.protectionEnabled {
+                instagramProtectionStore.setProtectionEnabled(
+                    false,
+                    source: "blocking_status_card.drag"
+                )
+            } else {
+                enableInstagramProtection()
+            }
+            return
+        }
         guard let app = store.app(for: appId),
               let optionId = app.options.first?.id else {
             return
@@ -220,6 +273,29 @@ struct HomeScreen: View {
         }
 
         store.toggleOption(appId: appId, optionId: optionId, source: "blocking_status_card")
+    }
+
+    private func enableInstagramProtection() {
+        Task {
+            do {
+                if instagramProtectionStore.authorizationStatus != .approved {
+                    try await instagramProtectionStore.requestAuthorization()
+                }
+
+                guard instagramProtectionStore.familySelection.applicationTokens.isEmpty else {
+                    instagramProtectionStore.setProtectionEnabled(
+                        true,
+                        source: "blocking_status_card.drag"
+                    )
+                    return
+                }
+
+                shouldEnableInstagramAfterSelection = true
+                isShowingInstagramPicker = true
+            } catch {
+                instagramSetupError = "Nima needs Screen Time access before it can block the official Instagram app."
+            }
+        }
     }
 
     private func requestVPNPermission() {
@@ -709,6 +785,5 @@ private struct HomeDashboardDebugOverlay: View {
         .environment(StreakStore(defaults: nil))
         .environment(TimeWindowStore())
         .environment(GridPositionStore())
-        .environment(AuthStore())
         .environmentObject(VPNManager())
 }

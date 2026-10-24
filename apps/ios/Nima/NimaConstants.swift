@@ -4,6 +4,9 @@ enum NimaConstants {
     // MARK: - Identifiers
     static let appGroupID = "group.so.nima.app"
     static let tunnelBundleID = "so.nima.app.NimaTunnel"
+    static let instagramFamilySelectionKey = "instagram.client.family_selection"
+    static let instagramShieldPendingDestinationKey = "instagram.shield.pending_destination"
+    static let screenTimeAppConnectionsKey = "screen_time.app_connections"
 
     // MARK: - Network Settings
     static let tunnelRemoteAddress = "198.18.0.1"
@@ -87,6 +90,7 @@ enum NimaConstants {
     static let guidedPracticeReturnPendingKey = "guidedPracticeReturnPendingV1"
     static let guidedWindowsOnboardingCompletedKey = "guidedWindowsOnboardingCompletedV1"
     static let guidedPracticeReviewPromptedUserIDsKey = "guidedPracticeReviewPromptedUserIDsV1"
+    static let instagramLoginIntroSeenKey = "instagramLoginIntroSeenV1"
     static let timeWindowsKey = "timeWindowsV1"
     static let timeWindowsPauseAllKey = "timeWindows.pause_all"
     static let timeWindowsPauseExpiresAtKey = "timeWindows.pause_expires_at"

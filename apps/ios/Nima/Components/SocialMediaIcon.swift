@@ -152,10 +152,18 @@ struct XIcon: View {
     let size: CGFloat
 
     var body: some View {
-        Text("X")
-            .font(.system(size: size * 0.52, weight: .black, design: .rounded))
-            .foregroundStyle(NimaColors.skyBlue)
-            .frame(width: size, height: size)
+        if let asset = UIImage.nimaResource(named: "x_icon", fileExtension: "png") {
+            Image(uiImage: asset)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.18, style: .continuous))
+        } else {
+            Text("X")
+                .font(.system(size: size * 0.52, weight: .black, design: .rounded))
+                .foregroundStyle(NimaColors.skyBlue)
+                .frame(width: size, height: size)
+        }
     }
 }
 

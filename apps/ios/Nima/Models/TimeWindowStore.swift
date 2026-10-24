@@ -16,6 +16,7 @@ final class TimeWindowStore {
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private let notificationScheduler: any TimeWindowNotificationScheduling
     @ObservationIgnored private var applyScheduledApps: ((Set<String>, String) -> Void)?
+    @ObservationIgnored private var applyInstagramMode: ((InstagramMode?, String) -> Void)?
     @ObservationIgnored private var startProtection: ((String) -> Void)?
     @ObservationIgnored private var requestHomeFocus: (() -> Void)?
     @ObservationIgnored private var manuallyBlockedAppIDs: (() -> Set<String>)?
@@ -50,11 +51,13 @@ final class TimeWindowStore {
 
     func configure(
         applyScheduledApps: @escaping (Set<String>, String) -> Void,
+        applyInstagramMode: @escaping (InstagramMode?, String) -> Void = { _, _ in },
         startProtection: @escaping (String) -> Void,
         manuallyBlockedAppIDs: @escaping () -> Set<String> = { [] },
         requestHomeFocus: @escaping () -> Void = {}
     ) {
         self.applyScheduledApps = applyScheduledApps
+        self.applyInstagramMode = applyInstagramMode
         self.startProtection = startProtection
         self.manuallyBlockedAppIDs = manuallyBlockedAppIDs
         self.requestHomeFocus = requestHomeFocus
@@ -66,6 +69,7 @@ final class TimeWindowStore {
                 self?.handlePauseReminderActivation()
             }
         }
+        InstagramScheduleMonitor.sync(windows: windows)
         evaluateSchedules(source: "time_windows.configure", forceApply: true)
         refreshActivationPrompt(source: "time_windows.configure")
         rescheduleNotifications(requestAuthorizationIfNeeded: false)
@@ -159,6 +163,8 @@ final class TimeWindowStore {
         notificationScheduler.cancelStartNotifications()
         notificationScheduler.cancelPauseReminderNotifications()
         applyScheduledApps?([], "account_deletion.local_reset")
+        applyInstagramMode?(nil, "account_deletion.local_reset")
+        InstagramScheduleMonitor.sync(windows: [])
     }
 
     func status(for window: TimeWindow, now: Date = Date()) -> TimeWindowStatus {
@@ -226,12 +232,21 @@ final class TimeWindowStore {
         purgeOccurrenceDecisions(now: now)
         let active = confirmedActiveWindows(now: now, calendar: calendar)
         activeWindowIDs = Set(active.map(\.id))
-        let nextScheduledApps = Set(active.flatMap(\.apps))
+        let nextScheduledApps = Set(active.flatMap { window in
+            window.apps.filter { appID in
+                appID != "instagram" || window.instagramMode != nil
+            }
+        })
+        let nextInstagramMode: InstagramMode? = active.contains { $0.instagramMode == .dmOnly }
+            ? .dmOnly
+            : (active.contains { $0.instagramMode == .clean } ? .clean : nil)
         let activeEndDates = active.compactMap {
             TimeWindowScheduleEvaluator.activeEndDate(for: $0, now: now, calendar: calendar)
         }
         ScheduledProtectionStateStore.persistScheduleEvaluation(
-            appIDs: nextScheduledApps,
+            // This shared snapshot drives VPN recovery. Instagram schedules are
+            // enforced by Device Activity and must never make the tunnel desired.
+            appIDs: nextScheduledApps.intersection(["tiktok", "x"]),
             windowIDs: activeWindowIDs,
             desiredUntil: activeEndDates.max(),
             source: source,
@@ -240,6 +255,7 @@ final class TimeWindowStore {
         )
         let didChange = nextScheduledApps != scheduledAppIDs
         scheduledAppIDs = nextScheduledApps
+        applyInstagramMode?(nextInstagramMode, source)
         guard didChange || forceApply || lastAppliedScheduledAppIDs != nextScheduledApps else { return }
         guard let applyScheduledApps else { return }
         applyScheduledApps(nextScheduledApps, source)
@@ -348,7 +364,7 @@ final class TimeWindowStore {
             now: now,
             calendar: calendar
         )
-        if didActivate, !scheduledAppIDs.isEmpty {
+        if didActivate, hasTunnelBackedScheduledApps {
             startProtection?("time_windows.activation_confirmed")
         }
     }
@@ -372,6 +388,7 @@ final class TimeWindowStore {
 
     private func persistAndRefresh(source: String, requestNotificationAuthorization: Bool) {
         save()
+        InstagramScheduleMonitor.sync(windows: windows)
         evaluateSchedules(source: source)
         rescheduleNotifications(requestAuthorizationIfNeeded: requestNotificationAuthorization)
         if pauseAll {
@@ -431,7 +448,7 @@ final class TimeWindowStore {
         notificationScheduler.cancelPauseReminderNotifications()
         evaluateSchedules(source: source)
         rescheduleNotifications(requestAuthorizationIfNeeded: false)
-        if !scheduledAppIDs.isEmpty {
+        if hasTunnelBackedScheduledApps {
             startProtection?(source)
         }
         refreshActivationPrompt(source: source)
@@ -539,6 +556,10 @@ final class TimeWindowStore {
 
     private var pauseIntervalMinutes: Int {
         AppSettingsStore.pauseIntervalMinutes(defaults: defaults)
+    }
+
+    private var hasTunnelBackedScheduledApps: Bool {
+        !scheduledAppIDs.intersection(["tiktok", "x"]).isEmpty
     }
 
     private func eligibleWindows(now: Date, calendar: Calendar) -> [TimeWindow] {

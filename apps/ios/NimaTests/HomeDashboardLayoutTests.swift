@@ -155,6 +155,44 @@ final class BlockingRingStateTests: XCTestCase {
     }
 }
 
+final class BlockingDashboardAppStatusTests: XCTestCase {
+    func testActiveInstagramUsesCleanModeLabel() {
+        let app = BlockingDashboardApp(
+            id: "instagram",
+            name: "Instagram",
+            platform: "instagram",
+            isBlocked: true,
+            instagramMode: .clean
+        )
+
+        XCTAssertEqual(app.activeStatusLabel, "CLEAN MODE\nACTIVE")
+    }
+
+    func testActiveInstagramUsesDMOnlyModeLabel() {
+        let app = BlockingDashboardApp(
+            id: "instagram",
+            name: "Instagram",
+            platform: "instagram",
+            isBlocked: true,
+            instagramMode: .dmOnly
+        )
+
+        XCTAssertEqual(app.activeStatusLabel, "DM ONLY\nMODE ACTIVE")
+    }
+
+    func testInactiveAppHasNoStatusLabel() {
+        let app = BlockingDashboardApp(
+            id: "instagram",
+            name: "Instagram",
+            platform: "instagram",
+            isBlocked: false,
+            instagramMode: .clean
+        )
+
+        XCTAssertNil(app.activeStatusLabel)
+    }
+}
+
 final class BlockingConnectionIndicatorStateTests: XCTestCase {
     func testDisconnectedVPNShowsDisconnectedIndicator() {
         XCTAssertEqual(BlockingVPNState.disconnected.connectionIndicatorState, .disconnected)

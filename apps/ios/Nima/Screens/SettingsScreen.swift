@@ -1,17 +1,9 @@
 import Foundation
-import Supabase
 import SwiftUI
 import UIKit
 
 struct SettingsScreen: View {
     @Environment(\.sizeCategory) private var contentSizeCategory
-    @Environment(AppStore.self) private var appStore
-    @Environment(AppSettingsStore.self) private var appSettingsStore
-    @Environment(AuthStore.self) private var authStore
-    @Environment(GridPositionStore.self) private var gridPositionStore
-    @Environment(OnboardingStore.self) private var onboardingStore
-    @Environment(StreakStore.self) private var streakStore
-    @Environment(TimeWindowStore.self) private var timeWindowStore
     @EnvironmentObject private var vpnManager: VPNManager
 
     @State private var destination: SettingsDestination?
@@ -20,18 +12,15 @@ struct SettingsScreen: View {
 
     let onHome: () -> Void
     let onWindows: () -> Void
-    let onAccountDeleted: () -> Void
     var showsDock: Bool
 
     init(
         onHome: @escaping () -> Void = {},
         onWindows: @escaping () -> Void = {},
-        onAccountDeleted: @escaping () -> Void = {},
         showsDock: Bool = true
     ) {
         self.onHome = onHome
         self.onWindows = onWindows
-        self.onAccountDeleted = onAccountDeleted
         self.showsDock = showsDock
     }
 
@@ -78,14 +67,11 @@ struct SettingsScreen: View {
             settingsList(layout: layout)
         case .account?:
             SettingsPageScaffold(
-                title: "Account Settings",
+                title: "Profile",
                 layout: layout,
                 onBack: { destination = nil }
             ) {
-                AccountSettingsPage(
-                    onSignOut: logOutAndReturnHome,
-                    onAccountDeleted: handleAccountDeleted
-                )
+                ProfileSettingsPage()
             }
         case .notifications?:
             SettingsPageScaffold(
@@ -118,6 +104,14 @@ struct SettingsScreen: View {
                 onBack: { destination = nil }
             ) {
                 AdvancedSettingsPage()
+            }
+        case .instagram?:
+            SettingsPageScaffold(
+                title: "Instagram",
+                layout: layout,
+                onBack: { destination = nil }
+            ) {
+                InstagramDataSettingsPage()
             }
         case .help?:
             SettingsPageScaffold(
@@ -178,7 +172,7 @@ struct SettingsScreen: View {
                 Color.clear.frame(height: 22 * layout.settingsScale)
 
                 VStack(spacing: 10 * layout.settingsScale) {
-                    SettingsNavigationRow(icon: "person", title: "Account Settings") {
+                    SettingsNavigationRow(icon: "person", title: "Profile") {
                         destination = .account
                     }
                     SettingsNavigationRow(icon: "bell", title: "Notifications") {
@@ -192,6 +186,9 @@ struct SettingsScreen: View {
                     }
                     SettingsNavigationRow(icon: "wrench", title: "Advanced") {
                         destination = .advanced
+                    }
+                    SettingsNavigationRow(icon: "externaldrive", title: "Data") {
+                        destination = .instagram
                     }
                 }
 
@@ -211,9 +208,6 @@ struct SettingsScreen: View {
                     }
                     SettingsFooterButton(title: "Share This App") {
                         isShowingShareSheet = true
-                    }
-                    SettingsFooterButton(title: "Log Out") {
-                        logOutAndReturnHome()
                     }
                 }
 
@@ -243,26 +237,6 @@ struct SettingsScreen: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
     }
 
-    private func logOutAndReturnHome() {
-        Task {
-            await authStore.logout()
-            await MainActor.run {
-                onboardingStore.resetForOnboardingRestart()
-                appStore.resetAllBlockingOptions(source: "settings.logout_test_reset")
-                onHome()
-            }
-        }
-    }
-
-    private func handleAccountDeleted() {
-        appSettingsStore.resetForAccountDeletion()
-        streakStore.resetForAccountDeletion()
-        timeWindowStore.resetForAccountDeletion()
-        gridPositionStore.resetForAccountDeletion()
-        appStore.resetAllBlockingOptions(source: "settings.account_deletion")
-        onboardingStore.resetForOnboardingRestart()
-        onAccountDeleted()
-    }
 }
 
 private enum SettingsDestination: Equatable {
@@ -271,10 +245,79 @@ private enum SettingsDestination: Equatable {
     case windows
     case subscription
     case advanced
+    case instagram
     case help
     case privacy
     case terms
     case logs
+}
+
+private struct InstagramDataSettingsPage: View {
+    @Environment(InstagramProtectionStore.self) private var protectionStore
+    @State private var confirmation: InstagramDataAction?
+    @State private var isWorking = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Instagram login information is stored by WebKit on this device. Nima does not read your password, messages, or viewed content.")
+                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .foregroundStyle(AppChromePalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            SettingsFormPanel {
+                Button("Log Out of Instagram") { confirmation = .logOut }
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 14)
+
+                SettingsInlineDivider()
+
+                Button("Clear Instagram Website Data", role: .destructive) { confirmation = .clearData }
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 14)
+            }
+
+            if isWorking {
+                ProgressView("Updating Instagram data…")
+                    .tint(AppChromePalette.accent)
+            }
+        }
+        .alert(item: $confirmation) { action in
+            Alert(
+                title: Text(action.title),
+                message: Text(action.message),
+                primaryButton: .destructive(Text(action.buttonTitle)) { perform(action) },
+                secondaryButton: .cancel()
+            )
+        }
+    }
+
+    private func perform(_ action: InstagramDataAction) {
+        isWorking = true
+        Task {
+            switch action {
+            case .logOut: await protectionStore.logOutInstagram()
+            case .clearData: await protectionStore.clearInstagramData()
+            }
+            isWorking = false
+        }
+    }
+}
+
+private enum InstagramDataAction: String, Identifiable {
+    case logOut
+    case clearData
+
+    var id: String { rawValue }
+    var title: String { self == .logOut ? "Log out of Instagram?" : "Clear Instagram data?" }
+    var message: String {
+        self == .logOut
+            ? "You will need to sign in again inside Nima."
+            : "This removes Instagram cookies, cache, and local website storage from Nima."
+    }
+    var buttonTitle: String { self == .logOut ? "Log Out" : "Clear Data" }
 }
 
 private extension HomeDashboardLayout {
@@ -496,14 +539,9 @@ private struct SettingsInlineDivider: View {
     }
 }
 
-private struct AccountSettingsPage: View {
-    @Environment(AuthStore.self) private var authStore
+private struct ProfileSettingsPage: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var draftName = ""
-    @State private var isShowingDeleteAccountSheet = false
-
-    let onSignOut: () -> Void
-    let onAccountDeleted: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -532,51 +570,10 @@ private struct AccountSettingsPage: View {
                 }
                 .padding(.vertical, 8)
 
-                if !authStore.userEmail.isEmpty {
-                    SettingsInlineDivider()
-
-                    SettingsInfoRow(
-                        title: "Email",
-                        value: authStore.userEmail
-                    )
-                }
-
-                SettingsInlineDivider()
-
-                Button(action: onSignOut) {
-                    SettingsActionRow(
-                        title: "Sign out",
-                        subtitle: nil,
-                        icon: "rectangle.portrait.and.arrow.right"
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-
-            SettingsFormPanel {
-                Button(role: .destructive) {
-                    isShowingDeleteAccountSheet = true
-                } label: {
-                    SettingsActionRow(
-                        title: "Delete Account",
-                        subtitle: "Permanently delete your Nima account.",
-                        icon: "trash",
-                        foregroundStyle: .red
-                    )
-                }
-                .buttonStyle(.plain)
             }
         }
         .onAppear {
             draftName = appSettingsStore.displayName
-        }
-        .sheet(isPresented: $isShowingDeleteAccountSheet) {
-            DeleteAccountSheet(
-                onDeleted: {
-                    isShowingDeleteAccountSheet = false
-                    onAccountDeleted()
-                }
-            )
         }
     }
 }
@@ -714,11 +711,6 @@ private struct SubscriptionSettingsPage: View {
     @Environment(SubscriptionStore.self) private var subscriptionStore
 
     @State private var isShowingPlans = false
-    @State private var isShowingCancellationFeedback = false
-    @State private var selectedCancellationReason: SubscriptionCancellationReason = .tooExpensive
-    @State private var cancellationDetails = ""
-    @State private var isSubmittingCancellationFeedback = false
-    @State private var cancellationFeedbackError: String?
     @State private var subscriptionManagementError: String?
 
     var body: some View {
@@ -749,17 +741,27 @@ private struct SubscriptionSettingsPage: View {
 
                 SettingsInlineDivider()
 
-                Button(role: .destructive) {
-                    cancellationFeedbackError = nil
-                    isShowingCancellationFeedback = true
+                Button {
+                    restorePurchases()
                 } label: {
                     SettingsActionRow(
-                        title: "Cancel subscription",
-                        subtitle: nil,
-                        icon: "xmark.circle"
+                        title: subscriptionStore.isRestoring ? "Restoring purchases…" : "Restore purchases",
+                        subtitle: "Recover a subscription bought with your Apple Account.",
+                        icon: "arrow.clockwise"
                     )
                 }
                 .buttonStyle(.plain)
+                .disabled(subscriptionStore.isRestoring)
+
+                if let restoreErrorMessage = subscriptionStore.restoreErrorMessage {
+                    SettingsInlineDivider()
+
+                    Text(restoreErrorMessage)
+                        .font(.system(size: 13.5, weight: .regular, design: .rounded))
+                        .foregroundStyle(.red.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 10)
+                }
 
                 if let subscriptionManagementError {
                     SettingsInlineDivider()
@@ -788,48 +790,24 @@ private struct SubscriptionSettingsPage: View {
                 onUnlocked: {
                     isShowingPlans = false
                 },
+                context: "settings",
                 onClose: {
                     isShowingPlans = false
                 }
             )
         }
-        .sheet(isPresented: $isShowingCancellationFeedback) {
-            CancellationFeedbackSheet(
-                selectedReason: $selectedCancellationReason,
-                details: $cancellationDetails,
-                isSubmitting: isSubmittingCancellationFeedback,
-                errorMessage: cancellationFeedbackError,
-                onSubmit: submitCancellationFeedback,
-                onDismiss: {
-                    isShowingCancellationFeedback = false
-                }
-            )
-        }
     }
 
-    private func submitCancellationFeedback() {
-        guard !isSubmittingCancellationFeedback else { return }
-        isSubmittingCancellationFeedback = true
-        cancellationFeedbackError = nil
-
-        Task {
-            do {
-                try await SubscriptionCancellationFeedbackService.submit(
-                    reason: selectedCancellationReason,
-                    details: cancellationDetails
-                )
-                await MainActor.run {
-                    isSubmittingCancellationFeedback = false
-                    isShowingCancellationFeedback = false
-                    cancellationDetails = ""
-                    openSubscriptionManagement()
-                }
-            } catch {
-                await MainActor.run {
-                    isSubmittingCancellationFeedback = false
-                    cancellationFeedbackError = error.localizedDescription
-                }
-            }
+    private func restorePurchases() {
+        AnalyticsService.shared.capture(
+            AnalyticsEvent.restoreStarted,
+            properties: ["context": "settings"]
+        )
+        subscriptionStore.restore {
+            AnalyticsService.shared.capture(
+                AnalyticsEvent.restoreSucceeded,
+                properties: ["context": "settings"]
+            )
         }
     }
 
@@ -839,494 +817,6 @@ private struct SubscriptionSettingsPage: View {
         UIApplication.shared.open(AppleSubscriptionURL.manage) { didOpen in
             guard !didOpen else { return }
             subscriptionManagementError = "Could not open Apple subscriptions right now."
-        }
-    }
-}
-
-private struct CancellationFeedbackSheet: View {
-    @Binding var selectedReason: SubscriptionCancellationReason
-    @Binding var details: String
-
-    let isSubmitting: Bool
-    let errorMessage: String?
-    let onSubmit: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("Tell us why before Apple opens subscription management.")
-                        .font(.system(size: 15, weight: .regular, design: .rounded))
-                        .foregroundStyle(AppChromePalette.muted.opacity(0.92))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    SettingsFormPanel {
-                        VStack(spacing: 0) {
-                            ForEach(SubscriptionCancellationReason.allCases) { reason in
-                                Button {
-                                    selectedReason = reason
-                                } label: {
-                                    HStack {
-                                        Text(reason.label)
-                                            .font(.system(size: 17, weight: .semibold, design: .rounded))
-                                            .foregroundStyle(.white)
-
-                                        Spacer()
-
-                                        if selectedReason == reason {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .foregroundStyle(AppChromePalette.accent)
-                                        }
-                                    }
-                                    .padding(.vertical, 10)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-
-                                if reason != SubscriptionCancellationReason.allCases.last {
-                                    SettingsInlineDivider()
-                                }
-                            }
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Details optional")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
-
-                        TextEditor(text: detailsBinding)
-                            .font(.system(size: 16, weight: .regular, design: .rounded))
-                            .foregroundStyle(.white)
-                            .scrollContentBackground(.hidden)
-                            .frame(minHeight: 110)
-                            .padding(8)
-                            .background(AppChromePalette.card.opacity(0.82))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(AppChromePalette.border.opacity(0.75), lineWidth: 1)
-                            )
-
-                        Text("\(details.count)/500")
-                            .font(.system(size: 12, weight: .regular, design: .rounded))
-                            .foregroundStyle(AppChromePalette.muted.opacity(0.78))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.system(size: 13.5, weight: .regular, design: .rounded))
-                            .foregroundStyle(.red.opacity(0.9))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Button(action: onSubmit) {
-                        HStack {
-                            if isSubmitting {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .tint(.black)
-                            }
-
-                            Text(isSubmitting ? "Saving..." : "Continue to Apple")
-                                .font(.system(size: 18, weight: .bold, design: .rounded))
-                                .foregroundStyle(.black)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(AppChromePalette.accent)
-                        .clipShape(Capsule())
-                    }
-                    .disabled(isSubmitting)
-                }
-                .padding(20)
-            }
-            .background(AppChromePalette.background.ignoresSafeArea())
-            .navigationTitle("Cancel subscription")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Close", action: onDismiss)
-                        .disabled(isSubmitting)
-                }
-            }
-        }
-        .presentationDetents([.large])
-        .preferredColorScheme(.dark)
-    }
-
-    private var detailsBinding: Binding<String> {
-        Binding(
-            get: { details },
-            set: { details = String($0.prefix(500)) }
-        )
-    }
-}
-
-private struct DeleteAccountSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(AuthStore.self) private var authStore
-    @EnvironmentObject private var vpnManager: VPNManager
-
-    @State private var isShowingFinalConfirmation = false
-    @State private var isDeleting = false
-    @State private var errorMessage: String?
-    @State private var subscriptionManagementError: String?
-
-    let onDeleted: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("Deleting your account permanently removes your Nima account and account-linked data.")
-                        .font(.system(size: 15, weight: .regular, design: .rounded))
-                        .foregroundStyle(AppChromePalette.muted.opacity(0.92))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    SettingsFormPanel {
-                        DeleteAccountBulletRow(
-                            icon: "person.crop.circle.badge.xmark",
-                            title: "Deletes your Nima account",
-                            bodyText: "Your account and account-linked data will be removed."
-                        )
-
-                        SettingsInlineDivider()
-
-                        DeleteAccountBulletRow(
-                            icon: "creditcard",
-                            title: "Does not cancel Apple billing",
-                            bodyText: "Subscriptions managed by Apple must be cancelled separately."
-                        )
-
-                        SettingsInlineDivider()
-
-                        DeleteAccountBulletRow(
-                            icon: "exclamationmark.triangle",
-                            title: "This is permanent",
-                            bodyText: "You cannot undo account deletion after it completes."
-                        )
-                    }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Deleting your account does not cancel subscriptions managed by Apple. To stop billing, cancel your subscription first in Manage Subscription.")
-                            .font(.system(size: 14, weight: .regular, design: .rounded))
-                            .foregroundStyle(AppChromePalette.muted.opacity(0.92))
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Button {
-                            openSubscriptionManagement()
-                        } label: {
-                            HStack {
-                                Text("Manage Subscription")
-                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 13, weight: .bold))
-                            }
-                            .foregroundStyle(AppChromePalette.accent)
-                        }
-                        .buttonStyle(.plain)
-
-                        if let subscriptionManagementError {
-                            Text(subscriptionManagementError)
-                                .font(.system(size: 13.5, weight: .regular, design: .rounded))
-                                .foregroundStyle(.red.opacity(0.9))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .padding(.horizontal, 4)
-
-                    if let errorMessage {
-                        Text("\(errorMessage) Contact support@nima.so if this keeps happening.")
-                            .font(.system(size: 13.5, weight: .regular, design: .rounded))
-                            .foregroundStyle(.red.opacity(0.9))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Button(role: .destructive) {
-                        errorMessage = nil
-                        isShowingFinalConfirmation = true
-                    } label: {
-                        HStack {
-                            if isDeleting {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .tint(.white)
-                            }
-
-                            Text(isDeleting ? "Deleting..." : "Delete Account")
-                                .font(.system(size: 18, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(Color.red.opacity(isDeleting ? 0.48 : 0.82))
-                        .clipShape(Capsule())
-                    }
-                    .disabled(isDeleting)
-                }
-                .padding(20)
-            }
-            .background(AppChromePalette.background.ignoresSafeArea())
-            .navigationTitle("Delete Account")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Close") {
-                        guard !isDeleting else { return }
-                        dismiss()
-                    }
-                    .disabled(isDeleting)
-                }
-            }
-        }
-        .interactiveDismissDisabled(isDeleting)
-        .alert("Delete account permanently?", isPresented: $isShowingFinalConfirmation) {
-            Button("Delete Account", role: .destructive) {
-                deleteAccount()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will delete your Nima account and sign you out. Apple subscriptions must be cancelled separately.")
-        }
-        .presentationDetents([.large])
-        .preferredColorScheme(.dark)
-    }
-
-    private func deleteAccount() {
-        guard !isDeleting else { return }
-        isDeleting = true
-        errorMessage = nil
-
-        Task {
-            do {
-                var appleAuthorizationCode: String?
-                if authStore.isAppleAccount {
-                    let credential = try await NativeAuthService.appleRevocationCredential()
-                    guard credential.userID == authStore.appleUserID else {
-                        throw AccountDeletionError.appleAccountMismatch
-                    }
-                    appleAuthorizationCode = credential.authorizationCode
-                }
-
-                try await AccountDeletionService.deleteCurrentUser(
-                    isDemo: authStore.isDemo,
-                    appleAuthorizationCode: appleAuthorizationCode
-                )
-                await authStore.logout()
-                _ = await vpnManager.removeVPNProfileForAccountDeletion()
-                await MainActor.run {
-                    LocalAccountDataCleaner.clearAll()
-                    isDeleting = false
-                    onDeleted()
-                }
-            } catch {
-                await MainActor.run {
-                    isDeleting = false
-                    errorMessage = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    private func openSubscriptionManagement() {
-        subscriptionManagementError = nil
-        UIApplication.shared.open(AppleSubscriptionURL.manage) { didOpen in
-            guard !didOpen else { return }
-            subscriptionManagementError = "Could not open Apple subscriptions right now."
-        }
-    }
-}
-
-private struct DeleteAccountBulletRow: View {
-    let icon: String
-    let title: String
-    let bodyText: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 24, height: 24)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 16.5, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-
-                Text(bodyText)
-                    .font(.system(size: 13.5, weight: .regular, design: .rounded))
-                    .foregroundStyle(AppChromePalette.muted.opacity(0.92))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.vertical, 10)
-    }
-}
-
-enum AccountDeletionService {
-    typealias RequestExecutor = (URLRequest) async throws -> (Data, URLResponse)
-    typealias AccessTokenProvider = () async throws -> String
-
-    static func deleteCurrentUser(
-        isDemo: Bool,
-        appleAuthorizationCode: String? = nil,
-        accountDeletionURL: URL? = configuredAccountDeletionURL,
-        publishableKey: String? = configuredSupabasePublishableKey,
-        accessTokenProvider: AccessTokenProvider = currentAccessToken,
-        requestExecutor: @escaping RequestExecutor = { request in
-            try await URLSession.shared.data(for: request)
-        }
-    ) async throws {
-        guard !isDemo else { return }
-        guard let accountDeletionURL else {
-            throw AccountDeletionError.missingFunctionURL
-        }
-
-        let accessToken = try await accessTokenProvider()
-        let request = try deletionRequest(
-            accountDeletionURL: accountDeletionURL,
-            accessToken: accessToken,
-            publishableKey: publishableKey,
-            appleAuthorizationCode: appleAuthorizationCode
-        )
-        let (data, response) = try await requestExecutor(request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AccountDeletionError.invalidResponse
-        }
-
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw AccountDeletionError.backend(
-                statusCode: httpResponse.statusCode,
-                message: backendErrorMessage(from: data)
-            )
-        }
-    }
-
-    static var configuredAccountDeletionURL: URL? {
-        guard let supabaseURL = configuredSupabaseURL else {
-            return nil
-        }
-
-        return supabaseURL
-            .appendingPathComponent("functions")
-            .appendingPathComponent("v1")
-            .appendingPathComponent("delete-account")
-    }
-
-    static func deletionRequest(
-        accountDeletionURL: URL,
-        accessToken: String,
-        publishableKey: String? = configuredSupabasePublishableKey,
-        appleAuthorizationCode: String? = nil
-    ) throws -> URLRequest {
-        var request = URLRequest(url: accountDeletionURL)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let publishableKey {
-            request.setValue(publishableKey, forHTTPHeaderField: "apikey")
-        }
-        if let appleAuthorizationCode {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "apple_authorization_code": appleAuthorizationCode
-            ])
-        }
-        return request
-    }
-
-    private static var configuredSupabaseURL: URL? {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String else {
-            return nil
-        }
-
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains("$(") else { return nil }
-        return URL(string: trimmed)
-    }
-
-    private static var configuredSupabasePublishableKey: String? {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_KEY") as? String else {
-            return nil
-        }
-
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains("$(") else { return nil }
-        return trimmed
-    }
-
-    private static func currentAccessToken() async throws -> String {
-        guard let supabaseClient else {
-            throw AccountDeletionError.supabaseUnavailable
-        }
-
-        let session = try await supabaseClient.auth.session
-        return session.accessToken
-    }
-
-    private static func backendErrorMessage(from data: Data) -> String? {
-        guard !data.isEmpty else { return nil }
-
-        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let error = object["error"] as? String,
-           !error.isEmpty {
-            return error
-        }
-
-        let text = String(decoding: data, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
-    }
-}
-
-enum AccountDeletionError: LocalizedError, Equatable {
-    case missingFunctionURL
-    case supabaseUnavailable
-    case appleAccountMismatch
-    case invalidResponse
-    case backend(statusCode: Int, message: String?)
-
-    var errorDescription: String? {
-        switch self {
-        case .missingFunctionURL:
-            return "Account deletion is unavailable until Supabase is configured."
-        case .supabaseUnavailable:
-            return "Account deletion is unavailable until Supabase is configured."
-        case .appleAccountMismatch:
-            return "Use the same Apple Account that is connected to this Nima account."
-        case .invalidResponse:
-            return "Account deletion failed because the server returned an invalid response."
-        case .backend(let statusCode, let message):
-            if let message, !message.isEmpty {
-                return "Account deletion failed: \(message)"
-            }
-            return "Account deletion failed with status \(statusCode)."
-        }
-    }
-}
-
-private enum LocalAccountDataCleaner {
-    static func clearAll() {
-        if let defaults = UserDefaults(suiteName: NimaConstants.appGroupID) {
-            defaults.removePersistentDomain(forName: NimaConstants.appGroupID)
-            defaults.synchronize()
-        }
-
-        if let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: NimaConstants.appGroupID
-        ) {
-            let contents = (try? FileManager.default.contentsOfDirectory(
-                at: containerURL,
-                includingPropertiesForKeys: nil
-            )) ?? []
-            for url in contents {
-                try? FileManager.default.removeItem(at: url)
-            }
         }
     }
 }

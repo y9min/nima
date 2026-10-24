@@ -1,4 +1,5 @@
-import GoogleSignIn
+import FamilyControls
+import ManagedSettings
 import SwiftUI
 import NetworkExtension
 import StoreKit
@@ -6,6 +7,7 @@ import UIKit
 
 @main
 struct NimaApp: App {
+    @UIApplicationDelegateAdaptor(NimaApplicationDelegate.self) private var applicationDelegate
     @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var vpnManager = VPNManager()
@@ -14,21 +16,22 @@ struct NimaApp: App {
     @State private var streakStore = StreakStore()
     @State private var timeWindowStore = TimeWindowStore()
     @State private var gridPositionStore = GridPositionStore()
-    @State private var authStore = AuthStore()
     @State private var appSettingsStore = AppSettingsStore()
+    @State private var instagramProtectionStore = InstagramProtectionStore()
     @State private var onboardingStore = OnboardingStore()
     @State private var subscriptionStore = SubscriptionStore()
     @State private var didConfigureProtection = false
     @State private var guidedOnboardingPresentationMode: GuidedOnboardingPresentationMode?
     @State private var guidedPracticePhase: GuidedPracticePhase = .hidden
     @State private var guidedPracticeActiveApps: Set<GuidedPracticeLaunchApp> = []
-    @State private var guidedPracticePIPError: String?
-    @State private var isStartingGuidedPracticePIP = false
-    @State private var pipInstructionController = PiPInstructionVideoController()
+    @State private var guidedPracticeSelectedAppIDs: Set<String> = []
+    @State private var guidedPracticeFamilySelection = FamilyActivitySelection()
+    @State private var guidedPracticeApplicationTokens: [ApplicationToken] = []
+    @State private var guidedPracticeAppAssignments: [ApplicationToken: String] = [:]
+    @State private var isShowingGuidedPracticeFamilyPicker = false
+    @State private var guidedPracticeFamilyPickerError: String?
     @State private var didStartLaunchServices = false
     @State private var hasHandledGuidedPracticeReviewRequest = false
-    @State private var accountLinkingDeferredForLaunch = false
-    @State private var isSigningInExistingSubscriber = false
     @State private var didTrackAppUnlock = false
     private let guidedPracticeReviewPromptStore = GuidedPracticeReviewPromptStore()
 
@@ -105,6 +108,12 @@ struct NimaApp: App {
                             )
                         case .blockingOptions(let appId):
                             BlockingOptionsScreen(appId: appId)
+                        case .instagramClient(let context):
+                            InstagramClientScreen(
+                                launchContext: context,
+                                onGuidedPracticeCompleted: completeInstagramGuidedPractice,
+                                onGuidedPracticeCancelled: cancelInstagramGuidedPractice
+                            )
                         case .settings:
                             SettingsScreen(
                                 onHome: {
@@ -113,8 +122,7 @@ struct NimaApp: App {
                                 onWindows: {
                                     path = NavigationPath()
                                     path.append(Route.timeWindows)
-                                },
-                                onAccountDeleted: routeToSplashAfterAccountDeletion
+                                }
                             )
                         case .trafficDashboard:
                             TrafficDashboardView()
@@ -127,8 +135,8 @@ struct NimaApp: App {
                 .environment(streakStore)
                 .environment(timeWindowStore)
                 .environment(gridPositionStore)
-                .environment(authStore)
                 .environment(appSettingsStore)
+                .environment(instagramProtectionStore)
                 .environment(onboardingStore)
                 .environment(subscriptionStore)
                 .environmentObject(vpnManager)
@@ -143,6 +151,7 @@ struct NimaApp: App {
                 .onAppear {
                     // Keep the first SwiftUI frame lightweight so iOS can leave the launch screen.
                     trackAppUnlockIfNeeded(destination: rootDestination)
+                    handlePendingInstagramShieldDestination()
                 }
                 .onChange(of: rootDestination) { _, destination in
                     trackAppUnlockIfNeeded(destination: destination)
@@ -154,28 +163,18 @@ struct NimaApp: App {
                         guidedOnboardingPresentationMode = nil
                         guidedPracticePhase = .hidden
                         guidedPracticeActiveApps = []
-                        guidedPracticePIPError = nil
-                        isStartingGuidedPracticePIP = false
+                        guidedPracticeSelectedAppIDs = []
+                        guidedPracticeFamilySelection = FamilyActivitySelection()
+                        guidedPracticeApplicationTokens = []
+                        guidedPracticeAppAssignments = [:]
+                        isShowingGuidedPracticeFamilyPicker = false
+                        guidedPracticeFamilyPickerError = nil
                         hasHandledGuidedPracticeReviewRequest = false
                         return
                     }
                     configureProtectionIfNeeded()
                     store.syncVPNState(source: "onboarding.completed")
                     markStreakIfEligible(source: "onboarding.completed")
-                    presentGuidedOnboardingIfNeeded()
-                }
-                .onChange(of: authStore.subscriptionIdentity) { _, identity in
-                    if identity != .none {
-                        path = NavigationPath()
-                        guidedOnboardingPresentationMode = nil
-                        if guidedPracticePhase != .waitingForReturn {
-                            guidedPracticePhase = .hidden
-                        }
-                        applySubscriptionIdentity()
-                    } else {
-                        subscriptionStore.configureAnonymousUser()
-                        AnalyticsService.shared.resetIdentity()
-                    }
                     presentGuidedOnboardingIfNeeded()
                 }
                 .onChange(of: subscriptionStore.hasPremium) { _, hasPremium in
@@ -199,14 +198,6 @@ struct NimaApp: App {
                 }
                 .task(id: guidedPracticePhase) {
                     await handleGuidedPracticePhaseTask()
-                }
-
-                if shouldMountPiPInstructionHost {
-                    PiPInstructionVideoHost(controller: pipInstructionController)
-                        .frame(width: 1, height: 1)
-                        .opacity(0.01)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
                 }
 
                 if let guidedOnboardingPresentationMode {
@@ -244,6 +235,14 @@ struct NimaApp: App {
             .animation(.easeInOut(duration: 0.18), value: guidedOnboardingPresentationMode)
             .animation(.easeInOut(duration: 0.18), value: guidedPracticePhase)
             .animation(.easeInOut(duration: 0.18), value: timeWindowStore.activationPrompt?.id)
+            .familyActivityPicker(
+                isPresented: $isShowingGuidedPracticeFamilyPicker,
+                selection: $guidedPracticeFamilySelection
+            )
+            .onChange(of: isShowingGuidedPracticeFamilyPicker) { wasShowing, isShowing in
+                guard wasShowing, !isShowing else { return }
+                finishGuidedPracticeFamilyPicker()
+            }
         }
     }
 
@@ -263,10 +262,7 @@ struct NimaApp: App {
         configureProtectionIfNeeded()
         presentGuidedOnboardingIfNeeded()
 
-        await authStore.loadCurrentSession()
-        applySubscriptionIdentity()
-
-        await authStore.listenForAuthChanges()
+        subscriptionStore.configureAnonymousUser()
     }
 
     private func configureProtectionIfNeeded() {
@@ -285,6 +281,9 @@ struct NimaApp: App {
         timeWindowStore.configure(
             applyScheduledApps: { appIDs, source in
                 store.setScheduledBlockedAppIDs(appIDs, source: source)
+            },
+            applyInstagramMode: { mode, source in
+                instagramProtectionStore.setScheduledMode(mode, source: source)
             },
             startProtection: { source in
                 vpnManager.requestProtectionReconciliation(source: source)
@@ -310,22 +309,7 @@ struct NimaApp: App {
             SubscriptionStatusLoadingScreen()
         case .paywall:
             PaywallScreen(
-                onUnlocked: completePaywall,
-                onSignIn: { isSigningInExistingSubscriber = true }
-            )
-        case .accountLinking:
-            PostPurchaseAccountScreen(
-                allowsTemporaryAccess: subscriptionStore.hasAccessForRouting,
-                onAuthenticationSucceeded: {
-                    isSigningInExistingSubscriber = false
-                },
-                onContinueTemporarily: {
-                    accountLinkingDeferredForLaunch = true
-                    isSigningInExistingSubscriber = false
-                },
-                onBackToPlans: {
-                    isSigningInExistingSubscriber = false
-                }
+                onUnlocked: completePaywall
             )
         }
     }
@@ -333,9 +317,12 @@ struct NimaApp: App {
     private var mainTabsScreen: some View {
         MainTabsScreen(
             onSelectApp: { app in
-                path.append(Route.blockingOptions(appId: app.id))
+                if app.id == "instagram" {
+                    path.append(Route.instagramClient())
+                } else {
+                    path.append(Route.blockingOptions(appId: app.id))
+                }
             },
-            onAccountDeleted: routeToSplashAfterAccountDeletion,
             onTrafficDashboard: {
                 path.append(Route.trafficDashboard)
             },
@@ -352,22 +339,16 @@ struct NimaApp: App {
     }
 
     private var rootDestination: AppRootDestination {
-        if isSigningInExistingSubscriber {
-            return .accountLinking
-        }
         return AppAccessPolicy.destination(
             onboardingCompleted: onboardingStore.isCompleted,
             guidedExperienceCompleted: hasCompletedRequiredGuidedExperience,
             hasPremium: subscriptionStore.hasAccessForRouting,
-            verificationState: subscriptionStore.verificationState,
-            isAuthenticated: authStore.isLoggedIn,
-            accountLinkingDeferred: accountLinkingDeferredForLaunch
+            verificationState: subscriptionStore.verificationState
         )
     }
 
     private var hasCompletedRequiredGuidedExperience: Bool {
         onboardingStore.hasCompletedGuidedPractice
-            && onboardingStore.hasCompletedGuidedWindowsOnboarding
             && !shouldHoldPaywallForGuidedPracticeReturn
     }
 
@@ -387,56 +368,48 @@ struct NimaApp: App {
         switch guidedPracticePhase {
         case .success, .windowsHomeCoachMark, .windowsEditor, .windowsReady, .reviewPrompt, .troubleshooting:
             return true
-        case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .openAppPrompt, .waitingForReturn, .completed:
+        case .hidden, .introSlides, .readyCoachMark, .appSelection, .familyPickerVideo, .appConnections,
+             .dragTikTokCoachMark, .openAppPrompt, .waitingForReturn, .completed:
             return false
         }
-    }
-
-    private func applySubscriptionIdentity() {
-        #if DEBUG
-        if case .demo(let email) = authStore.subscriptionIdentity,
-           AuthStore.isAppStoreReviewAccount(email: email),
-           NimaLaunchConfiguration.simulatesExpiredReviewSubscription() {
-            subscriptionStore.activateSimulatedExpiredReviewSubscription()
-            return
-        }
-        #endif
-
-        switch authStore.subscriptionIdentity {
-        case .demo(let email) where AuthStore.isAnnualDemoAccount(email: email):
-            subscriptionStore.activateDemoAnnualPlan()
-        case .demo(let email) where AuthStore.isAppStoreReviewAccount(email: email):
-            guard let reviewSessionID = authStore.reviewSessionID else {
-                subscriptionStore.unbindUser()
-                return
-            }
-            subscriptionStore.bindAppStoreReviewUser(sessionID: reviewSessionID)
-        case .demo(let email):
-            subscriptionStore.bindDemoPaywallUser(email: email)
-        case .authenticated(let userID, _):
-            subscriptionStore.bindAuthenticatedUser(userID: userID)
-        case .none:
-            subscriptionStore.configureAnonymousUser()
-        }
-    }
-
-    private func routeToSplashAfterAccountDeletion() {
-        path = NavigationPath()
     }
 
     @ViewBuilder
     private var guidedPracticeOverlay: some View {
         switch guidedPracticePhase {
+        case .appSelection:
+            GuidedPracticeAppSelectionModal(
+                selectedAppIDs: $guidedPracticeSelectedAppIDs,
+                onContinue: {
+                    guidedPracticeFamilyPickerError = nil
+                    guidedPracticeFamilySelection = FamilyActivitySelection()
+                    guidedPracticeApplicationTokens = []
+                    guidedPracticeAppAssignments = [:]
+                    guidedPracticePhase = .familyPickerVideo
+                }
+            )
+            .transition(.opacity)
+            .zIndex(11)
+        case .familyPickerVideo:
+            GuidedPracticeFamilyPickerVideoModal(
+                errorMessage: guidedPracticeFamilyPickerError,
+                onContinue: presentGuidedPracticeFamilyPicker
+            )
+            .transition(.opacity)
+            .zIndex(11)
+        case .appConnections:
+            GuidedPracticeAppConnectionsModal(
+                applicationTokens: guidedPracticeApplicationTokens,
+                selectedApps: guidedPracticeChosenApps,
+                assignments: $guidedPracticeAppAssignments,
+                onChooseAppsAgain: chooseGuidedPracticeAppsAgain,
+                onContinue: continueGuidedPracticeConnections
+            )
+            .transition(.opacity)
+            .zIndex(11)
         case .openAppPrompt:
             GuidedPracticeOpenAppPromptModal(
-                activeApps: guidedPracticeActiveApps,
-                isStartingPIP: isStartingGuidedPracticePIP,
-                errorMessage: guidedPracticePIPError,
-                showsSkipPractice: GuidedPracticeAccessPolicy.showsSkipPractice(
-                    for: authStore.subscriptionIdentity
-                ),
-                onOpenApp: openGuidedPracticeApp,
-                onSkipPractice: skipExternalGuidedPractice
+                onContinue: openGuidedPracticeInstagram
             )
             .transition(.opacity)
             .zIndex(11)
@@ -471,7 +444,8 @@ struct NimaApp: App {
             )
             .transition(.opacity)
             .zIndex(11)
-        case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .waitingForReturn, .windowsHomeCoachMark, .windowsEditor, .completed:
+        case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .waitingForReturn,
+             .windowsHomeCoachMark, .windowsEditor, .completed:
             EmptyView()
         }
     }
@@ -482,7 +456,9 @@ struct NimaApp: App {
             return .ready
         case .dragTikTokCoachMark:
             return .dragTikTok
-        case .hidden, .introSlides, .openAppPrompt, .waitingForReturn, .success, .windowsHomeCoachMark, .windowsEditor, .windowsReady, .reviewPrompt, .troubleshooting, .completed:
+        case .hidden, .introSlides, .appSelection, .familyPickerVideo, .appConnections, .openAppPrompt,
+             .waitingForReturn, .success, .windowsHomeCoachMark, .windowsEditor,
+             .windowsReady, .reviewPrompt, .troubleshooting, .completed:
             return nil
         }
     }
@@ -490,15 +466,6 @@ struct NimaApp: App {
     private var guidedWindowsEditorStep: GuidedWindowsEditorStep? {
         guard case .windowsEditor(let step) = guidedPracticePhase else { return nil }
         return step
-    }
-
-    private var shouldMountPiPInstructionHost: Bool {
-        switch guidedPracticePhase {
-        case .openAppPrompt, .waitingForReturn:
-            return true
-        case .hidden, .introSlides, .readyCoachMark, .dragTikTokCoachMark, .success, .windowsHomeCoachMark, .windowsEditor, .windowsReady, .reviewPrompt, .troubleshooting, .completed:
-            return false
-        }
     }
 
     private var shouldShowTimeWindowActivationPrompt: Bool {
@@ -509,8 +476,9 @@ struct NimaApp: App {
         switch guidedPracticePhase {
         case .hidden, .completed:
             return true
-        case .introSlides, .readyCoachMark, .dragTikTokCoachMark, .openAppPrompt, .waitingForReturn,
-             .success, .windowsHomeCoachMark, .windowsEditor, .windowsReady, .reviewPrompt, .troubleshooting:
+        case .introSlides, .readyCoachMark, .appSelection, .familyPickerVideo, .appConnections,
+             .dragTikTokCoachMark, .openAppPrompt, .waitingForReturn, .success,
+             .windowsHomeCoachMark, .windowsEditor, .windowsReady, .reviewPrompt, .troubleshooting:
             return false
         }
     }
@@ -528,14 +496,6 @@ struct NimaApp: App {
             guidedOnboardingPresentationMode = nil
             hasHandledGuidedPracticeReviewRequest = false
             guidedPracticePhase = .success
-            return
-        }
-
-        if onboardingStore.hasCompletedGuidedPractice,
-           !onboardingStore.hasCompletedGuidedWindowsOnboarding,
-           guidedOnboardingPresentationMode == nil,
-           guidedPracticePhase == .hidden || guidedPracticePhase == .completed {
-            beginGuidedWindowsOnboarding()
             return
         }
 
@@ -561,14 +521,14 @@ struct NimaApp: App {
         didTrackAppUnlock = true
         AnalyticsService.shared.capture(
             AnalyticsEvent.appUnlocked,
-            properties: ["mode": authStore.isLoggedIn ? "authenticated" : "temporary"]
+            properties: ["mode": "anonymous"]
         )
     }
 
     private func beginGuidedPractice() {
+        AnalyticsService.shared.capture(AnalyticsEvent.guidedPracticeStarted)
         path = NavigationPath()
-        guidedPracticePIPError = nil
-        isStartingGuidedPracticePIP = false
+        guidedPracticeFamilyPickerError = nil
         hasHandledGuidedPracticeReviewRequest = false
 
         if NimaLaunchConfiguration.skipsExternalGuidedPractice() {
@@ -576,23 +536,24 @@ struct NimaApp: App {
             return
         }
 
-        guidedPracticeActiveApps = activeGuidedPracticeBlockedApps
-        guidedPracticePhase = guidedPracticeActiveApps.isEmpty ? .readyCoachMark : .openAppPrompt
+        guidedPracticeSelectedAppIDs = []
+        guidedPracticeFamilySelection = FamilyActivitySelection()
+        guidedPracticeApplicationTokens = []
+        guidedPracticeAppAssignments = [:]
+        guidedPracticeActiveApps = []
+        guidedPracticePhase = .readyCoachMark
     }
 
     private func skipExternalGuidedPractice() {
+        AnalyticsService.shared.capture(
+            AnalyticsEvent.guidedPracticeCompleted,
+            properties: ["completion": "skipped"]
+        )
         onboardingStore.markGuidedPracticeCompleted()
         onboardingStore.setGuidedPracticeReturnPending(false)
-        guidedPracticePIPError = nil
-        isStartingGuidedPracticePIP = false
         guidedPracticeActiveApps = []
 
-        if onboardingStore.hasCompletedGuidedWindowsOnboarding {
-            showGuidedPracticeReviewPrompt()
-        } else {
-            onboardingStore.markGuidedWindowsOnboardingPending()
-            beginGuidedWindowsOnboarding()
-        }
+        showGuidedPracticeReviewPrompt()
     }
 
     private var activeGuidedPracticeBlockedApps: Set<GuidedPracticeLaunchApp> {
@@ -610,59 +571,133 @@ struct NimaApp: App {
         guard guidedPracticePhase == .readyCoachMark else { return }
         try? await Task.sleep(nanoseconds: 2_200_000_000)
         guard guidedPracticePhase == .readyCoachMark else { return }
-        guidedPracticeActiveApps = activeGuidedPracticeBlockedApps
-        guidedPracticePhase = guidedPracticeActiveApps.isEmpty ? .dragTikTokCoachMark : .openAppPrompt
+        guidedPracticePhase = .appSelection
     }
 
-    private func openGuidedPracticeApp(_ app: GuidedPracticeLaunchApp) {
-        startGuidedPracticePIP {
-            openFirstAvailableURL(app.launchURLs)
-        }
-    }
+    private func presentGuidedPracticeFamilyPicker() {
+        guard guidedPracticePhase == .familyPickerVideo else { return }
+        guidedPracticeFamilyPickerError = nil
 
-    private func startGuidedPracticePIP(onStarted: (() -> Void)? = nil) {
-        guard !isStartingGuidedPracticePIP else { return }
-        guidedPracticePIPError = nil
-        isStartingGuidedPracticePIP = true
-
-        pipInstructionController.start(
-            onStarted: {
-                onboardingStore.markGuidedPracticeCompleted()
-                onboardingStore.setGuidedPracticeReturnPending(true)
-                guidedPracticePhase = .waitingForReturn
-                isStartingGuidedPracticePIP = false
-                onStarted?()
-            },
-            onFailed: { message in
-                guidedPracticePIPError = message
-                isStartingGuidedPracticePIP = false
-                guidedPracticePhase = .openAppPrompt
+        Task { @MainActor in
+            do {
+                if instagramProtectionStore.authorizationStatus != .approved {
+                    try await instagramProtectionStore.requestAuthorization()
+                }
+                isShowingGuidedPracticeFamilyPicker = true
+            } catch {
+                guidedPracticeFamilyPickerError = "Nima needs Screen Time access before you can select apps."
             }
-        )
+        }
     }
 
-    private func openFirstAvailableURL(_ urls: [URL]) {
-        guard let url = urls.first else { return }
-        UIApplication.shared.open(url, options: [:]) { success in
-            guard !success else { return }
-            openFirstAvailableURL(Array(urls.dropFirst()))
+    private func finishGuidedPracticeFamilyPicker() {
+        guard guidedPracticePhase == .familyPickerVideo else { return }
+        guard !guidedPracticeFamilySelection.applicationTokens.isEmpty else {
+            guidedPracticeFamilyPickerError = "Select at least one app to continue."
+            return
         }
+
+        guard guidedPracticeFamilySelection.categoryTokens.isEmpty,
+              guidedPracticeFamilySelection.webDomainTokens.isEmpty else {
+            guidedPracticeFamilyPickerError = "Select individual apps only, not categories or websites."
+            return
+        }
+
+        guidedPracticeApplicationTokens = Array(guidedPracticeFamilySelection.applicationTokens)
+        guidedPracticeAppAssignments = existingAssignments(
+            for: guidedPracticeApplicationTokens,
+            apps: guidedPracticeChosenApps
+        )
+        guidedPracticeFamilyPickerError = nil
+        guidedPracticePhase = .appConnections
+    }
+
+    private var guidedPracticeChosenApps: [GuidedPracticeLaunchApp] {
+        GuidedPracticeLaunchApp.allCases.filter {
+            guidedPracticeSelectedAppIDs.contains($0.rawValue)
+        }
+    }
+
+    private func existingAssignments(
+        for tokens: [ApplicationToken],
+        apps: [GuidedPracticeLaunchApp]
+    ) -> [ApplicationToken: String] {
+        let savedConnections = ScreenTimeAppConnections.load()
+        var assignments: [ApplicationToken: String] = [:]
+
+        for app in apps {
+            guard let savedToken = savedConnections.selection(for: app.rawValue)?.applicationTokens.first,
+                  tokens.contains(savedToken) else { continue }
+            assignments[savedToken] = app.rawValue
+        }
+
+        return assignments
+    }
+
+    private func chooseGuidedPracticeAppsAgain() {
+        guidedPracticeAppAssignments = [:]
+        guidedPracticePhase = .familyPickerVideo
+        isShowingGuidedPracticeFamilyPicker = true
+    }
+
+    private func continueGuidedPracticeConnections() {
+        let chosenAppIDs = Set(guidedPracticeChosenApps.map(\.rawValue))
+        guard guidedPracticeApplicationTokens.count == guidedPracticeChosenApps.count,
+              guidedPracticeApplicationTokens.allSatisfy({ guidedPracticeAppAssignments[$0] != nil }),
+              Set(guidedPracticeAppAssignments.values) == chosenAppIDs else {
+            return
+        }
+
+        var savedConnections = ScreenTimeAppConnections.load()
+        for (token, appID) in guidedPracticeAppAssignments {
+            savedConnections.connect(appID, to: token)
+        }
+        savedConnections.save()
+
+        if let instagramSelection = savedConnections.selection(for: GuidedPracticeLaunchApp.instagram.rawValue),
+           chosenAppIDs.contains(GuidedPracticeLaunchApp.instagram.rawValue) {
+            instagramProtectionStore.familySelection = instagramSelection
+            instagramProtectionStore.setProtectionEnabled(
+                true,
+                source: "guided_practice.app_connections"
+            )
+        }
+
+        guidedPracticeActiveApps = Set(guidedPracticeChosenApps)
+        guidedPracticePhase = .openAppPrompt
+    }
+
+    private func openGuidedPracticeInstagram() {
+        AnalyticsService.shared.capture("instagram_practice_open_tapped")
+        guidedPracticePhase = .waitingForReturn
+        path.append(Route.instagramClient(context: .guidedPractice))
+    }
+
+    private func completeInstagramGuidedPractice() {
+        AnalyticsService.shared.capture("instagram_practice_completed")
+        onboardingStore.setGuidedPracticeReturnPending(true)
+        path = NavigationPath()
+        guidedPracticePhase = .success
+    }
+
+    private func cancelInstagramGuidedPractice() {
+        guard guidedPracticePhase == .waitingForReturn else { return }
+        path = NavigationPath()
+        guidedPracticePhase = .openAppPrompt
     }
 
     private func continueGuidedPracticeSuccess() {
-        if onboardingStore.hasCompletedGuidedWindowsOnboarding {
-            onboardingStore.markGuidedPracticeCompleted()
-            onboardingStore.setGuidedPracticeReturnPending(false)
-            showGuidedPracticeReviewPrompt()
-        } else {
-            onboardingStore.markGuidedWindowsOnboardingPending()
-            onboardingStore.markGuidedPracticeCompleted()
-            onboardingStore.setGuidedPracticeReturnPending(false)
-            beginGuidedWindowsOnboarding()
-        }
+        AnalyticsService.shared.capture(
+            AnalyticsEvent.guidedPracticeCompleted,
+            properties: ["completion": "instagram_clean_mode_verified"]
+        )
+        onboardingStore.markGuidedPracticeCompleted()
+        onboardingStore.setGuidedPracticeReturnPending(false)
+        showGuidedPracticeReviewPrompt()
     }
 
     private func beginGuidedWindowsOnboarding() {
+        AnalyticsService.shared.capture(AnalyticsEvent.guidedWindowsStarted)
         path = NavigationPath()
         guidedOnboardingPresentationMode = nil
         hasHandledGuidedPracticeReviewRequest = false
@@ -671,24 +706,36 @@ struct NimaApp: App {
 
     private func beginGuidedWindowsEditor() {
         guard guidedPracticePhase == .windowsHomeCoachMark else { return }
+        AnalyticsService.shared.capture(
+            AnalyticsEvent.guidedWindowsStepViewed,
+            properties: ["step": "name"]
+        )
         guidedPracticePhase = .windowsEditor(.name)
     }
 
     private func advanceGuidedWindowsEditorStep() {
         guard case .windowsEditor(let step) = guidedPracticePhase else { return }
+        let nextStep: GuidedWindowsEditorStep?
         switch step {
         case .name:
-            guidedPracticePhase = .windowsEditor(.time)
+            nextStep = .time
         case .time:
-            guidedPracticePhase = .windowsEditor(.apps)
+            nextStep = .apps
         case .apps:
-            guidedPracticePhase = .windowsEditor(.repeatDays)
+            nextStep = .repeatDays
         case .repeatDays:
-            guidedPracticePhase = .windowsEditor(.icon)
+            nextStep = .icon
         case .icon:
-            guidedPracticePhase = .windowsEditor(.saveOrCancel)
+            nextStep = .saveOrCancel
         case .saveOrCancel:
-            break
+            nextStep = nil
+        }
+        if let nextStep {
+            AnalyticsService.shared.capture(
+                AnalyticsEvent.guidedWindowsStepViewed,
+                properties: ["step": nextStep.analyticsName]
+            )
+            guidedPracticePhase = .windowsEditor(nextStep)
         }
     }
 
@@ -698,6 +745,7 @@ struct NimaApp: App {
     }
 
     private func continueGuidedWindowsReady() {
+        AnalyticsService.shared.capture(AnalyticsEvent.guidedWindowsCompleted)
         onboardingStore.markGuidedWindowsOnboardingCompleted()
         showGuidedPracticeReviewPrompt()
     }
@@ -737,12 +785,16 @@ struct NimaApp: App {
     }
 
     private var guidedPracticeReviewUserIdentifier: String? {
-        let email = AuthStore.normalizedEmail(authStore.userEmail)
-        if !email.isEmpty {
-            return "email:\(email)"
+        guard let defaults = UserDefaults(suiteName: NimaConstants.appGroupID) else {
+            return nil
         }
-
-        return authStore.userID.map { "user_id:\($0.uuidString.lowercased())" }
+        if let existingID = defaults.string(forKey: NimaConstants.onDemandInstallationIDKey),
+           !existingID.isEmpty {
+            return "installation_id:\(existingID.lowercased())"
+        }
+        let installationID = UUID().uuidString.lowercased()
+        defaults.set(installationID, forKey: NimaConstants.onDemandInstallationIDKey)
+        return "installation_id:\(installationID)"
     }
 
     private var activeForegroundWindowScene: UIWindowScene? {
@@ -754,16 +806,12 @@ struct NimaApp: App {
     private func finishGuidedPracticeReturn() {
         guidedPracticePhase = .completed
         guidedPracticeActiveApps = []
-        guidedPracticePIPError = nil
-        isStartingGuidedPracticePIP = false
         hasHandledGuidedPracticeReviewRequest = false
         path = NavigationPath()
     }
 
     private func retryGuidedPracticeOpenApp() {
         onboardingStore.setGuidedPracticeReturnPending(false)
-        guidedPracticePIPError = nil
-        isStartingGuidedPracticePIP = false
         hasHandledGuidedPracticeReviewRequest = false
         guidedPracticeActiveApps = activeGuidedPracticeBlockedApps
         guidedPracticePhase = .openAppPrompt
@@ -790,6 +838,9 @@ struct NimaApp: App {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         switch newPhase {
         case .active:
+            handlePendingInstagramShieldDestination()
+            instagramProtectionStore.refreshAuthorizationStatus()
+            MetaAdsService.shared.refreshConsent()
             subscriptionStore.refreshAfterForeground()
             subscriptionStore.reconcilePendingPurchaseAfterForeground()
             if onboardingStore.isCompleted {
@@ -799,29 +850,41 @@ struct NimaApp: App {
                 vpnManager.repairScheduledProtectionIfNeeded(source: "app.scene.active")
             }
             guard onboardingStore.hasGuidedPracticeReturnPending else { return }
-            pipInstructionController.stop()
             path = NavigationPath()
             guidedOnboardingPresentationMode = nil
             guidedPracticePhase = .success
         case .inactive, .background:
-            guard guidedPracticePhase == .openAppPrompt else { return }
-            startGuidedPracticePIP()
+            if newPhase == .background { MetaAdsService.shared.leaveForeground() }
         @unknown default:
             break
         }
     }
 
     private func handleIncomingURL(_ url: URL) {
-        if GIDSignIn.sharedInstance.handle(url) {
-            return
+        if url.scheme?.lowercased() == "nima",
+           url.host?.lowercased() == "instagram" {
+            let opensLinkSheet = url.path.lowercased() == "/open-link"
+            path = NavigationPath()
+            path.append(
+                Route.instagramClient(context: opensLinkSheet ? .openLink : .standard)
+            )
         }
+    }
 
-        Task {
-            do {
-                let handled = try await authStore.handleEmailMagicLink(url)
-                guard handled else { return }
-            } catch {}
-        }
+    private func handlePendingInstagramShieldDestination() {
+        guard let defaults = UserDefaults(suiteName: NimaConstants.appGroupID),
+              let destination = defaults.string(
+                forKey: NimaConstants.instagramShieldPendingDestinationKey
+              ) else { return }
+
+        defaults.removeObject(forKey: NimaConstants.instagramShieldPendingDestinationKey)
+        defaults.synchronize()
+
+        let opensLinkSheet = destination == "open_link"
+        path = NavigationPath()
+        path.append(
+            Route.instagramClient(context: opensLinkSheet ? .openLink : .standard)
+        )
     }
 
     private func markStreakIfEligible(source: String) {

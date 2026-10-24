@@ -16,6 +16,7 @@ struct TimeWindowsScreen: View {
     var showsDock = true
 
     @State private var handledAddWindowRequestID: UUID?
+    @State private var didOfferLegacyInstagramMigration = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -80,6 +81,7 @@ struct TimeWindowsScreen: View {
         }
         .onAppear {
             handleAddWindowRequestIfNeeded()
+            offerLegacyInstagramMigrationIfNeeded()
         }
         .onChange(of: addWindowRequestID) { _, _ in
             handleAddWindowRequestIfNeeded()
@@ -94,6 +96,14 @@ struct TimeWindowsScreen: View {
         handledAddWindowRequestID = addWindowRequestID
         editorPresentation = .add()
         onAddWindowRequestHandled?()
+    }
+
+    private func offerLegacyInstagramMigrationIfNeeded() {
+        guard !didOfferLegacyInstagramMigration,
+              editorPresentation == nil,
+              let unresolved = store.windows.first(where: \.requiresInstagramActionChoice) else { return }
+        didOfferLegacyInstagramMigration = true
+        editorPresentation = .edit(unresolved)
     }
 
     private func content(layout: HomeDashboardLayout) -> some View {
@@ -319,6 +329,12 @@ private struct TimeWindowCard: View {
                         .minimumScaleFactor(0.72)
                 }
                 .padding(.top, 1 * visualScale)
+
+                if window.requiresInstagramActionChoice {
+                    Text("Choose Instagram mode")
+                        .font(.system(size: 12.5 * visualScale, weight: .bold, design: .rounded))
+                        .foregroundStyle(.orange)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -396,6 +412,7 @@ private struct TimeWindowEditorSheet: View {
     @State private var startDate: Date
     @State private var endDate: Date
     @State private var selectedApps: Set<String>
+    @State private var instagramAction: TimeWindowAppAction?
     @State private var selectedDays: Set<TimeWindowWeekday>
     @State private var validationMessage: String?
     @State private var isShowingEmojiPicker = false
@@ -423,6 +440,7 @@ private struct TimeWindowEditorSheet: View {
         _startDate = State(initialValue: Self.date(from: draft.startTime))
         _endDate = State(initialValue: Self.date(from: draft.endTime))
         _selectedApps = State(initialValue: Set(draft.apps))
+        _instagramAction = State(initialValue: draft.appActions["instagram"])
         _selectedDays = State(initialValue: TimeWindowEditorDefaults.repeatDays(for: window))
     }
 
@@ -628,6 +646,9 @@ private struct TimeWindowEditorSheet: View {
             Text("Apps to block")
                 .editorLabel()
             appRow(appID: "instagram", title: "Instagram")
+            if selectedApps.contains("instagram") {
+                instagramModePicker
+            }
             appRow(appID: "tiktok", title: "TikTok")
         }
         .guidedWindowsCoachMark(
@@ -637,6 +658,29 @@ private struct TimeWindowEditorSheet: View {
             offset: CGSize(width: 0, height: 61),
             onTap: onGuidedStepAdvance
         )
+    }
+
+    private var instagramModePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Instagram during this window")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(TimeWindowsPalette.muted)
+
+            Picker("Instagram mode", selection: $instagramAction) {
+                Text("Clean").tag(Optional(TimeWindowAppAction.instagramClean))
+                Text("DM only").tag(Optional(TimeWindowAppAction.instagramDMOnly))
+            }
+            .pickerStyle(.segmented)
+
+            if instagramAction == nil {
+                Text("Confirm which mode this existing window should use.")
+                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(12)
+        .background(TimeWindowsPalette.tile.opacity(0.7))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func appRow(appID: String, title: String) -> some View {
@@ -712,8 +756,10 @@ private struct TimeWindowEditorSheet: View {
     private func toggleApp(_ appID: String) {
         if selectedApps.contains(appID) {
             selectedApps.remove(appID)
+            if appID == "instagram" { instagramAction = nil }
         } else {
             selectedApps.insert(appID)
+            if appID == "instagram" { instagramAction = .instagramClean }
         }
     }
 
@@ -733,6 +779,22 @@ private struct TimeWindowEditorSheet: View {
             validationMessage = "Choose at least one day."
             return
         }
+        if selectedApps.contains("instagram"), instagramAction == nil {
+            validationMessage = "Choose Clean or DM only for Instagram."
+            return
+        }
+
+        var appActions = window?.appActions ?? [:]
+        if selectedApps.contains("instagram"), let instagramAction {
+            appActions["instagram"] = instagramAction
+        } else {
+            appActions.removeValue(forKey: "instagram")
+        }
+        if selectedApps.contains("tiktok") {
+            appActions["tiktok"] = .tiktokBlock
+        } else {
+            appActions.removeValue(forKey: "tiktok")
+        }
 
         let now = Date()
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -744,6 +806,7 @@ private struct TimeWindowEditorSheet: View {
             endTime: endTime,
             repeatDays: TimeWindowScheduleEvaluator.orderedUniqueDays(Array(selectedDays)),
             apps: selectedApps.sorted(),
+            appActions: appActions,
             enabled: window?.enabled ?? true,
             createdAt: window?.createdAt ?? now,
             updatedAt: now

@@ -7,6 +7,20 @@ struct BlockingDashboardApp: Identifiable, Equatable {
     let platform: String
     let isBlocked: Bool
     var isScheduled: Bool = false
+    var instagramMode: InstagramMode? = nil
+
+    var activeStatusLabel: String? {
+        guard isBlocked else { return nil }
+
+        switch id {
+        case "instagram":
+            return instagramMode == .dmOnly ? "DM ONLY\nMODE ACTIVE" : "CLEAN MODE\nACTIVE"
+        case "tiktok":
+            return "FYP BLOCKED"
+        default:
+            return "\(name) BLOCKED"
+        }
+    }
 }
 
 enum BlockingVPNState: Equatable {
@@ -111,6 +125,7 @@ struct BlockingStatusCard: View {
     let vpnState: BlockingVPNState
     let sessionEndsAt: Date?
     var onToggleApp: (String) -> Void
+    var onOpenApp: (String) -> Void = { _ in }
     var onRequestVPNPermission: () -> Void
     var onAddTimeWindow: () -> Void = {}
     var onEndScheduledWindow: (String) -> Void = { _ in }
@@ -214,7 +229,9 @@ struct BlockingStatusCard: View {
                         )
                     )
                     .onTapGesture {
-                        if !app.isScheduled {
+                        if app.id == "instagram" {
+                            onOpenApp(app.id)
+                        } else if !app.isScheduled {
                             onToggleApp(app.id)
                         }
                     }
@@ -222,9 +239,15 @@ struct BlockingStatusCard: View {
                     .accessibilityIdentifier("nima.app.\(app.id)")
                     .accessibilityLabel("\(app.name.capitalized) \(app.isBlocked ? "blocked" : "not blocked")")
                     .accessibilityValue(app.isBlocked ? "enabled" : "disabled")
-                    .accessibilityHint(app.isScheduled ? "Drag outward or to the center to end the current window" : (app.isBlocked ? "Double tap, drag outward, or drag to the center to unblock" : "Double tap or drag to the center to block"))
+                    .accessibilityHint(accessibilityHint(for: app))
+                    .accessibilityAction(named: "Open Instagram") {
+                        if app.id == "instagram" { onOpenApp(app.id) }
+                    }
+                    .accessibilityAction(named: app.isBlocked ? "Disable protection" : "Enable protection") {
+                        if app.id == "instagram", !app.isScheduled { onToggleApp(app.id) }
+                    }
 
-                    if app.isBlocked, let label = blockedLabel(for: app) {
+                    if let label = app.activeStatusLabel {
                         BlockedAppStatusPill(text: label, scale: layout.visualScale)
                             .position(x: origin.x, y: origin.y + layout.tileSize * 0.58)
                             .opacity(isDragging ? 0 : 1)
@@ -236,7 +259,9 @@ struct BlockingStatusCard: View {
                 DragInstructionRow(
                     text: mode == .permissionRequired
                         ? "allow VPN permission to activate blocking"
-                        : "drag an app to block or unblock it",
+                        : (hasBlockedApps
+                            ? "drag an app to unblock, tap it to open"
+                            : "drag an app to block, tap it to open"),
                     isError: mode == .permissionRequired,
                     scale: layout.visualScale
                 )
@@ -307,15 +332,17 @@ struct BlockingStatusCard: View {
         return "UNBLOCK"
     }
 
-    private func blockedLabel(for app: BlockingDashboardApp) -> String? {
-        switch app.id {
-        case "instagram":
-            return "REELS BLOCKED"
-        case "tiktok":
-            return "FYP BLOCKED"
-        default:
-            return "\(app.name) BLOCKED"
+    private func accessibilityHint(for app: BlockingDashboardApp) -> String {
+        if app.id == "instagram" {
+            return app.isScheduled
+                ? "Double tap to open Instagram. Drag to the center to end the current window."
+                : "Double tap to open Instagram. Use the custom action or drag to change protection."
         }
+        return app.isScheduled
+            ? "Drag outward or to the center to end the current window"
+            : (app.isBlocked
+                ? "Double tap, drag outward, or drag to the center to unblock"
+                : "Double tap or drag to the center to block")
     }
 
     private var vpnPermissionButton: some View {
@@ -1096,7 +1123,8 @@ private struct BlockedAppStatusPill: View {
         Text(text)
             .font(NimaFonts.inter(size: 13 * visualScale, weight: .bold))
             .foregroundStyle(.white)
-            .lineLimit(1)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
             .minimumScaleFactor(0.8)
             .padding(.horizontal, 8 * visualScale)
             .padding(.vertical, 3 * visualScale)
@@ -1123,12 +1151,8 @@ struct AppBlockTile: View {
     var body: some View {
         ExactBlockingAppIcon(
             platform: app.platform,
-            size: size * 1.296
+            size: size * 1.49
         )
-        .saturation(app.isBlocked ? 0 : 1)
-        .brightness(app.isBlocked ? -0.12 : 0)
-        .contrast(app.isBlocked ? 0.9 : 1)
-        .opacity(app.isBlocked ? 0.78 : 1)
         .shadow(
             color: BlockingCardStyle.accent.opacity(app.isBlocked ? 0.46 : 0),
             radius: app.isBlocked ? 15 : 0,

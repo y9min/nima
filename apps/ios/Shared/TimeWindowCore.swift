@@ -111,6 +111,34 @@ enum ScheduledProtectionSnapshotReader {
     }
 }
 
+enum InstagramMode: String, Codable, CaseIterable, Identifiable {
+    case clean
+    case dmOnly = "dm_only"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .clean: return "Clean"
+        case .dmOnly: return "DM only"
+        }
+    }
+}
+
+enum TimeWindowAppAction: String, Codable, CaseIterable, Equatable {
+    case instagramClean = "instagram_clean"
+    case instagramDMOnly = "instagram_dm_only"
+    case tiktokBlock = "tiktok_block"
+
+    var instagramMode: InstagramMode? {
+        switch self {
+        case .instagramClean: return .clean
+        case .instagramDMOnly: return .dmOnly
+        case .tiktokBlock: return nil
+        }
+    }
+}
+
 struct TimeWindow: Codable, Identifiable, Equatable {
     var id: String
     var name: String
@@ -119,6 +147,7 @@ struct TimeWindow: Codable, Identifiable, Equatable {
     var endTime: String
     var repeatDays: [TimeWindowWeekday]
     var apps: [String]
+    var appActions: [String: TimeWindowAppAction]
     var enabled: Bool
     var createdAt: Date
     var updatedAt: Date
@@ -131,6 +160,7 @@ struct TimeWindow: Codable, Identifiable, Equatable {
         endTime: String = "17:00",
         repeatDays: [TimeWindowWeekday] = TimeWindowWeekday.weekdays,
         apps: [String] = [],
+        appActions: [String: TimeWindowAppAction] = [:],
         enabled: Bool = true,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -142,9 +172,44 @@ struct TimeWindow: Codable, Identifiable, Equatable {
         self.endTime = endTime
         self.repeatDays = repeatDays
         self.apps = apps
+        var resolvedActions = appActions
+        if apps.contains("instagram"), resolvedActions["instagram"] == nil {
+            resolvedActions["instagram"] = .instagramClean
+        }
+        self.appActions = resolvedActions
         self.enabled = enabled
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    var requiresInstagramActionChoice: Bool {
+        apps.contains("instagram") && appActions["instagram"]?.instagramMode == nil
+    }
+
+    var instagramMode: InstagramMode? {
+        appActions["instagram"]?.instagramMode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, emoji, startTime, endTime, repeatDays, apps, appActions, enabled, createdAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        emoji = try container.decode(String.self, forKey: .emoji)
+        startTime = try container.decode(String.self, forKey: .startTime)
+        endTime = try container.decode(String.self, forKey: .endTime)
+        repeatDays = try container.decode([TimeWindowWeekday].self, forKey: .repeatDays)
+        apps = try container.decode([String].self, forKey: .apps)
+        appActions = try container.decodeIfPresent(
+            [String: TimeWindowAppAction].self,
+            forKey: .appActions
+        ) ?? [:]
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 }
 

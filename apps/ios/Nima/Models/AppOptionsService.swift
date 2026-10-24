@@ -314,6 +314,10 @@ final class AppOptionsService {
     private func persistEffectivePolicy(updatedBy: String) -> FeaturePolicyV1 {
         var effectivePolicy = manualPolicy
         applyScheduledApps(to: &effectivePolicy)
+        // Instagram is enforced by the Clean Client. Keep the legacy preference in
+        // manualPolicy for one-release rollback, but never send it to the tunnel.
+        effectivePolicy.set(appId: "instagram", optionId: "strict_reels", isEnabled: false)
+        effectivePolicy.set(appId: "instagram", optionId: "reels", isEnabled: false)
         effectivePolicy.mergeDefaults()
         let currentRevision = loadPersistedPolicy(forKey: NimaConstants.featurePolicyKey)?.revision ?? 0
         effectivePolicy.revision = max(currentRevision, manualPolicy.revision) + 1

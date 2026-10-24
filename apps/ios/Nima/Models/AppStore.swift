@@ -48,7 +48,12 @@ final class AppStore {
     }
 
     func setScheduledBlockedAppIDs(_ appIDs: Set<String>, source: String = "time_windows") {
-        let didChange = optionsService.setScheduledBlockedAppIDs(appIDs, source: source)
+        // Instagram schedules are enforced by the in-app client and Screen Time.
+        // Only tunnel-backed platforms should reach the VPN policy.
+        let didChange = optionsService.setScheduledBlockedAppIDs(
+            appIDs.intersection(["tiktok", "x"]),
+            source: source
+        )
         refreshFromOptionsService()
         if didChange {
             scheduleVPNReconciliation(triggerSource: source)
@@ -144,12 +149,17 @@ final class AppStore {
     }
 
     var hasAnyManuallyEnabledBlockingOption: Bool {
-        optionsService.hasAnyManuallyEnabledBlockingOption
+        apps.contains { app in
+            app.id != "instagram" && app.options.contains {
+                optionsService.isOptionManuallySelected(appId: app.id, optionId: $0.id)
+            }
+        }
     }
 
     var manuallyBlockedAppIDs: Set<String> {
         Set(apps.compactMap { app in
-            app.options.contains {
+            guard app.id != "instagram" else { return nil }
+            return app.options.contains {
                 optionsService.isOptionManuallySelected(appId: app.id, optionId: $0.id)
             } ? app.id : nil
         })
@@ -160,7 +170,9 @@ final class AppStore {
     }
 
     private func shouldVPNBeOnFromPolicy(now: Date = Date()) -> Bool {
-        hasAnyManuallyEnabledBlockingOption ||
-            ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults).isDesiredProtectionActive(now: now)
+        let scheduled = ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults)
+        let hasTunnelBackedSchedule = scheduled.isDesiredProtectionActive(now: now)
+            && !scheduled.activeAppIDs.intersection(["tiktok", "x"]).isEmpty
+        return hasAnyManuallyEnabledBlockingOption || hasTunnelBackedSchedule
     }
 }
