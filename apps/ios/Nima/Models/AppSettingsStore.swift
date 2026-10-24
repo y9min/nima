@@ -240,22 +240,11 @@ final class AppSettingsStore {
         return normalized.isEmpty ? nil : normalized
     }
 
-    static func resolvedDisplayName(localOverride: String?, userEmail: String) -> String {
+    static func resolvedDisplayName(localOverride: String?) -> String {
         if let localOverride = localOverride.flatMap(normalizedDisplayName) {
             return localOverride
         }
-
-        let localPart = userEmail
-            .split(separator: "@")
-            .first?
-            .split(whereSeparator: { $0 == "." || $0 == "_" || $0 == "-" })
-            .first
-
-        guard let localPart, !localPart.isEmpty else {
-            return "emily"
-        }
-
-        return String(localPart).lowercased()
+        return "emily"
     }
 
     static func windowsNotificationsEnabled(defaults: UserDefaults?) -> Bool {

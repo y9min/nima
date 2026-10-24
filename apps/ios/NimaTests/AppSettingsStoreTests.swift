@@ -2,17 +2,17 @@ import XCTest
 @testable import Nima
 
 final class AppSettingsStoreTests: XCTestCase {
-    func testDisplayNameFallbackUsesLocalNameEmailThenDefault() {
+    func testDisplayNameFallbackUsesLocalNameThenDefault() {
         XCTAssertEqual(
-            AppSettingsStore.resolvedDisplayName(localOverride: " Nima ", userEmail: "person@example.com"),
+            AppSettingsStore.resolvedDisplayName(localOverride: " Nima "),
             "Nima"
         )
         XCTAssertEqual(
-            AppSettingsStore.resolvedDisplayName(localOverride: " ", userEmail: "Yamin.Ahmed@example.com"),
-            "yamin"
+            AppSettingsStore.resolvedDisplayName(localOverride: " "),
+            "emily"
         )
         XCTAssertEqual(
-            AppSettingsStore.resolvedDisplayName(localOverride: nil, userEmail: ""),
+            AppSettingsStore.resolvedDisplayName(localOverride: nil),
             "emily"
         )
     }
@@ -31,10 +31,7 @@ final class AppSettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.displayName, "")
         XCTAssertNil(defaults.string(forKey: NimaConstants.displayNameKey))
         XCTAssertEqual(
-            AppSettingsStore.resolvedDisplayName(
-                localOverride: store.normalizedDisplayName,
-                userEmail: ""
-            ),
+            AppSettingsStore.resolvedDisplayName(localOverride: store.normalizedDisplayName),
             "emily"
         )
     }
