@@ -268,7 +268,7 @@ final class AppOptionsService {
 
     @discardableResult
     func setScheduledBlockedAppIDs(_ appIDs: Set<String>, source: String = "time_windows") -> Bool {
-        let normalized = appIDs.intersection(["instagram", "tiktok"])
+        let normalized = appIDs.intersection(["x"])
         guard normalized != scheduledAppIDs else { return false }
         scheduledAppIDs = normalized
         let effectivePolicy = persistEffectivePolicy(updatedBy: source)
@@ -318,6 +318,9 @@ final class AppOptionsService {
         // manualPolicy for one-release rollback, but never send it to the tunnel.
         effectivePolicy.set(appId: "instagram", optionId: "strict_reels", isEnabled: false)
         effectivePolicy.set(appId: "instagram", optionId: "reels", isEnabled: false)
+        // TikTok is also enforced by its controlled client. Its legacy tunnel
+        // preference is retained in manualPolicy for rollback but never reaches the tunnel.
+        effectivePolicy.set(appId: "tiktok", optionId: "video_block", isEnabled: false)
         effectivePolicy.mergeDefaults()
         let currentRevision = loadPersistedPolicy(forKey: NimaConstants.featurePolicyKey)?.revision ?? 0
         effectivePolicy.revision = max(currentRevision, manualPolicy.revision) + 1
@@ -396,8 +399,8 @@ final class AppOptionsService {
             policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
             policy.set(appId: "instagram", optionId: "reels", isEnabled: false)
         }
-        if scheduledAppIDs.contains("tiktok") {
-            policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        if scheduledAppIDs.contains("x") {
+            policy.set(appId: "x", optionId: "feed_block", isEnabled: true)
         }
     }
 }

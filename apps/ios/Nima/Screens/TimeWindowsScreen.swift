@@ -1,10 +1,15 @@
+import FamilyControls
 import SwiftUI
 import UIKit
 
 struct TimeWindowsScreen: View {
     @Environment(TimeWindowStore.self) private var store
+    @Environment(AppControlRulesStore.self) private var appRules
     @Environment(\.sizeCategory) private var contentSizeCategory
     @State private var editorPresentation: TimeWindowEditorPresentation?
+    @State private var ruleEditorPresentation: AppRuleEditorPresentation?
+    @State private var selectedControlTab: ControlTab = .windows
+    @State private var screenTimeAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
 
     let onHome: () -> Void
     let onSettings: () -> Void
@@ -16,7 +21,6 @@ struct TimeWindowsScreen: View {
     var showsDock = true
 
     @State private var handledAddWindowRequestID: UUID?
-    @State private var didOfferLegacyInstagramMigration = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -79,9 +83,17 @@ struct TimeWindowsScreen: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
         }
+        .sheet(item: $ruleEditorPresentation) { presentation in
+            AppRuleEditorSheet(kind: presentation.kind, rule: presentation.rule)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+        }
         .onAppear {
+            screenTimeAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
             handleAddWindowRequestIfNeeded()
-            offerLegacyInstagramMigrationIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            screenTimeAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
         }
         .onChange(of: addWindowRequestID) { _, _ in
             handleAddWindowRequestIfNeeded()
@@ -94,16 +106,9 @@ struct TimeWindowsScreen: View {
             return
         }
         handledAddWindowRequestID = addWindowRequestID
+        selectedControlTab = .windows
         editorPresentation = .add()
         onAddWindowRequestHandled?()
-    }
-
-    private func offerLegacyInstagramMigrationIfNeeded() {
-        guard !didOfferLegacyInstagramMigration,
-              editorPresentation == nil,
-              let unresolved = store.windows.first(where: \.requiresInstagramActionChoice) else { return }
-        didOfferLegacyInstagramMigration = true
-        editorPresentation = .edit(unresolved)
     }
 
     private func content(layout: HomeDashboardLayout) -> some View {
@@ -122,20 +127,37 @@ struct TimeWindowsScreen: View {
 
             Color.clear.frame(height: 19 * scale)
 
-            pauseAllRow(scale: scale)
+            controlTabs(scale: scale)
 
-            Color.clear.frame(height: 18 * scale)
+            Color.clear.frame(height: 23 * scale)
 
-            if store.windows.isEmpty {
-                emptyState(scale: scale)
+            if selectedControlTab == .windows {
+                pauseAllRow(scale: scale)
+                Color.clear.frame(height: 18 * scale)
+                if store.windows.isEmpty {
+                    emptyState(scale: scale)
+                } else {
+                    windowList(scale: scale)
+                }
+                Color.clear.frame(height: 18 * scale)
+                addButton(scale: scale).frame(maxWidth: .infinity)
             } else {
-                windowList(scale: scale)
+                let kind: AppControlKind = selectedControlTab == .limits ? .limit : .blocked
+                let rules = kind == .limit ? appRules.limits : appRules.blocked
+                if !screenTimeAuthorized {
+                    Text("Screen Time access is needed for app controls.")
+                        .font(.system(size: 14 * scale, weight: .medium, design: .rounded))
+                        .foregroundStyle(.orange)
+                        .padding(.bottom, 14 * scale)
+                }
+                if rules.isEmpty {
+                    ruleEmptyState(kind: kind, scale: scale)
+                } else {
+                    ruleList(rules, kind: kind, scale: scale)
+                }
+                Color.clear.frame(height: 18 * scale)
+                ruleAddButton(kind: kind, scale: scale).frame(maxWidth: .infinity)
             }
-
-            Color.clear.frame(height: store.windows.isEmpty ? 17 * scale : 18 * scale)
-
-            addButton(scale: scale)
-                .frame(maxWidth: .infinity)
 
             Color.clear.frame(height: 18 * scale)
         }
@@ -146,20 +168,102 @@ struct TimeWindowsScreen: View {
         let subtitleSize = min(19.8, max(15.3, 18 * scale))
 
         return VStack(alignment: .leading, spacing: max(1, 2 * scale)) {
-            Text("time windows")
+            Text("app controls")
                 .font(.system(size: titleSize, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.74)
 
-            Text("schedule periods for short form feeds\nto be blocked")
+            Text("keep distracting apps in check")
                 .font(.system(size: subtitleSize, weight: .regular, design: .rounded))
                 .foregroundStyle(TimeWindowsPalette.muted.opacity(0.92))
                 .lineSpacing(-2)
-                .lineLimit(2)
+                .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func controlTabs(scale: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            ForEach(ControlTab.allCases) { tab in
+                Button {
+                    selectedControlTab = tab
+                } label: {
+                    Text(tab.rawValue)
+                        .font(.system(size: 16 * scale, weight: .medium, design: .rounded))
+                        .foregroundStyle(selectedControlTab == tab ? TimeWindowsPalette.background : .white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 47 * scale)
+                        .background(selectedControlTab == tab ? TimeWindowsPalette.accent : .clear, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selectedControlTab == tab ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(Capsule().stroke(TimeWindowsPalette.border.opacity(0.65), lineWidth: 1))
+    }
+
+    private func ruleEmptyState(kind: AppControlKind, scale: CGFloat) -> some View {
+        let isLimit = kind == .limit
+        return VStack(spacing: 10 * scale) {
+            Image(systemName: isLimit ? "hourglass" : "hand.raised")
+                .font(.system(size: 31 * scale, weight: .medium))
+                .foregroundStyle(TimeWindowsPalette.accent)
+                .frame(width: 54 * scale, height: 54 * scale)
+                .background(TimeWindowsPalette.accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 10 * scale))
+            Text(isLimit ? "No limits yet" : "No blocked apps yet")
+                .font(.system(size: 19 * scale, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+            Text(isLimit ? "Give an app a daily time allowance." : "Choose an app to block outright.")
+                .font(.system(size: 13.5 * scale, design: .rounded))
+                .foregroundStyle(TimeWindowsPalette.muted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 36 * scale)
+        .background(RoundedRectangle(cornerRadius: 24 * scale).stroke(TimeWindowsPalette.border.opacity(0.78), style: StrokeStyle(lineWidth: 1, dash: [6, 6])))
+    }
+
+    private func ruleList(_ rules: [AppControlRule], kind: AppControlKind, scale: CGFloat) -> some View {
+        VStack(spacing: 12 * scale) {
+            ForEach(rules) { rule in
+                Button {
+                    ruleEditorPresentation = AppRuleEditorPresentation(kind: kind, rule: rule)
+                } label: {
+                    HStack(spacing: 14 * scale) {
+                        Label(rule.applicationToken)
+                            .labelStyle(.iconOnly)
+                            .frame(width: 36 * scale, height: 36 * scale)
+                        VStack(alignment: .leading, spacing: 3 * scale) {
+                            Label(rule.applicationToken).labelStyle(.titleOnly)
+                                .font(.system(size: 19 * scale, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                            Text(kind == .limit ? "\(rule.dailyMinutes ?? 0) min per day" : "Blocked all day")
+                                .font(.system(size: 15 * scale, design: .rounded))
+                                .foregroundStyle(TimeWindowsPalette.muted)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(TimeWindowsPalette.muted)
+                    }
+                    .padding(16 * scale)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(TimeWindowsPalette.card, in: RoundedRectangle(cornerRadius: 18 * scale))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func ruleAddButton(kind: AppControlKind, scale: CGFloat) -> some View {
+        Button {
+            ruleEditorPresentation = AppRuleEditorPresentation(kind: kind, rule: nil)
+        } label: {
+            controlAddLabel(kind == .limit ? "add limit" : "block an app", scale: scale)
+        }
+        .buttonStyle(.plain)
     }
 
     private func pauseAllRow(scale: CGFloat) -> some View {
@@ -245,25 +349,224 @@ struct TimeWindowsScreen: View {
     }
 
     private func addButton(scale: CGFloat) -> some View {
-        let visualScale = min(1.06, max(0.9, scale))
-
         return Button {
             editorPresentation = .add()
         } label: {
-            HStack(spacing: 7 * visualScale) {
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 19 * visualScale, weight: .bold))
-                Text("add a time window")
-                    .font(.system(size: 16.5 * visualScale, weight: .medium, design: .rounded))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 13 * visualScale)
-            .padding(.vertical, 7 * visualScale)
-            .background(TimeWindowsPalette.accent.opacity(0.18))
-            .clipShape(Capsule())
+            controlAddLabel("add a time window", scale: scale)
         }
         .buttonStyle(.plain)
+    }
+
+    private func controlAddLabel(_ title: String, scale: CGFloat) -> some View {
+        let visualScale = min(1.06, max(0.9, scale))
+
+        return HStack(spacing: 7 * visualScale) {
+            Image(systemName: "plus.circle")
+                .font(.system(size: 19 * visualScale, weight: .bold))
+            Text(title)
+                .font(.system(size: 16.5 * visualScale, weight: .medium, design: .rounded))
+                .lineLimit(1)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 13 * visualScale)
+        .padding(.vertical, 7 * visualScale)
+        .background(TimeWindowsPalette.accent.opacity(0.18))
+        .clipShape(Capsule())
+    }
+}
+
+private enum ControlTab: String, CaseIterable, Identifiable {
+    case windows, limits, blocked
+    var id: String { rawValue }
+}
+
+private struct AppRuleEditorPresentation: Identifiable {
+    let kind: AppControlKind
+    let rule: AppControlRule?
+    var id: String { "\(kind.rawValue)-\(rule?.id ?? "new")" }
+}
+
+private struct AppRuleEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppControlRulesStore.self) private var store
+    let kind: AppControlKind
+    let rule: AppControlRule?
+
+    @State private var selection: FamilyActivitySelection
+    @State private var dailyMinutes: Int
+    @State private var isShowingPicker = false
+    @State private var isShowingDeleteConfirmation = false
+    @State private var isShowingReplaceConfirmation = false
+    @State private var message: String?
+
+    init(kind: AppControlKind, rule: AppControlRule?) {
+        self.kind = kind
+        self.rule = rule
+        var initialSelection = FamilyActivitySelection()
+        if let rule { initialSelection.applicationTokens = [rule.applicationToken] }
+        _selection = State(initialValue: initialSelection)
+        _dailyMinutes = State(initialValue: rule?.dailyMinutes ?? 45)
+    }
+
+    var body: some View {
+        ZStack {
+            AppChromePalette.background.ignoresSafeArea()
+            VStack(spacing: 24) {
+                header
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("App").font(.system(size: 19, weight: .bold, design: .rounded)).foregroundStyle(.white)
+                            Button {
+                                openPicker()
+                            } label: {
+                                HStack {
+                                    if let token = selection.applicationTokens.first {
+                                        Label(token)
+                                            .font(.system(size: 19, weight: .medium, design: .rounded))
+                                            .foregroundStyle(.white)
+                                    } else {
+                                        Text("Choose an app")
+                                            .font(.system(size: 19, weight: .medium, design: .rounded))
+                                            .foregroundStyle(AppChromePalette.muted)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").foregroundStyle(AppChromePalette.muted)
+                                }
+                                .padding(16)
+                                .frame(height: 58)
+                                .background(AppChromePalette.card, in: RoundedRectangle(cornerRadius: 18))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        if kind == .limit {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Daily limit")
+                                    .font(.system(size: 19, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                Stepper(value: $dailyMinutes, in: 5...720, step: 5) {
+                                    Text("\(dailyMinutes) min per day")
+                                        .font(.system(size: 19, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.white)
+                                }
+                                .tint(AppChromePalette.accent)
+                                .padding(16)
+                                .background(AppChromePalette.card, in: RoundedRectangle(cornerRadius: 18))
+                            }
+                        } else {
+                            Text("This app will be blocked until you remove it here.")
+                                .font(.system(size: 15, design: .rounded))
+                                .foregroundStyle(AppChromePalette.muted)
+                        }
+
+                        if let message {
+                            Text(message)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.orange)
+                        }
+
+                        if rule != nil {
+                            Button(role: .destructive) { isShowingDeleteConfirmation = true } label: {
+                                Text(kind == .limit ? "Delete limit" : "Remove block")
+                                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 48)
+                                    .background(AppChromePalette.card, in: Capsule())
+                            }
+                            .padding(.top, 8)
+                        }
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 30)
+                }
+            }
+            .padding(.top, 26)
+        }
+        .familyActivityPicker(isPresented: $isShowingPicker, selection: $selection)
+        .confirmationDialog("Replace existing rule?", isPresented: $isShowingReplaceConfirmation) {
+            Button("Replace rule") { commitSave() }
+        } message: {
+            Text("This app already has a limit or block. Its existing rule will be replaced.")
+        }
+        .alert(kind == .limit ? "Delete limit?" : "Remove block?", isPresented: $isShowingDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                guard let rule else { return }
+                if store.delete(id: rule.id) {
+                    dismiss()
+                } else {
+                    message = "Could not remove this limit. Please try again."
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(AppChromePalette.muted)
+                    .frame(width: 46, height: 46)
+                    .background(Circle().stroke(AppChromePalette.border))
+            }
+            Spacer()
+            Text(rule == nil ? (kind == .limit ? "add limit" : "block an app") : (kind == .limit ? "edit limit" : "edit block"))
+                .font(.system(size: 27, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+            Spacer()
+            Button { save() } label: {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(AppChromePalette.background)
+                    .frame(width: 46, height: 46)
+                    .background(AppChromePalette.accent, in: Circle())
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 28)
+    }
+
+    private func openPicker() {
+        Task { @MainActor in
+            do {
+                if AuthorizationCenter.shared.authorizationStatus != .approved {
+                    try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+                }
+                isShowingPicker = true
+            } catch {
+                message = "Allow Screen Time access to choose an app."
+            }
+        }
+    }
+
+    private func save() {
+        guard AuthorizationCenter.shared.authorizationStatus == .approved else {
+            message = "Allow Screen Time access before saving this rule."
+            return
+        }
+        guard selection.applicationTokens.count == 1,
+              selection.categoryTokens.isEmpty,
+              selection.webDomainTokens.isEmpty,
+              let token = selection.applicationTokens.first else {
+            message = "Choose one app only, without categories or websites."
+            return
+        }
+        if let existing = store.rule(for: token), existing.id != rule?.id {
+            isShowingReplaceConfirmation = true
+            return
+        }
+        commitSave()
+    }
+
+    private func commitSave() {
+        guard let token = selection.applicationTokens.first else { return }
+        if store.save(token: token, kind: kind, dailyMinutes: dailyMinutes, replacing: rule?.id) {
+            dismiss()
+        } else {
+            message = store.monitoringError ?? "Could not save this rule. Please try again."
+        }
     }
 }
 
@@ -330,11 +633,6 @@ private struct TimeWindowCard: View {
                 }
                 .padding(.top, 1 * visualScale)
 
-                if window.requiresInstagramActionChoice {
-                    Text("Choose Instagram mode")
-                        .font(.system(size: 12.5 * visualScale, weight: .bold, design: .rounded))
-                        .foregroundStyle(.orange)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -412,7 +710,6 @@ private struct TimeWindowEditorSheet: View {
     @State private var startDate: Date
     @State private var endDate: Date
     @State private var selectedApps: Set<String>
-    @State private var instagramAction: TimeWindowAppAction?
     @State private var selectedDays: Set<TimeWindowWeekday>
     @State private var validationMessage: String?
     @State private var isShowingEmojiPicker = false
@@ -440,7 +737,6 @@ private struct TimeWindowEditorSheet: View {
         _startDate = State(initialValue: Self.date(from: draft.startTime))
         _endDate = State(initialValue: Self.date(from: draft.endTime))
         _selectedApps = State(initialValue: Set(draft.apps))
-        _instagramAction = State(initialValue: draft.appActions["instagram"])
         _selectedDays = State(initialValue: TimeWindowEditorDefaults.repeatDays(for: window))
     }
 
@@ -646,9 +942,6 @@ private struct TimeWindowEditorSheet: View {
             Text("Apps to block")
                 .editorLabel()
             appRow(appID: "instagram", title: "Instagram")
-            if selectedApps.contains("instagram") {
-                instagramModePicker
-            }
             appRow(appID: "tiktok", title: "TikTok")
         }
         .guidedWindowsCoachMark(
@@ -658,29 +951,6 @@ private struct TimeWindowEditorSheet: View {
             offset: CGSize(width: 0, height: 61),
             onTap: onGuidedStepAdvance
         )
-    }
-
-    private var instagramModePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Instagram during this window")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundStyle(TimeWindowsPalette.muted)
-
-            Picker("Instagram mode", selection: $instagramAction) {
-                Text("Clean").tag(Optional(TimeWindowAppAction.instagramClean))
-                Text("DM only").tag(Optional(TimeWindowAppAction.instagramDMOnly))
-            }
-            .pickerStyle(.segmented)
-
-            if instagramAction == nil {
-                Text("Confirm which mode this existing window should use.")
-                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.orange)
-            }
-        }
-        .padding(12)
-        .background(TimeWindowsPalette.tile.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func appRow(appID: String, title: String) -> some View {
@@ -756,10 +1026,8 @@ private struct TimeWindowEditorSheet: View {
     private func toggleApp(_ appID: String) {
         if selectedApps.contains(appID) {
             selectedApps.remove(appID)
-            if appID == "instagram" { instagramAction = nil }
         } else {
             selectedApps.insert(appID)
-            if appID == "instagram" { instagramAction = .instagramClean }
         }
     }
 
@@ -779,17 +1047,8 @@ private struct TimeWindowEditorSheet: View {
             validationMessage = "Choose at least one day."
             return
         }
-        if selectedApps.contains("instagram"), instagramAction == nil {
-            validationMessage = "Choose Clean or DM only for Instagram."
-            return
-        }
-
         var appActions = window?.appActions ?? [:]
-        if selectedApps.contains("instagram"), let instagramAction {
-            appActions["instagram"] = instagramAction
-        } else {
-            appActions.removeValue(forKey: "instagram")
-        }
+        appActions.removeValue(forKey: "instagram")
         if selectedApps.contains("tiktok") {
             appActions["tiktok"] = .tiktokBlock
         } else {
@@ -1199,5 +1458,6 @@ private enum TimeWindowsPalette {
 #Preview {
     TimeWindowsScreen(onHome: {}, onSettings: {})
         .environment(TimeWindowStore())
+        .environment(AppControlRulesStore())
         .preferredColorScheme(.dark)
 }

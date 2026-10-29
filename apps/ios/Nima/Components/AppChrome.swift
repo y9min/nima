@@ -48,7 +48,7 @@ struct AppBottomDock: View {
     var body: some View {
         HStack {
             dockItem(label: "home", icon: "house", destination: .home, action: onHome)
-            dockItem(label: "windows", icon: "clock", destination: .windows, action: onWindows)
+            dockItem(label: "controls", icon: "slider.horizontal.3", destination: .windows, action: onWindows)
             dockItem(
                 label: "settings",
                 icon: "gearshape",
@@ -120,19 +120,6 @@ private struct LiquidGlassDockBackground: View {
                     lineWidth: 1
                 )
         )
-        .overlay(alignment: .top) {
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [.white.opacity(0.28), .white.opacity(0.03)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(height: 1.2)
-                .padding(.horizontal, 28)
-                .padding(.top, 2)
-        }
         .shadow(color: .black.opacity(0.24), radius: 26, y: 12)
         .shadow(color: AppChromePalette.accent.opacity(0.08), radius: 18, y: -2)
     }

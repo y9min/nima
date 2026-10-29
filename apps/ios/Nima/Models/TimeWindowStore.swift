@@ -16,7 +16,8 @@ final class TimeWindowStore {
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private let notificationScheduler: any TimeWindowNotificationScheduling
     @ObservationIgnored private var applyScheduledApps: ((Set<String>, String) -> Void)?
-    @ObservationIgnored private var applyInstagramMode: ((InstagramMode?, String) -> Void)?
+    @ObservationIgnored private var applyInstagramProtection: ((Bool, String) -> Void)?
+    @ObservationIgnored private var applyTikTokProtection: ((Bool, String) -> Void)?
     @ObservationIgnored private var startProtection: ((String) -> Void)?
     @ObservationIgnored private var requestHomeFocus: (() -> Void)?
     @ObservationIgnored private var manuallyBlockedAppIDs: (() -> Set<String>)?
@@ -51,13 +52,15 @@ final class TimeWindowStore {
 
     func configure(
         applyScheduledApps: @escaping (Set<String>, String) -> Void,
-        applyInstagramMode: @escaping (InstagramMode?, String) -> Void = { _, _ in },
+        applyInstagramProtection: @escaping (Bool, String) -> Void = { _, _ in },
+        applyTikTokProtection: @escaping (Bool, String) -> Void = { _, _ in },
         startProtection: @escaping (String) -> Void,
         manuallyBlockedAppIDs: @escaping () -> Set<String> = { [] },
         requestHomeFocus: @escaping () -> Void = {}
     ) {
         self.applyScheduledApps = applyScheduledApps
-        self.applyInstagramMode = applyInstagramMode
+        self.applyInstagramProtection = applyInstagramProtection
+        self.applyTikTokProtection = applyTikTokProtection
         self.startProtection = startProtection
         self.manuallyBlockedAppIDs = manuallyBlockedAppIDs
         self.requestHomeFocus = requestHomeFocus
@@ -163,7 +166,8 @@ final class TimeWindowStore {
         notificationScheduler.cancelStartNotifications()
         notificationScheduler.cancelPauseReminderNotifications()
         applyScheduledApps?([], "account_deletion.local_reset")
-        applyInstagramMode?(nil, "account_deletion.local_reset")
+        applyInstagramProtection?(false, "account_deletion.local_reset")
+        applyTikTokProtection?(false, "account_deletion.local_reset")
         InstagramScheduleMonitor.sync(windows: [])
     }
 
@@ -232,21 +236,25 @@ final class TimeWindowStore {
         purgeOccurrenceDecisions(now: now)
         let active = confirmedActiveWindows(now: now, calendar: calendar)
         activeWindowIDs = Set(active.map(\.id))
-        let nextScheduledApps = Set(active.flatMap { window in
-            window.apps.filter { appID in
-                appID != "instagram" || window.instagramMode != nil
-            }
-        })
-        let nextInstagramMode: InstagramMode? = active.contains { $0.instagramMode == .dmOnly }
-            ? .dmOnly
-            : (active.contains { $0.instagramMode == .clean } ? .clean : nil)
+        let nextScheduledApps = Set(active.flatMap(\.apps))
+        for appID in nextScheduledApps.subtracting(scheduledAppIDs) {
+            PauseModeState.exclude(appID, defaults: defaults)
+        }
         let activeEndDates = active.compactMap {
             TimeWindowScheduleEvaluator.activeEndDate(for: $0, now: now, calendar: calendar)
         }
+        var clientScheduleEndDates: [String: Date] = [:]
+        for window in active {
+            guard let endDate = TimeWindowScheduleEvaluator.activeEndDate(for: window, now: now, calendar: calendar) else { continue }
+            for appID in window.apps where appID == "instagram" || appID == "tiktok" {
+                clientScheduleEndDates[appID] = max(clientScheduleEndDates[appID] ?? .distantPast, endDate)
+            }
+        }
+        defaults?.set(clientScheduleEndDates, forKey: NimaConstants.clientScheduleEndDatesKey)
         ScheduledProtectionStateStore.persistScheduleEvaluation(
-            // This shared snapshot drives VPN recovery. Instagram schedules are
-            // enforced by Device Activity and must never make the tunnel desired.
-            appIDs: nextScheduledApps.intersection(["tiktok", "x"]),
+            // This shared snapshot drives VPN recovery. Instagram and TikTok are
+            // enforced by their controlled clients and must not make the tunnel desired.
+            appIDs: nextScheduledApps.intersection(["x"]),
             windowIDs: activeWindowIDs,
             desiredUntil: activeEndDates.max(),
             source: source,
@@ -255,7 +263,8 @@ final class TimeWindowStore {
         )
         let didChange = nextScheduledApps != scheduledAppIDs
         scheduledAppIDs = nextScheduledApps
-        applyInstagramMode?(nextInstagramMode, source)
+        applyInstagramProtection?(nextScheduledApps.contains("instagram"), source)
+        applyTikTokProtection?(nextScheduledApps.contains("tiktok"), source)
         guard didChange || forceApply || lastAppliedScheduledAppIDs != nextScheduledApps else { return }
         guard let applyScheduledApps else { return }
         applyScheduledApps(nextScheduledApps, source)
@@ -559,7 +568,7 @@ final class TimeWindowStore {
     }
 
     private var hasTunnelBackedScheduledApps: Bool {
-        !scheduledAppIDs.intersection(["tiktok", "x"]).isEmpty
+        scheduledAppIDs.contains("x")
     }
 
     private func eligibleWindows(now: Date, calendar: Calendar) -> [TimeWindow] {

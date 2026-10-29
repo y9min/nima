@@ -148,6 +148,8 @@ targets:
     sources:
       - NimaDeviceActivity
       - Nima/NimaConstants.swift
+      - Nima/Models/StreakStore.swift
+      - Shared/AppControlRule.swift
     dependencies:
       - sdk: DeviceActivity.framework
       - sdk: FamilyControls.framework
@@ -179,9 +181,11 @@ targets:
     platform: iOS
     sources:
       - NimaShieldConfiguration
+      - Shared/AppControlRule.swift
     resources:
       - path: Nima/Assets.xcassets/AppIcon.appiconset/AppIcon-1024x1024.png
     dependencies:
+      - sdk: FamilyControls.framework
       - sdk: ManagedSettings.framework
       - sdk: ManagedSettingsUI.framework
     info:
@@ -197,6 +201,8 @@ targets:
       path: NimaShieldConfiguration/NimaShieldConfiguration.entitlements
       properties:
         com.apple.developer.family-controls: true
+        com.apple.security.application-groups:
+          - group.so.nima.app
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: so.nima.app.ShieldConfiguration
@@ -209,8 +215,10 @@ targets:
     platform: iOS
     sources:
       - NimaShieldAction
+      - Shared/AppControlRule.swift
     dependencies:
       - sdk: ManagedSettings.framework
+      - sdk: FamilyControls.framework
     info:
       path: NimaShieldAction/Info.plist
       properties:

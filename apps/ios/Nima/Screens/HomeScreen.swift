@@ -9,12 +9,28 @@ struct HomeScreen: View {
     @Environment(TimeWindowStore.self) private var timeWindowStore
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(InstagramProtectionStore.self) private var instagramProtectionStore
+    @Environment(TikTokProtectionStore.self) private var tiktokProtectionStore
     @Environment(\.sizeCategory) private var contentSizeCategory
     @EnvironmentObject private var vpnManager: VPNManager
     @State private var appIDPendingWindowEnd: String?
     @State private var isShowingInstagramPicker = false
     @State private var shouldEnableInstagramAfterSelection = false
     @State private var instagramSetupError: String?
+    @State private var isShowingTikTokPicker = false
+    @State private var shouldEnableTikTokAfterSelection = false
+    @State private var tiktokSetupError: String?
+    @State private var isShowingPauseMode = false
+    @State private var pauseDurationMinutes = 10
+    @State private var pauseNow = Date()
+    @State private var pauseEndsAt: Date?
+    @State private var pauseModeError: String?
+    @State private var isShowingNothingToPauseAlert = false
+    @State private var isShowingEditBlockers = false
+    @AppStorage("blocking_card.instagram_visible", store: UserDefaults(suiteName: NimaConstants.appGroupID))
+    private var showsInstagramOnCard = true
+    @AppStorage("blocking_card.tiktok_visible", store: UserDefaults(suiteName: NimaConstants.appGroupID))
+    private var showsTikTokOnCard = true
+    private let pauseDefaults = UserDefaults(suiteName: NimaConstants.appGroupID)
 
     var onSelectApp: (BlockedApp) -> Void
     var onTimeWindows: (() -> Void)? = nil
@@ -77,12 +93,66 @@ struct HomeScreen: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .onAppear { refreshPauseMode() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            refreshPauseMode()
+        }
+        .task(id: pauseEndsAt) {
+            guard let end = pauseEndsAt else { return }
+            try? await Task.sleep(for: .seconds(max(0, end.timeIntervalSinceNow)))
+            if !Task.isCancelled { refreshPauseMode() }
+        }
+        .sheet(isPresented: $isShowingPauseMode) {
+            pauseModeSheet
+                .presentationDetents([.height(445)])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color(red: 0.13, green: 0.12, blue: 0.13))
+        }
+        .sheet(isPresented: $isShowingEditBlockers) {
+            EditBlockersSheet(
+                showsInstagram: showsInstagramOnCard,
+                showsTikTok: showsTikTokOnCard,
+                instagramMode: instagramProtectionStore.manualMode,
+                tiktokMode: tiktokProtectionStore.manualMode
+            ) { showsInstagram, showsTikTok, instagramMode, tiktokMode in
+                showsInstagramOnCard = showsInstagram
+                showsTikTokOnCard = showsTikTok
+                if instagramMode != instagramProtectionStore.manualMode {
+                    instagramProtectionStore.setManualMode(instagramMode, source: "edit_blockers")
+                }
+                if tiktokMode != tiktokProtectionStore.manualMode {
+                    tiktokProtectionStore.setManualMode(tiktokMode, source: "edit_blockers")
+                }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.hidden)
+        }
+        .alert("Nothing to pause yet", isPresented: $isShowingNothingToPauseAlert) {
+            Button("Got it", role: .cancel) {}
+        } message: {
+            Text("Turn on a blocker first. Then you can pause it for 5, 10, or 15 minutes.")
+        }
+        .alert("Pause Mode unavailable", isPresented: Binding(
+            get: { pauseModeError != nil },
+            set: { if !$0 { pauseModeError = nil } }
+        )) {
+            Button("OK", role: .cancel) { pauseModeError = nil }
+        } message: {
+            Text(pauseModeError ?? "Please try again.")
+        }
         .toolbar(.hidden, for: .navigationBar)
         .familyActivityPicker(
             isPresented: $isShowingInstagramPicker,
             selection: Binding(
                 get: { instagramProtectionStore.familySelection },
                 set: { instagramProtectionStore.familySelection = $0 }
+            )
+        )
+        .familyActivityPicker(
+            isPresented: $isShowingTikTokPicker,
+            selection: Binding(
+                get: { tiktokProtectionStore.familySelection },
+                set: { tiktokProtectionStore.familySelection = $0 }
             )
         )
         .onChange(of: isShowingInstagramPicker) { wasShowing, isShowing in
@@ -94,6 +164,15 @@ struct HomeScreen: View {
                 source: "blocking_status_card.family_picker"
             )
         }
+        .onChange(of: isShowingTikTokPicker) { wasShowing, isShowing in
+            guard wasShowing, !isShowing, shouldEnableTikTokAfterSelection else { return }
+            shouldEnableTikTokAfterSelection = false
+            guard !tiktokProtectionStore.familySelection.applicationTokens.isEmpty else { return }
+            tiktokProtectionStore.setProtectionEnabled(
+                true,
+                source: "blocking_status_card.family_picker"
+            )
+        }
         .alert("Instagram setup", isPresented: Binding(
             get: { instagramSetupError != nil },
             set: { if !$0 { instagramSetupError = nil } }
@@ -101,6 +180,14 @@ struct HomeScreen: View {
             Button("OK", role: .cancel) { instagramSetupError = nil }
         } message: {
             Text(instagramSetupError ?? "Please try again.")
+        }
+        .alert("TikTok setup", isPresented: Binding(
+            get: { tiktokSetupError != nil },
+            set: { if !$0 { tiktokSetupError = nil } }
+        )) {
+            Button("OK", role: .cancel) { tiktokSetupError = nil }
+        } message: {
+            Text(tiktokSetupError ?? "Please try again.")
         }
         .alert("End current window?", isPresented: isShowingEndWindowConfirmation) {
             Button("End Window", role: .destructive) {
@@ -135,6 +222,9 @@ struct HomeScreen: View {
                 apps: dashboardApps,
                 vpnState: blockingVPNState,
                 sessionEndsAt: blockerSessionEndsAt,
+                visibleAppIDs: visibleCardAppIDs,
+                onEditBlockers: { isShowingEditBlockers = true },
+                pauseEndsAt: dashboardApps.contains(where: \.isPaused) ? pauseEndsAt : nil,
                 onToggleApp: { appId in
                     toggleBlockState(for: appId)
                 },
@@ -164,11 +254,19 @@ struct HomeScreen: View {
 
             Color.clear.frame(height: layout.blockerToInsights)
 
-            StreakCard(
+            StreakActionRail(
                 currentStreakDays: streakStore.currentStreak(),
                 todayEarned: streakStore.hasEarnedToday(),
-                weekDays: streakStore.weekStates(),
-                scale: layout.scale
+                scale: layout.scale,
+                pauseEndsAt: pauseEndsAt,
+                onPause: {
+                    guard pauseEndsAt == nil else { return }
+                    guard !activeUnpausedAppIDs.isEmpty else {
+                        isShowingNothingToPauseAlert = true
+                        return
+                    }
+                    isShowingPauseMode = true
+                }
             )
             .frame(width: layout.contentWidth, height: layout.insightsHeight)
 
@@ -180,19 +278,34 @@ struct HomeScreen: View {
         ["instagram", "tiktok"].compactMap { appId in
             guard let app = store.app(for: appId) else { return nil }
             let isScheduled = timeWindowStore.isAppScheduled(app.id)
+            let isCurrentlyBlocked: Bool
+            switch app.id {
+            case "instagram": isCurrentlyBlocked = instagramProtectionStore.protectionEnabled || isScheduled
+            case "tiktok": isCurrentlyBlocked = tiktokProtectionStore.protectionEnabled || isScheduled
+            default: isCurrentlyBlocked = app.options.contains { $0.isEnabled } || isScheduled
+            }
             return BlockingDashboardApp(
                 id: app.id,
                 name: app.name,
                 platform: app.platform ?? app.id,
-                isBlocked: app.id == "instagram"
-                    ? (instagramProtectionStore.protectionEnabled || isScheduled)
-                    : (app.options.contains { $0.isEnabled } || isScheduled),
+                isBlocked: isCurrentlyBlocked,
+                isPaused: isCurrentlyBlocked && PauseModeState.isPaused(app.id, defaults: pauseDefaults, now: pauseNow),
                 isScheduled: isScheduled,
                 instagramMode: app.id == "instagram"
                     ? instagramProtectionStore.effectiveMode
+                    : nil,
+                tiktokMode: app.id == "tiktok"
+                    ? tiktokProtectionStore.effectiveMode
                     : nil
             )
         }
+    }
+
+    private var visibleCardAppIDs: Set<String> {
+        var result = Set<String>()
+        if showsInstagramOnCard { result.insert("instagram") }
+        if showsTikTokOnCard { result.insert("tiktok") }
+        return result
     }
 
     private var blockedAppIDs: [String] {
@@ -200,6 +313,96 @@ struct HomeScreen: View {
             .filter { $0.isBlocked }
             .map(\.id)
             .sorted()
+    }
+
+    private var activeUnpausedAppIDs: Set<String> {
+        Set(dashboardApps.filter { $0.isBlocked && !$0.isPaused }.map(\.id))
+    }
+
+    private func refreshPauseMode() {
+        pauseNow = Date()
+        let expiry = pauseDefaults?.object(forKey: NimaConstants.pauseModeExpiresAtKey) as? Date
+        if let expiry, expiry > pauseNow {
+            pauseEndsAt = expiry
+        } else {
+            pauseEndsAt = nil
+            if expiry != nil { PauseModeState.clear(defaults: pauseDefaults) }
+        }
+        instagramProtectionStore.refreshPauseMode()
+        tiktokProtectionStore.refreshPauseMode()
+    }
+
+    private func beginPauseMode() {
+        let appIDs = activeUnpausedAppIDs
+        guard let expiry = PauseModeState.start(
+            appIDs: appIDs,
+            windowIDs: timeWindowStore.activeWindowIDs,
+            minutes: pauseDurationMinutes,
+            defaults: pauseDefaults
+        ) else { return }
+        guard PauseModeMonitor.schedule(until: expiry) else {
+            PauseModeState.clear(defaults: pauseDefaults)
+            pauseModeError = "iOS couldn't schedule automatic blocking to return. Please try again."
+            refreshPauseMode()
+            return
+        }
+        PauseModeMonitor.clearClientScheduleShields()
+        isShowingPauseMode = false
+        refreshPauseMode()
+    }
+
+    private var pauseModeSheet: some View {
+        VStack(spacing: 24) {
+            Text("Pause Mode")
+                .font(.system(size: 32, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.top, 20)
+
+            HStack(spacing: 0) {
+                ForEach([5, 10, 15], id: \.self) { minutes in
+                    Button {
+                        pauseDurationMinutes = minutes
+                    } label: {
+                        Text("\(minutes) mins")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 58)
+                            .background {
+                                if pauseDurationMinutes == minutes {
+                                    Capsule().fill(Color(red: 0.13, green: 0.12, blue: 0.13))
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(4)
+            .background(Capsule().fill(Color(red: 0.22, green: 0.21, blue: 0.22)))
+
+            Button(action: beginPauseMode) {
+                Text("Continue")
+                    .font(.system(size: 21))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                    .background(Capsule().fill(Color(red: 0.04, green: 0.20, blue: 0.13)))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 48)
+
+            Text("Due to platform limitations, some features are unavailable in Clean Mode. Pause Mode briefly lifts restrictions so you can post, share stories, and more.")
+                .font(.system(size: 17))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+
+            Text("Stay social without getting stuck scrolling")
+                .font(.system(size: 18, weight: .bold))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 26)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var isShowingEndWindowConfirmation: Binding<Bool> {
@@ -224,9 +427,9 @@ struct HomeScreen: View {
     }
 
     private var blockingVPNState: BlockingVPNState {
-        let tiktokRequiresVPN = dashboardApps.contains { $0.id == "tiktok" && $0.isBlocked }
-        if !tiktokRequiresVPN,
-           dashboardApps.contains(where: { $0.id == "instagram" && $0.isBlocked }) {
+        let onlyClientProtection = dashboardApps.contains(where: { $0.isBlocked })
+            && dashboardApps.filter(\.isBlocked).allSatisfy { ["instagram", "tiktok"].contains($0.id) }
+        if onlyClientProtection {
             return .connected
         }
         switch vpnManager.vpnStatus {
@@ -255,6 +458,18 @@ struct HomeScreen: View {
                 )
             } else {
                 enableInstagramProtection()
+            }
+            return
+        }
+        if appId == "tiktok" {
+            guard !timeWindowStore.isAppScheduled(appId) else { return }
+            if tiktokProtectionStore.protectionEnabled {
+                tiktokProtectionStore.setProtectionEnabled(
+                    false,
+                    source: "blocking_status_card.drag"
+                )
+            } else {
+                enableTikTokProtection()
             }
             return
         }
@@ -294,6 +509,29 @@ struct HomeScreen: View {
                 isShowingInstagramPicker = true
             } catch {
                 instagramSetupError = "Nima needs Screen Time access before it can block the official Instagram app."
+            }
+        }
+    }
+
+    private func enableTikTokProtection() {
+        Task {
+            do {
+                if tiktokProtectionStore.authorizationStatus != .approved {
+                    try await tiktokProtectionStore.requestAuthorization()
+                }
+
+                guard tiktokProtectionStore.familySelection.applicationTokens.isEmpty else {
+                    tiktokProtectionStore.setProtectionEnabled(
+                        true,
+                        source: "blocking_status_card.drag"
+                    )
+                    return
+                }
+
+                shouldEnableTikTokAfterSelection = true
+                isShowingTikTokPicker = true
+            } catch {
+                tiktokSetupError = "Nima needs Screen Time access before it can block the official TikTok app."
             }
         }
     }
@@ -367,12 +605,11 @@ private struct HomeGreeting: View {
                     .padding(.bottom, 5 * scale)
             }
 
-            Text(scheduleSummary ?? "you’re keeping social,\nnot scrolling")
+            Text(scheduleSummary ?? "you’re keeping social, not scrolling")
                 .font(.system(size: subcopySize, weight: .regular, design: .rounded))
                 .foregroundStyle(HomeDashboardPalette.muted.opacity(0.92))
-                .lineSpacing(-2)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -409,132 +646,125 @@ private struct HomeMountainBackdrop: View {
     }
 }
 
-private struct StreakCard: View {
+private struct StreakActionRail: View {
     let currentStreakDays: Int
     let todayEarned: Bool
-    let weekDays: [StreakWeekDayState]
     let scale: CGFloat
+    let pauseEndsAt: Date?
+    let onPause: () -> Void
 
     private var visualScale: CGFloat {
         min(1.06, max(0.9, scale))
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16 * visualScale) {
-            StreakFlameBadge(scale: visualScale)
-                .frame(width: 86 * visualScale, height: 92 * visualScale)
+        HStack(spacing: 0) {
+            railItem(
+                title: currentStreakDays > 0 ? "\(currentStreakDays) day streak" : "Start a streak",
+                subtitle: streakSubtitle,
+                accessibilityHint: nil
+            ) {
+                StreakFlameBadge(scale: visualScale * 0.56)
+                    .frame(width: 54 * visualScale, height: 54 * visualScale)
+            }
 
-            VStack(alignment: .leading, spacing: 8 * visualScale) {
-                VStack(alignment: .leading, spacing: 2 * visualScale) {
-                    headlineView
+            divider
 
-                    Text(supportingCopy)
-                        .font(NimaFonts.coolvetica(size: 13.6 * visualScale))
-                        .foregroundStyle(HomeDashboardPalette.muted.opacity(0.95))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-                }
-
-                VStack(alignment: .leading, spacing: 3 * visualScale) {
-                    Text("This week")
-                        .font(NimaFonts.coolvetica(size: 10.8 * visualScale))
-                        .foregroundStyle(HomeDashboardPalette.muted.opacity(0.86))
-
-                    StreakWeekProgress(days: weekDays, scale: visualScale)
-                        .frame(height: 28 * visualScale)
+            Button(action: onPause) {
+                railItem(
+                    title: "Pause Mode",
+                    subtitle: pauseEndsAt == nil ? "Pause to post" : "Paused",
+                    accessibilityHint: pauseEndsAt == nil ? "Choose a pause duration" : "Restrictions return automatically"
+                ) {
+                    Image(systemName: "pause.fill")
+                        .font(.system(size: 25 * visualScale, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 54 * visualScale, height: 54 * visualScale)
+                        .background(
+                            RoundedRectangle(cornerRadius: 17 * visualScale, style: .continuous)
+                                .fill(.white.opacity(0.055))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 17 * visualScale, style: .continuous)
+                                .strokeBorder(HomeDashboardPalette.muted.opacity(0.42), lineWidth: 1.2)
+                        )
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+            .allowsHitTesting(pauseEndsAt == nil)
 
+            divider
+
+            railItem(
+                title: "Hard Mode",
+                subtitle: "Hold to activate",
+                accessibilityHint: "Coming soon"
+            ) {
+                Image(systemName: "power")
+                    .font(.system(size: 32 * visualScale, weight: .medium))
+                    .foregroundStyle(hardModeColor)
+                    .frame(width: 54 * visualScale, height: 54 * visualScale)
+                    .background(Circle().fill(hardModeColor.opacity(0.07)))
+                    .overlay(Circle().strokeBorder(hardModeColor.opacity(0.72), lineWidth: 1.5))
+                    .shadow(color: hardModeColor.opacity(0.17), radius: 12 * visualScale)
+            }
         }
-        .padding(.leading, 21 * visualScale)
-        .padding(.trailing, 20 * visualScale)
-        .padding(.vertical, 8 * visualScale)
+        .padding(.horizontal, 8 * visualScale)
+        .padding(.vertical, 13 * visualScale)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(streakCardBackground)
+        .background(HomeDashboardPalette.card.opacity(0.9))
         .overlay(
             RoundedRectangle(cornerRadius: 24 * visualScale, style: .continuous)
                 .strokeBorder(HomeDashboardPalette.border.opacity(0.82), lineWidth: 1.2)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 24 * visualScale, style: .continuous))
+    }
+
+    private func railItem<Icon: View>(
+        title: String,
+        subtitle: String,
+        accessibilityHint: String?,
+        @ViewBuilder icon: () -> Icon
+    ) -> some View {
+        VStack(spacing: 0) {
+            icon()
+            Spacer(minLength: 4 * visualScale)
+            Text(title)
+                .font(.system(size: 14 * visualScale, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
+            Text(subtitle)
+                .font(NimaFonts.coolvetica(size: 11.8 * visualScale))
+                .foregroundStyle(HomeDashboardPalette.muted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.top, 2 * visualScale)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityLabel("\(title). \(subtitle).")
+        .accessibilityHint(accessibilityHint ?? "")
     }
 
-    private var streakCardBackground: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 24 * visualScale, style: .continuous)
-                    .fill(HomeDashboardPalette.card.opacity(0.9))
-
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                HomeDashboardPalette.accent.opacity(0.16),
-                                HomeDashboardPalette.accent.opacity(0)
-                            ],
-                            center: .center,
-                            startRadius: 2 * visualScale,
-                            endRadius: 74 * visualScale
-                        )
-                    )
-                    .frame(width: 160 * visualScale, height: 160 * visualScale)
-                    .offset(x: -42 * visualScale, y: 18 * visualScale)
-                    .allowsHitTesting(false)
-
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                Color.white.opacity(0.055),
-                                Color.white.opacity(0)
-                            ],
-                            center: .center,
-                            startRadius: 1 * visualScale,
-                            endRadius: 130 * visualScale
-                        )
-                    )
-                    .frame(width: 260 * visualScale, height: 150 * visualScale)
-                    .offset(x: 94 * visualScale, y: -42 * visualScale)
-                    .allowsHitTesting(false)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .clipShape(RoundedRectangle(cornerRadius: 24 * visualScale, style: .continuous))
-        }
+    private var divider: some View {
+        Rectangle()
+            .fill(HomeDashboardPalette.border.opacity(0.55))
+            .frame(width: 1, height: 75 * visualScale)
     }
 
-    @ViewBuilder
-    private var headlineView: some View {
-        if currentStreakDays > 0 {
-            Text("\(currentStreakDays) day streak")
-                .font(.system(size: 23.76 * visualScale, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.64)
-        } else {
-            Text("Start a streak")
-                .font(.system(size: 24 * visualScale, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.68)
-        }
+    private var hardModeColor: Color {
+        Color(red: 1, green: 0.38, blue: 0.43)
     }
 
-    private var supportingCopy: String {
+    private var streakSubtitle: String {
         if todayEarned {
-            return "Keep it up!"
+            return "Keep it up"
         }
         if currentStreakDays == 0 {
-            return "Start your streak by turning on any blocker"
+            return "Block today"
         }
-        return "Turn on a blocker to keep your streak"
-    }
-
-    private var accessibilitySummary: String {
-        if currentStreakDays > 0 {
-            return "\(currentStreakDays) day streak. \(supportingCopy)."
-        }
-        return "Start a streak. \(supportingCopy)."
+        return "Keep it going"
     }
 }
 
@@ -587,123 +817,6 @@ private struct StreakFlameBadge: View {
         }
         .padding(4 * scale)
         .accessibilityHidden(true)
-    }
-}
-
-private struct StreakWeekProgress: View {
-    let days: [StreakWeekDayState]
-    let scale: CGFloat
-
-    var body: some View {
-        GeometryReader { proxy in
-            let dotSize = 10 * scale
-            let centerY = 7 * scale
-            let lineWidth = 2.6 * scale
-            let count = max(days.count, 1)
-            let availableWidth = max(1, proxy.size.width - dotSize)
-            let step = availableWidth / CGFloat(max(count - 1, 1))
-
-            ZStack(alignment: .topLeading) {
-                ForEach(0..<max(days.count - 1, 0), id: \.self) { index in
-                    let startX = dotSize / 2 + step * CGFloat(index)
-                    let segmentWidth = max(0, step - dotSize - 4 * scale)
-
-                    Capsule()
-                        .fill(segmentFill(after: index))
-                        .frame(width: segmentWidth, height: lineWidth)
-                        .position(x: startX + step / 2, y: centerY)
-                }
-
-                ForEach(days.indices, id: \.self) { index in
-                    let x = dotSize / 2 + step * CGFloat(index)
-                    let day = days[index]
-
-                    Circle()
-                        .fill(dotFill(for: day.status))
-                        .frame(width: dotSize, height: dotSize)
-                        .overlay(
-                            Circle()
-                                .strokeBorder(dotBorder(for: day.status), lineWidth: 1.2 * scale)
-                        )
-                        .overlay(
-                            Circle()
-                                .strokeBorder(todayRing(for: day), lineWidth: 1.3 * scale)
-                                .frame(width: dotSize + 6 * scale, height: dotSize + 6 * scale)
-                        )
-                        .shadow(
-                            color: day.status == .earned ? HomeDashboardPalette.accent.opacity(0.42) : .clear,
-                            radius: 7 * scale
-                        )
-                        .position(x: x, y: centerY)
-
-                    Text(day.label)
-                        .font(NimaFonts.coolvetica(size: 12 * scale))
-                        .foregroundStyle(labelColor(for: day.status))
-                        .lineLimit(1)
-                        .position(x: x, y: 22 * scale)
-                }
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func segmentFill(after index: Int) -> Color {
-        let current = days[index].status
-        let next = days[index + 1].status
-        if current == .earned && next == .earned {
-            return HomeDashboardPalette.accent.opacity(0.82)
-        }
-        if current.isMuted || next.isMuted {
-            return HomeDashboardPalette.muted.opacity(0.14)
-        }
-        return HomeDashboardPalette.muted.opacity(0.32)
-    }
-
-    private func dotFill(for status: StreakWeekDayStatus) -> Color {
-        switch status {
-        case .earned:
-            return HomeDashboardPalette.accent
-        case .missed, .todayPending:
-            return HomeDashboardPalette.muted.opacity(0.12)
-        case .future, .beforeTrackingStarted:
-            return HomeDashboardPalette.muted.opacity(0.055)
-        }
-    }
-
-    private func dotBorder(for status: StreakWeekDayStatus) -> Color {
-        switch status {
-        case .earned:
-            return HomeDashboardPalette.accent.opacity(0.78)
-        case .todayPending:
-            return HomeDashboardPalette.accent.opacity(0.72)
-        case .missed:
-            return HomeDashboardPalette.muted.opacity(0.5)
-        case .future, .beforeTrackingStarted:
-            return HomeDashboardPalette.muted.opacity(0.22)
-        }
-    }
-
-    private func todayRing(for day: StreakWeekDayState) -> Color {
-        day.isToday ? HomeDashboardPalette.accent.opacity(0.62) : .clear
-    }
-
-    private func labelColor(for status: StreakWeekDayStatus) -> Color {
-        switch status {
-        case .earned:
-            return .white.opacity(0.92)
-        case .todayPending:
-            return HomeDashboardPalette.accent.opacity(0.86)
-        case .missed:
-            return HomeDashboardPalette.muted.opacity(0.76)
-        case .future, .beforeTrackingStarted:
-            return HomeDashboardPalette.muted.opacity(0.38)
-        }
-    }
-}
-
-private extension StreakWeekDayStatus {
-    var isMuted: Bool {
-        self == .future || self == .beforeTrackingStarted
     }
 }
 
@@ -779,8 +892,237 @@ private struct HomeDashboardDebugOverlay: View {
 }
 #endif
 
+private struct EditBlockersSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let onSave: (Bool, Bool, InstagramMode, TikTokMode) -> Void
+
+    @State private var showsInstagram: Bool
+    @State private var showsTikTok: Bool
+    @State private var instagramMode: InstagramMode
+    @State private var tiktokMode: TikTokMode
+
+    private let background = Color(red: 0.0, green: 0.105, blue: 0.068)
+    private let tile = Color(red: 0.035, green: 0.17, blue: 0.095)
+    private let accent = AppChromePalette.accent
+    private let muted = AppChromePalette.muted
+
+    init(
+        showsInstagram: Bool,
+        showsTikTok: Bool,
+        instagramMode: InstagramMode,
+        tiktokMode: TikTokMode,
+        onSave: @escaping (Bool, Bool, InstagramMode, TikTokMode) -> Void
+    ) {
+        self.onSave = onSave
+        _showsInstagram = State(initialValue: showsInstagram)
+        _showsTikTok = State(initialValue: showsTikTok)
+        _instagramMode = State(initialValue: instagramMode)
+        _tiktokMode = State(initialValue: tiktokMode)
+    }
+
+    var body: some View {
+        ZStack {
+            background.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                header
+
+                Text("choose which apps appear on Home\nand how they open")
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundStyle(muted)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 10)
+                    .padding(.bottom, 28)
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 30) {
+                        appSection(title: "On Home", appIDs: shownAppIDs)
+                        appSection(title: "Hidden", appIDs: hiddenAppIDs)
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 36)
+                }
+            }
+            .padding(.top, 26)
+        }
+    }
+
+    private var shownAppIDs: [String] {
+        ["instagram", "tiktok"].filter { isShown($0) }
+    }
+
+    private var hiddenAppIDs: [String] {
+        ["instagram", "tiktok"].filter { !isShown($0) }
+    }
+
+    private var header: some View {
+        HStack {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(muted)
+                    .frame(width: 46, height: 46)
+                    .background(Circle().stroke(AppChromePalette.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Discard changes")
+
+            Spacer()
+
+            Text("edit blockers")
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            Spacer()
+
+            Button {
+                onSave(showsInstagram, showsTikTok, instagramMode, tiktokMode)
+                dismiss()
+            } label: {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(background)
+                    .frame(width: 46, height: 46)
+                    .background(accent, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Save Home app changes")
+        }
+        .padding(.horizontal, 28)
+    }
+
+    private func appSection(title: String, appIDs: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title)
+                .font(.system(size: 21, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+
+            if appIDs.isEmpty {
+                Text(title == "On Home" ? "No apps shown" : "No hidden apps")
+                    .font(.system(size: 16, design: .rounded))
+                    .foregroundStyle(muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(18)
+                    .background(tile, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            } else {
+                ForEach(appIDs, id: \.self) { appID in
+                    appCard(appID)
+                }
+            }
+        }
+    }
+
+    private func appCard(_ appID: String) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                toggleVisibility(appID)
+            } label: {
+                HStack(spacing: 14) {
+                    SocialMediaIcon(platform: appID, size: 40)
+                    Text(appID == "instagram" ? "Instagram" : "TikTok")
+                        .font(.system(size: 21, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Image(systemName: isShown(appID) ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 31, weight: .medium))
+                        .foregroundStyle(isShown(appID) ? accent : muted)
+                }
+                .frame(minHeight: 56)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(appID == "instagram" ? "Instagram" : "TikTok") on Home")
+            .accessibilityValue(isShown(appID) ? "Shown" : "Hidden")
+
+            if isShown(appID) {
+                modeRow(appID)
+                    .padding(.top, 8)
+            }
+        }
+        .padding(.horizontal, 17)
+        .padding(.vertical, 12)
+        .background(tile, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func modeRow(_ appID: String) -> some View {
+        if appID == "instagram" {
+            Menu {
+                ForEach(InstagramMode.allCases) { mode in
+                    Button {
+                        instagramMode = mode
+                    } label: {
+                        if instagramMode == mode {
+                            Label(mode == .clean ? "Clean mode" : "DM Only mode", systemImage: "checkmark")
+                        } else {
+                            Text(mode == .clean ? "Clean mode" : "DM Only mode")
+                        }
+                    }
+                }
+            } label: {
+                modeRowContent(value: instagramMode == .dmOnly ? "DM Only mode" : "Clean mode", showsChevron: true)
+            }
+            .accessibilityLabel("Instagram opens in \(instagramMode.title) mode")
+        } else {
+            Menu {
+                ForEach(TikTokMode.allCases) { mode in
+                    Button {
+                        tiktokMode = mode
+                    } label: {
+                        if tiktokMode == mode {
+                            Label(mode == .clean ? "Clean mode" : "DM Only mode", systemImage: "checkmark")
+                        } else {
+                            Text(mode == .clean ? "Clean mode" : "DM Only mode")
+                        }
+                    }
+                }
+            } label: {
+                modeRowContent(value: tiktokMode == .dmOnly ? "DM Only mode" : "Clean mode", showsChevron: true)
+            }
+            .accessibilityLabel("TikTok opens in \(tiktokMode.title) mode")
+        }
+    }
+
+    private func modeRowContent(value: String, showsChevron: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text("Open in")
+                .font(.system(size: 19, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(size: 18, weight: .medium, design: .rounded))
+                .foregroundStyle(muted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            if showsChevron {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(muted)
+            }
+        }
+        .frame(minHeight: 34)
+        .contentShape(Rectangle())
+    }
+
+    private func isShown(_ appID: String) -> Bool {
+        appID == "instagram" ? showsInstagram : showsTikTok
+    }
+
+    private func toggleVisibility(_ appID: String) {
+        if appID == "instagram" {
+            showsInstagram.toggle()
+        } else {
+            showsTikTok.toggle()
+        }
+    }
+}
+
 #Preview {
     HomeScreen(onSelectApp: { _ in })
+        .environment(TikTokProtectionStore())
         .environment(AppStore())
         .environment(StreakStore(defaults: nil))
         .environment(TimeWindowStore())

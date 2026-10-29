@@ -2,6 +2,32 @@ import XCTest
 @testable import Nima
 
 final class AppSettingsStoreTests: XCTestCase {
+    func testPauseModeExpiresAndLeavesNewlyEnabledAppsActive() {
+        let defaults = testDefaults()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let expiry = PauseModeState.start(
+            appIDs: ["instagram", "tiktok"], minutes: 10, defaults: defaults, now: now
+        )
+
+        XCTAssertEqual(expiry, now.addingTimeInterval(600))
+        XCTAssertTrue(PauseModeState.isPaused("instagram", defaults: defaults, now: now.addingTimeInterval(599)))
+        XCTAssertFalse(PauseModeState.isPaused("instagram", defaults: defaults, now: now.addingTimeInterval(600)))
+
+        PauseModeState.exclude("tiktok", defaults: defaults, now: now.addingTimeInterval(60))
+        XCTAssertFalse(PauseModeState.isPaused("tiktok", defaults: defaults, now: now.addingTimeInterval(60)))
+    }
+
+    func testShortPauseMonitorIntervalsEndAtTheSelectedDeadline() {
+        let now = Date()
+        for minutes in [5, 10, 15] {
+            let deadline = now.addingTimeInterval(TimeInterval(minutes * 60))
+            let interval = PauseModeMonitor.definition(until: deadline, now: now).nextInterval
+            XCTAssertNotNil(interval)
+            XCTAssertEqual(interval?.end.timeIntervalSince(deadline) ?? .infinity, 0, accuracy: 5)
+            XCTAssertGreaterThanOrEqual(interval?.duration ?? 0, 15 * 60)
+        }
+    }
+
     func testDisplayNameFallbackUsesLocalNameThenDefault() {
         XCTAssertEqual(
             AppSettingsStore.resolvedDisplayName(localOverride: " Nima "),

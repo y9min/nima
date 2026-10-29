@@ -13,6 +13,7 @@ final class HomeDashboardLayoutTests: XCTestCase {
         XCTAssertFalse(layout.requiresScroll)
         XCTAssertLessThanOrEqual(layout.contentHeight, layout.availableHeight + 0.5)
         XCTAssertEqual(layout.contentWidth, 354, accuracy: 0.5)
+        XCTAssertEqual(layout.greetingToBlocker, layout.blockerToInsights, accuracy: 0.5)
     }
 
     func testSmallIPhoneUsesScrollFallback() {
@@ -24,6 +25,17 @@ final class HomeDashboardLayoutTests: XCTestCase {
 
         XCTAssertTrue(layout.requiresScroll)
         XCTAssertGreaterThan(layout.scale, 0.9)
+    }
+
+    func testCompactHomeLiftsCardsWhileKeepingTheirGap() {
+        let layout = HomeDashboardLayout(
+            screenSize: CGSize(width: 390, height: 763),
+            safeAreaInsets: EdgeInsets(top: 47, leading: 0, bottom: 34, trailing: 0),
+            contentSizeCategory: .large
+        )
+
+        XCTAssertEqual(layout.greetingToBlocker, 0, accuracy: 0.5)
+        XCTAssertEqual(layout.blockerToInsights, layout.bottomPadding, accuracy: 0.5)
     }
 
     func testProMaxDoesNotOverStretch() {
@@ -247,6 +259,46 @@ final class StreakStoreTests: XCTestCase {
         XCTAssertEqual(store.records.first?.date, "2026-06-03")
         XCTAssertEqual(store.records.first?.source, "instagram_strict_reels")
         XCTAssertEqual(store.records.first?.timezone, "Europe/London")
+    }
+
+    func testFeedStreakEligibilityIncludesManualAndActiveSchedulesWithoutVPN() {
+        XCTAssertEqual(StreakEligibility.activeSource(
+            instagramManual: true, instagramScheduled: false, instagramPaused: false,
+            tiktokManual: false, tiktokScheduled: false, tiktokPaused: false
+        ), "instagram_manual")
+        XCTAssertEqual(StreakEligibility.activeSource(
+            instagramManual: false, instagramScheduled: true, instagramPaused: false,
+            tiktokManual: false, tiktokScheduled: false, tiktokPaused: false
+        ), "instagram_scheduled")
+        XCTAssertEqual(StreakEligibility.activeSource(
+            instagramManual: false, instagramScheduled: false, instagramPaused: false,
+            tiktokManual: false, tiktokScheduled: true, tiktokPaused: false
+        ), "tiktok_scheduled")
+    }
+
+    func testFeedStreakEligibilityRejectsInactiveOrPausedFeedProtection() {
+        XCTAssertNil(StreakEligibility.activeSource(
+            instagramManual: false, instagramScheduled: false, instagramPaused: false,
+            tiktokManual: false, tiktokScheduled: false, tiktokPaused: false
+        ))
+        XCTAssertNil(StreakEligibility.activeSource(
+            instagramManual: true, instagramScheduled: false, instagramPaused: true,
+            tiktokManual: false, tiktokScheduled: true, tiktokPaused: true
+        ))
+    }
+
+    func testRefreshFromDiskPicksUpBackgroundStreak() {
+        let calendar = londonCalendar()
+        let now = date(year: 2026, month: 6, day: 3, calendar: calendar)
+        let backgroundStore = StreakStore(defaults: defaults, storageKey: "streakDaysTest")
+
+        XCTAssertFalse(store.hasEarnedToday(now: now, calendar: calendar))
+        backgroundStore.markTodayEarned(source: "instagram_scheduled", now: now, calendar: calendar)
+        store.refreshFromDisk()
+
+        XCTAssertTrue(store.hasEarnedToday(now: now, calendar: calendar))
+        XCTAssertEqual(store.records.first?.source, "instagram_scheduled")
+        XCTAssertFalse(store.markTodayEarned(source: "tiktok_manual", now: now, calendar: calendar))
     }
 
     func testMidweekStartLeavesEarlierDaysMutedAndTodayPending() {

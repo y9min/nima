@@ -6,6 +6,8 @@ enum NimaConstants {
     static let tunnelBundleID = "so.nima.app.NimaTunnel"
     static let instagramFamilySelectionKey = "instagram.client.family_selection"
     static let instagramShieldPendingDestinationKey = "instagram.shield.pending_destination"
+    static let tiktokFamilySelectionKey = "tiktok.client.family_selection"
+    static let shieldPendingDestinationKey = "shield.pending_destination"
     static let screenTimeAppConnectionsKey = "screen_time.app_connections"
 
     // MARK: - Network Settings
@@ -83,6 +85,10 @@ enum NimaConstants {
     static let streakReminderHourKey = "settings.streak_reminder_hour"
     static let streakReminderMinuteKey = "settings.streak_reminder_minute"
     static let pauseIntervalMinutesKey = "settings.pause_interval_minutes"
+    static let pauseModeAppIDsKey = "pause_mode.app_ids"
+    static let pauseModeExpiresAtKey = "pause_mode.expires_at"
+    static let pauseModeWindowIDsKey = "pause_mode.window_ids"
+    static let clientScheduleEndDatesKey = "timeWindows.client_schedule_end_dates"
     static let onboardingStateKey = "onboardingStateV1"
     static let onboardingCompletedKey = "onboardingCompletedV1"
     static let guidedOnboardingSeenKey = "guidedOnboardingSeenV1"
@@ -299,4 +305,37 @@ enum NimaConstants {
     // MARK: - VPN
     static let vpnDescription = "Nima Blocker"
     static let vpnServerAddress = "nima"
+}
+
+enum PauseModeState {
+    static func pausedAppIDs(defaults: UserDefaults?, now: Date = Date()) -> Set<String> {
+        guard let expiresAt = defaults?.object(forKey: NimaConstants.pauseModeExpiresAtKey) as? Date,
+              expiresAt > now else { return [] }
+        return Set(defaults?.stringArray(forKey: NimaConstants.pauseModeAppIDsKey) ?? [])
+    }
+
+    static func isPaused(_ appID: String, defaults: UserDefaults?, now: Date = Date()) -> Bool {
+        pausedAppIDs(defaults: defaults, now: now).contains(appID)
+    }
+
+    static func start(appIDs: Set<String>, windowIDs: Set<String> = [], minutes: Int, defaults: UserDefaults?, now: Date = Date()) -> Date? {
+        guard !appIDs.isEmpty, [5, 10, 15].contains(minutes), let defaults else { return nil }
+        let expiresAt = now.addingTimeInterval(TimeInterval(minutes * 60))
+        defaults.set(appIDs.sorted(), forKey: NimaConstants.pauseModeAppIDsKey)
+        defaults.set(windowIDs.sorted(), forKey: NimaConstants.pauseModeWindowIDsKey)
+        defaults.set(expiresAt, forKey: NimaConstants.pauseModeExpiresAtKey)
+        return expiresAt
+    }
+
+    static func exclude(_ appID: String, defaults: UserDefaults?, now: Date = Date()) {
+        var appIDs = pausedAppIDs(defaults: defaults, now: now)
+        guard appIDs.remove(appID) != nil else { return }
+        defaults?.set(appIDs.sorted(), forKey: NimaConstants.pauseModeAppIDsKey)
+    }
+
+    static func clear(defaults: UserDefaults?) {
+        defaults?.removeObject(forKey: NimaConstants.pauseModeAppIDsKey)
+        defaults?.removeObject(forKey: NimaConstants.pauseModeWindowIDsKey)
+        defaults?.removeObject(forKey: NimaConstants.pauseModeExpiresAtKey)
+    }
 }

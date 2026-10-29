@@ -1,8 +1,8 @@
 import XCTest
 @testable import Nima
 
-final class TimeWindowInstagramActionTests: XCTestCase {
-    func testLegacyInstagramWindowRequiresModeChoice() throws {
+final class TimeWindowInstagramModeCompatibilityTests: XCTestCase {
+    func testLegacyInstagramWindowWithoutModeStillDecodes() throws {
         let legacy = TimeWindow(apps: ["instagram"])
         let data = try JSONEncoder().encode(legacy)
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -10,23 +10,37 @@ final class TimeWindowInstagramActionTests: XCTestCase {
         let legacyData = try JSONSerialization.data(withJSONObject: object)
 
         let decoded = try JSONDecoder().decode(TimeWindow.self, from: legacyData)
-        XCTAssertTrue(decoded.requiresInstagramActionChoice)
-        XCTAssertNil(decoded.instagramMode)
+        XCTAssertEqual(decoded.apps, ["instagram"])
+        XCTAssertTrue(decoded.appActions.isEmpty)
     }
 
-    func testInstagramWindowStoresSelectedMode() {
-        let clean = TimeWindow(
-            apps: ["instagram"],
-            appActions: ["instagram": .instagramClean]
-        )
-        let dmOnly = TimeWindow(
+    func testNewWindowDoesNotSaveAnInstagramMode() {
+        XCTAssertTrue(TimeWindow(apps: ["instagram"]).appActions.isEmpty)
+    }
+
+    func testExistingWindowWithModeStillDecodes() throws {
+        let existing = TimeWindow(
             apps: ["instagram"],
             appActions: ["instagram": .instagramDMOnly]
         )
+        let decoded = try JSONDecoder().decode(TimeWindow.self, from: JSONEncoder().encode(existing))
+        XCTAssertEqual(decoded.appActions["instagram"], .instagramDMOnly)
+    }
 
-        XCTAssertEqual(clean.instagramMode, .clean)
-        XCTAssertEqual(dmOnly.instagramMode, .dmOnly)
-        XCTAssertFalse(clean.requiresInstagramActionChoice)
+    @MainActor
+    func testDefaultModeSurvivesEnablingAndScheduling() {
+        let suiteName = "InstagramDefaultModeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let protection = InstagramProtectionStore(defaults: defaults)
+
+        protection.setManualMode(.dmOnly, source: "test")
+        protection.setProtectionEnabled(true, source: "test")
+        protection.setScheduled(true, source: "test")
+
+        XCTAssertEqual(protection.manualMode, .dmOnly)
+        XCTAssertEqual(protection.effectiveMode, .dmOnly)
+        XCTAssertEqual(defaults.string(forKey: InstagramProtectionStore.manualModeKey), InstagramMode.dmOnly.rawValue)
     }
 }
 
@@ -317,19 +331,23 @@ final class TimeWindowStorePauseTests: XCTestCase {
         let store = makeStore()
         let window = activeWindow(apps: ["instagram"])
         store.windows = [window]
+        var instagramScheduled = false
 
         store.configure(
             applyScheduledApps: { _, _ in },
+            applyInstagramProtection: { enabled, _ in instagramScheduled = enabled },
             startProtection: { _ in },
             requestHomeFocus: {}
         )
 
         XCTAssertTrue(store.scheduledAppIDs.isEmpty)
+        XCTAssertFalse(instagramScheduled)
         XCTAssertEqual(store.activationPrompt?.items.map(\.window.id), [window.id])
 
         store.activatePromptedWindows()
 
         XCTAssertEqual(store.scheduledAppIDs, Set(["instagram"]))
+        XCTAssertTrue(instagramScheduled)
         XCTAssertEqual(store.activeWindowIDs, Set([window.id]))
     }
 

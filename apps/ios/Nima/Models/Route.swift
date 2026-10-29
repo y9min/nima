@@ -19,6 +19,7 @@ enum Route: Hashable {
     case timeWindows
     case blockingOptions(appId: String)
     case instagramClient(context: InstagramLaunchContext = .standard)
+    case tiktokClient
     // Chungus VPN routes
     case settings
     case trafficDashboard

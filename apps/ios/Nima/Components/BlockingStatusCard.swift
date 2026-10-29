@@ -6,17 +6,27 @@ struct BlockingDashboardApp: Identifiable, Equatable {
     let name: String
     let platform: String
     let isBlocked: Bool
+    var isPaused: Bool = false
     var isScheduled: Bool = false
     var instagramMode: InstagramMode? = nil
+    var tiktokMode: TikTokMode? = nil
 
     var activeStatusLabel: String? {
         guard isBlocked else { return nil }
+
+        if isPaused {
+            switch id {
+            case "instagram": return instagramMode == .dmOnly ? "DM ONLY\nPAUSED" : "CLEAN MODE\nPAUSED"
+            case "tiktok": return tiktokMode == .dmOnly ? "DM ONLY\nPAUSED" : "FYP BLOCK\nPAUSED"
+            default: return "\(name)\nPAUSED"
+            }
+        }
 
         switch id {
         case "instagram":
             return instagramMode == .dmOnly ? "DM ONLY\nMODE ACTIVE" : "CLEAN MODE\nACTIVE"
         case "tiktok":
-            return "FYP BLOCKED"
+            return tiktokMode == .dmOnly ? "DM ONLY\nMODE ACTIVE" : "FYP BLOCKED"
         default:
             return "\(name) BLOCKED"
         }
@@ -124,6 +134,9 @@ struct BlockingStatusCard: View {
     let apps: [BlockingDashboardApp]
     let vpnState: BlockingVPNState
     let sessionEndsAt: Date?
+    var visibleAppIDs: Set<String> = ["instagram", "tiktok"]
+    var onEditBlockers: () -> Void = {}
+    var pauseEndsAt: Date? = nil
     var onToggleApp: (String) -> Void
     var onOpenApp: (String) -> Void = { _ in }
     var onRequestVPNPermission: () -> Void
@@ -140,6 +153,14 @@ struct BlockingStatusCard: View {
 
     private var hasBlockedApps: Bool {
         apps.contains { $0.isBlocked }
+    }
+
+    private var hasVisibleApps: Bool {
+        apps.contains { visibleAppIDs.contains($0.id) }
+    }
+
+    private var hasVisibleBlockedApps: Bool {
+        apps.contains { visibleAppIDs.contains($0.id) && $0.isBlocked }
     }
 
     private var mode: BlockingCardMode {
@@ -159,16 +180,24 @@ struct BlockingStatusCard: View {
             let layout = BlockingCardLayout(actualSize: proxy.size)
             let ringState = BlockingRingState(apps: apps)
             let targetRadius = layout.dialSize * (isDropTargeted ? 0.35 : 0.29)
-            let centerTitle = centerTitle(forDraggingAppID: draggingAppID, ringState: ringState)
+            let centerTitle = hasVisibleApps
+                ? centerTitle(forDraggingAppID: draggingAppID, ringState: ringState)
+                : (ringState.hasBlockedApp ? "ON" : "OFF")
 
             ZStack {
-                BlockingMiniStatusControls(
-                    mode: mode,
-                    vpnState: vpnState,
-                    onShowGuidedOnboarding: onShowGuidedOnboarding
-                )
+                Button(action: onEditBlockers) {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 25, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Edit blockers")
+                    .accessibilityIdentifier("blocking_card.edit_blockers")
                     .scaleEffect(layout.visualScale)
                     .position(layout.miniControlsCenter)
+                    .zIndex(40)
 
                 if mode == .permissionRequired {
                     vpnPermissionButton
@@ -181,6 +210,8 @@ struct BlockingStatusCard: View {
                 RadialBlockDial(
                     mode: mode,
                     ringState: ringState,
+                    instagramPaused: apps.first(where: { $0.id == "instagram" })?.isPaused == true,
+                    tiktokPaused: apps.first(where: { $0.id == "tiktok" })?.isPaused == true,
                     isDragging: draggingAppID != nil,
                     isDropTargeted: isDropTargeted,
                     labelPrefix: draggingAppID == nil ? "drag to" : "release to",
@@ -194,21 +225,24 @@ struct BlockingStatusCard: View {
                     .frame(width: targetRadius * 2, height: targetRadius * 2)
                     .position(layout.dialCenter)
 
-                ForEach(apps) { app in
+                ForEach(apps.filter { visibleAppIDs.contains($0.id) }) { app in
                     let origin = layout.tileCenter(for: app.id)
                     let dragOffset = dragOffsets[app.id] ?? .zero
                     let isDragging = draggingAppID == app.id
                     let isInstagram = app.id == "instagram"
 
-                    PulsingTileChevrons(
-                        direction: isInstagram ? .right : .left,
-                        isLive: mode == .active || mode == .starting || draggingAppID != nil,
-                        scale: layout.visualScale
-                    )
-                    .frame(width: layout.tileSize * 0.45, height: layout.tileSize * 0.42)
-                    .position(layout.chevronCenter(for: app.id))
-                    .opacity(isDragging ? 0 : 1)
-                    .zIndex(0.5)
+                    if !app.isBlocked {
+                        PulsingTileChevrons(
+                            direction: isInstagram ? .right : .left,
+                            isLive: mode == .active || mode == .starting || draggingAppID != nil,
+                            isPaused: app.isPaused,
+                            scale: layout.visualScale
+                        )
+                        .frame(width: layout.tileSize * 0.45, height: layout.tileSize * 0.42)
+                        .position(layout.chevronCenter(for: app.id))
+                        .opacity(isDragging ? 0 : 1)
+                        .zIndex(0.5)
+                    }
 
                     AppBlockTile(
                         app: app,
@@ -229,26 +263,22 @@ struct BlockingStatusCard: View {
                         )
                     )
                     .onTapGesture {
-                        if app.id == "instagram" {
-                            onOpenApp(app.id)
-                        } else if !app.isScheduled {
-                            onToggleApp(app.id)
-                        }
+                        onOpenApp(app.id)
                     }
                     .accessibilityElement(children: .ignore)
                     .accessibilityIdentifier("nima.app.\(app.id)")
-                    .accessibilityLabel("\(app.name.capitalized) \(app.isBlocked ? "blocked" : "not blocked")")
-                    .accessibilityValue(app.isBlocked ? "enabled" : "disabled")
+                    .accessibilityLabel("\(app.name.capitalized) \(app.isPaused ? "protection paused" : app.isBlocked ? "blocked" : "not blocked")")
+                    .accessibilityValue(app.isPaused ? "paused" : app.isBlocked ? "enabled" : "disabled")
                     .accessibilityHint(accessibilityHint(for: app))
-                    .accessibilityAction(named: "Open Instagram") {
-                        if app.id == "instagram" { onOpenApp(app.id) }
+                    .accessibilityAction(named: "Open \(app.name.capitalized)") {
+                        onOpenApp(app.id)
                     }
                     .accessibilityAction(named: app.isBlocked ? "Disable protection" : "Enable protection") {
-                        if app.id == "instagram", !app.isScheduled { onToggleApp(app.id) }
+                        if !app.isScheduled { onToggleApp(app.id) }
                     }
 
                     if let label = app.activeStatusLabel {
-                        BlockedAppStatusPill(text: label, scale: layout.visualScale)
+                        BlockedAppStatusPill(text: label, isPaused: app.isPaused, scale: layout.visualScale)
                             .position(x: origin.x, y: origin.y + layout.tileSize * 0.58)
                             .opacity(isDragging ? 0 : 1)
                             .zIndex(3)
@@ -257,9 +287,11 @@ struct BlockingStatusCard: View {
                 }
 
                 DragInstructionRow(
-                    text: mode == .permissionRequired
+                    text: !hasVisibleApps
+                        ? "use the menu to show apps on this card"
+                        : mode == .permissionRequired
                         ? "allow VPN permission to activate blocking"
-                        : (hasBlockedApps
+                        : (hasVisibleBlockedApps
                             ? "drag an app to unblock, tap it to open"
                             : "drag an app to block, tap it to open"),
                     isError: mode == .permissionRequired,
@@ -268,7 +300,16 @@ struct BlockingStatusCard: View {
                 .frame(width: layout.instructionWidth, height: layout.instructionHeight)
                 .position(layout.instructionCenter)
 
-                if let sessionEndsAt {
+                if let pauseEndsAt {
+                    TimeRemainingPill(
+                        endDate: pauseEndsAt,
+                        label: "resumes",
+                        isPaused: true,
+                        scale: layout.visualScale
+                    )
+                    .position(layout.timePillCenter)
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                } else if let sessionEndsAt {
                     TimeRemainingPill(
                         endDate: sessionEndsAt,
                         scale: layout.visualScale
@@ -333,10 +374,10 @@ struct BlockingStatusCard: View {
     }
 
     private func accessibilityHint(for app: BlockingDashboardApp) -> String {
-        if app.id == "instagram" {
+        if app.id == "instagram" || app.id == "tiktok" {
             return app.isScheduled
-                ? "Double tap to open Instagram. Drag to the center to end the current window."
-                : "Double tap to open Instagram. Use the custom action or drag to change protection."
+                ? "Double tap to open \(app.name.capitalized). Drag to the center to end the current window."
+                : "Double tap to open \(app.name.capitalized). Use the custom action or drag to change protection."
         }
         return app.isScheduled
             ? "Drag outward or to the center to end the current window"
@@ -828,7 +869,13 @@ private struct BlockingMiniStatusControls: View {
 
 struct TimeRemainingPill: View {
     let endDate: Date
+    var label = "ends"
+    var isPaused = false
     var scale: CGFloat = 1
+
+    private var accent: Color {
+        isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent
+    }
 
     private var visualScale: CGFloat {
         min(1.08, max(0.9, scale))
@@ -839,9 +886,9 @@ struct TimeRemainingPill: View {
             HStack(spacing: 8 * visualScale) {
                 Image(systemName: "clock")
                     .font(.system(size: 17 * visualScale, weight: .semibold))
-                    .foregroundStyle(BlockingCardStyle.accent)
+                    .foregroundStyle(accent)
 
-                Text("ends \(remainingText(at: timeline.date))")
+                Text("\(label) \(remainingText(at: timeline.date))")
                     .font(NimaFonts.inter(size: 17 * visualScale, weight: .medium))
                     .foregroundStyle(.white.opacity(0.94))
                     .lineLimit(1)
@@ -851,13 +898,13 @@ struct TimeRemainingPill: View {
             .padding(.vertical, 8 * visualScale)
             .background(
                 Capsule()
-                    .fill(BlockingCardStyle.accent.opacity(0.13))
+                    .fill(accent.opacity(0.13))
             )
             .overlay(
                 Capsule()
-                    .strokeBorder(BlockingCardStyle.accent.opacity(0.18), lineWidth: 1)
+                    .strokeBorder(accent.opacity(0.18), lineWidth: 1)
             )
-            .shadow(color: BlockingCardStyle.accent.opacity(0.12), radius: 9, y: 4)
+            .shadow(color: accent.opacity(isPaused ? 0.09 : 0.12), radius: 9, y: 4)
         }
     }
 
@@ -911,6 +958,8 @@ private struct AddTimeWindowPill: View {
 struct RadialBlockDial: View {
     let mode: BlockingCardMode
     let ringState: BlockingRingState
+    let instagramPaused: Bool
+    let tiktokPaused: Bool
     let isDragging: Bool
     let isDropTargeted: Bool
     let labelPrefix: String
@@ -918,6 +967,16 @@ struct RadialBlockDial: View {
 
     private var isLit: Bool {
         ringState.hasBlockedApp || isDragging
+    }
+
+    private var fullyPaused: Bool {
+        ringState.hasBlockedApp
+            && (!ringState.isInstagramBlocked || instagramPaused)
+            && (!ringState.isTikTokBlocked || tiktokPaused)
+    }
+
+    private var dialAccent: Color {
+        fullyPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent
     }
 
     var body: some View {
@@ -932,7 +991,8 @@ struct RadialBlockDial: View {
                     .fill(
                         RadialGradient(
                             colors: [
-                                BlockingCardStyle.glow.opacity(isLit ? 0.28 : 0.1),
+                                (fullyPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.glow)
+                                    .opacity(isLit ? 0.28 : 0.1),
                                 BlockingCardStyle.ringBase.opacity(0.22),
                                 .clear
                             ],
@@ -966,13 +1026,18 @@ struct RadialBlockDial: View {
                     .blur(radius: 0.5)
 
                 if ringState == .both {
-                    activeRing(size: size, lineWidth: activeRingWidth)
-                        .transition(.opacity)
+                    if instagramPaused == tiktokPaused {
+                        activeRing(size: size, lineWidth: activeRingWidth, isPaused: instagramPaused)
+                            .transition(.opacity)
+                    } else {
+                        activeHalfRing(from: 0, to: 0.5, size: size, lineWidth: activeRingWidth, isPaused: tiktokPaused)
+                        activeHalfRing(from: 0.5, to: 1, size: size, lineWidth: activeRingWidth, isPaused: instagramPaused)
+                    }
                 } else if ringState.isTikTokBlocked {
-                    activeHalfRing(from: 0, to: 0.5, size: size, lineWidth: activeRingWidth)
+                    activeHalfRing(from: 0, to: 0.5, size: size, lineWidth: activeRingWidth, isPaused: tiktokPaused)
                         .transition(.opacity)
                 } else if ringState.isInstagramBlocked {
-                    activeHalfRing(from: 0.5, to: 1, size: size, lineWidth: activeRingWidth)
+                    activeHalfRing(from: 0.5, to: 1, size: size, lineWidth: activeRingWidth, isPaused: instagramPaused)
                         .transition(.opacity)
                 }
 
@@ -1013,8 +1078,8 @@ struct RadialBlockDial: View {
 
             Text(centerTitle)
                 .font(NimaFonts.inter(size: max(31, size * 0.125), weight: .black))
-                .foregroundStyle(mode == .permissionRequired ? BlockingCardStyle.warning : BlockingCardStyle.accent)
-                .shadow(color: BlockingCardStyle.accent.opacity(isLit ? 0.5 : 0.16), radius: 10)
+                .foregroundStyle(mode == .permissionRequired ? BlockingCardStyle.warning : dialAccent)
+                .shadow(color: dialAccent.opacity(isLit ? (fullyPaused ? 0.38 : 0.5) : 0.16), radius: 10)
                 .lineLimit(1)
                 .minimumScaleFactor(0.76)
 
@@ -1031,7 +1096,7 @@ struct RadialBlockDial: View {
         ZStack {
             ForEach(0..<72, id: \.self) { index in
                 Capsule()
-                    .fill(BlockingCardStyle.accent.opacity(isLit ? tickOpacity(for: index) : tickOpacity(for: index) * 0.34))
+                    .fill(dialAccent.opacity(isLit ? tickOpacity(for: index) : tickOpacity(for: index) * 0.34))
                     .frame(width: 1, height: index.isMultiple(of: 6) ? size * 0.035 : size * 0.018)
                     .offset(y: -size * 0.37)
                     .rotationEffect(.degrees(Double(index) * 5))
@@ -1043,14 +1108,16 @@ struct RadialBlockDial: View {
         index.isMultiple(of: 6) ? 0.2 : 0.07
     }
 
-    private func activeHalfRing(from start: CGFloat, to end: CGFloat, size: CGFloat, lineWidth: CGFloat) -> some View {
+    private func activeHalfRing(from start: CGFloat, to end: CGFloat, size: CGFloat, lineWidth: CGFloat, isPaused: Bool) -> some View {
         let ringDiameter = size * 0.78
         let strokeStyle = StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+        let color = isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent
+        let hotColor = isPaused ? BlockingCardStyle.pausedAccentHot : BlockingCardStyle.accentHot
 
         return ZStack {
             Circle()
                 .trim(from: start, to: end)
-                .stroke(BlockingCardStyle.accent.opacity(0.64), style: strokeStyle)
+                .stroke(color.opacity(isPaused ? 0.52 : 0.64), style: strokeStyle)
                 .frame(width: ringDiameter, height: ringDiameter)
                 .rotationEffect(.degrees(-90))
                 .blur(radius: 10)
@@ -1061,10 +1128,10 @@ struct RadialBlockDial: View {
                 .stroke(
                     AngularGradient(
                         colors: [
-                            BlockingCardStyle.accentHot,
-                            BlockingCardStyle.accent,
-                            BlockingCardStyle.accentHot,
-                            BlockingCardStyle.accent
+                            hotColor,
+                            color,
+                            hotColor,
+                            color
                         ],
                         center: .center,
                         startAngle: .degrees(-90),
@@ -1074,17 +1141,19 @@ struct RadialBlockDial: View {
                 )
                 .frame(width: ringDiameter, height: ringDiameter)
                 .rotationEffect(.degrees(-90))
-                .shadow(color: BlockingCardStyle.accent.opacity(0.52), radius: 8)
+                .shadow(color: color.opacity(isPaused ? 0.39 : 0.52), radius: 8)
         }
     }
 
-    private func activeRing(size: CGFloat, lineWidth: CGFloat) -> some View {
+    private func activeRing(size: CGFloat, lineWidth: CGFloat, isPaused: Bool) -> some View {
         let ringDiameter = size * 0.78
         let strokeStyle = StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+        let color = isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent
+        let hotColor = isPaused ? BlockingCardStyle.pausedAccentHot : BlockingCardStyle.accentHot
 
         return ZStack {
             Circle()
-                .stroke(BlockingCardStyle.accent.opacity(0.64), style: strokeStyle)
+                .stroke(color.opacity(isPaused ? 0.52 : 0.64), style: strokeStyle)
                 .frame(width: ringDiameter, height: ringDiameter)
                 .blur(radius: 10)
                 .opacity(isDropTargeted ? 0.72 : 0.52)
@@ -1093,10 +1162,10 @@ struct RadialBlockDial: View {
                 .stroke(
                     AngularGradient(
                         colors: [
-                            BlockingCardStyle.accentHot,
-                            BlockingCardStyle.accent,
-                            BlockingCardStyle.accentHot,
-                            BlockingCardStyle.accent
+                            hotColor,
+                            color,
+                            hotColor,
+                            color
                         ],
                         center: .center,
                         startAngle: .degrees(-90),
@@ -1105,7 +1174,7 @@ struct RadialBlockDial: View {
                     style: strokeStyle
                 )
                 .frame(width: ringDiameter, height: ringDiameter)
-                .shadow(color: BlockingCardStyle.accent.opacity(0.52), radius: 8)
+                .shadow(color: color.opacity(isPaused ? 0.39 : 0.52), radius: 8)
         }
     }
 
@@ -1113,6 +1182,7 @@ struct RadialBlockDial: View {
 
 private struct BlockedAppStatusPill: View {
     let text: String
+    let isPaused: Bool
     var scale: CGFloat = 1
 
     private var visualScale: CGFloat {
@@ -1134,9 +1204,9 @@ private struct BlockedAppStatusPill: View {
             )
             .overlay(
                 Capsule()
-                    .strokeBorder(BlockingCardStyle.accent.opacity(0.52), lineWidth: 0.8)
+                    .strokeBorder((isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent).opacity(0.52), lineWidth: 0.8)
             )
-            .shadow(color: BlockingCardStyle.accent.opacity(0.62), radius: 7)
+            .shadow(color: (isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent).opacity(isPaused ? 0.46 : 0.62), radius: 7)
     }
 }
 
@@ -1154,7 +1224,8 @@ struct AppBlockTile: View {
             size: size * 1.49
         )
         .shadow(
-            color: BlockingCardStyle.accent.opacity(app.isBlocked ? 0.46 : 0),
+            color: (app.isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent)
+                .opacity(app.isBlocked ? (app.isPaused ? 0.35 : 0.46) : 0),
             radius: app.isBlocked ? 15 : 0,
             y: app.isBlocked ? 2 : 0
         )
@@ -1205,6 +1276,7 @@ private enum TileChevronDirection {
 private struct PulsingTileChevrons: View {
     let direction: TileChevronDirection
     let isLive: Bool
+    let isPaused: Bool
     var scale: CGFloat = 1
 
     @State private var pulse = false
@@ -1213,15 +1285,19 @@ private struct PulsingTileChevrons: View {
         min(1.08, max(0.9, scale))
     }
 
+    private var accent: Color {
+        isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent
+    }
+
     var body: some View {
         HStack(spacing: -1) {
             ForEach(0..<2, id: \.self) { index in
                 Image(systemName: direction == .right ? "chevron.right" : "chevron.left")
                     .font(.system(size: 15 * visualScale, weight: .black))
-                    .foregroundStyle(BlockingCardStyle.accent)
+                    .foregroundStyle(accent)
                     .opacity((pulse ? 0.78 : 0.38) - Double(index) * 0.18)
                     .shadow(
-                        color: BlockingCardStyle.accent.opacity(isLive ? 0.42 : 0.16),
+                        color: accent.opacity(isPaused ? 0.30 : isLive ? 0.42 : 0.16),
                         radius: (isLive ? 7 : 4) * visualScale
                     )
             }
@@ -1276,6 +1352,8 @@ enum BlockingCardMode: Equatable {
 private enum BlockingCardStyle {
     static let accent = Color(red: 0.78, green: 0.98, blue: 0.15)
     static let accentHot = Color(red: 0.93, green: 1.0, blue: 0.28)
+    static let pausedAccent = Color(red: 0.70, green: 0.88, blue: 0.18)
+    static let pausedAccentHot = Color(red: 0.82, green: 0.94, blue: 0.27)
     static let warning = Color(red: 1.0, green: 0.72, blue: 0.22)
     static let connectionYellow = Color(red: 1.0, green: 0.82, blue: 0.16)
     static let offlineRed = Color(red: 1.0, green: 0.05, blue: 0.04)

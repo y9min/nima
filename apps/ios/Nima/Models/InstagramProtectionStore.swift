@@ -31,7 +31,7 @@ final class InstagramProtectionStore {
 
     var protectionEnabled: Bool
     var manualMode: InstagramMode
-    private(set) var scheduledMode: InstagramMode?
+    private(set) var isScheduled = false
     private(set) var filteringHealth: InstagramFilteringHealth = .checking
     private(set) var authorizationStatus: AuthorizationStatus
     var familySelection: FamilyActivitySelection {
@@ -72,9 +72,8 @@ final class InstagramProtectionStore {
     }
 
     var effectiveMode: InstagramMode {
-        if scheduledMode == .dmOnly { return .dmOnly }
         if filteringHealth == .limited { return .dmOnly }
-        return scheduledMode ?? manualMode
+        return manualMode
     }
 
     var shieldStatus: InstagramShieldStatus {
@@ -82,16 +81,13 @@ final class InstagramProtectionStore {
             return authorizationStatus == .denied ? .unavailable : .permissionRequired
         }
         guard !familySelection.applicationTokens.isEmpty else { return .selectionRequired }
-        return (protectionEnabled || scheduledMode != nil) ? .protected : .unprotected
+        return (protectionEnabled || isScheduled) ? .protected : .unprotected
     }
 
     func setProtectionEnabled(_ enabled: Bool, source: String) {
+        if enabled { PauseModeState.exclude("instagram", defaults: defaults) }
         protectionEnabled = enabled
         defaults?.set(enabled, forKey: Self.protectionEnabledKey)
-        if enabled {
-            manualMode = .clean
-            defaults?.set(InstagramMode.clean.rawValue, forKey: Self.manualModeKey)
-        }
         applyShield()
         AppDiagnosticsLogger.log(
             "INSTAGRAM_PROTECTION enabled=\(enabled) mode=\(effectiveMode.rawValue) source=\(source)"
@@ -104,12 +100,12 @@ final class InstagramProtectionStore {
         AppDiagnosticsLogger.log("INSTAGRAM_MODE mode=\(mode.rawValue) source=\(source)")
     }
 
-    func setScheduledMode(_ mode: InstagramMode?, source: String) {
-        guard scheduledMode != mode else { return }
-        scheduledMode = mode
+    func setScheduled(_ enabled: Bool, source: String) {
+        guard isScheduled != enabled else { return }
+        isScheduled = enabled
         applyShield()
         AppDiagnosticsLogger.log(
-            "INSTAGRAM_SCHEDULE mode=\(mode?.rawValue ?? "none") source=\(source)"
+            "INSTAGRAM_SCHEDULE enabled=\(enabled) source=\(source)"
         )
     }
 
@@ -150,7 +146,7 @@ final class InstagramProtectionStore {
     func resetForAccountDeletion() {
         protectionEnabled = false
         manualMode = .clean
-        scheduledMode = nil
+        isScheduled = false
         familySelection = FamilyActivitySelection()
         defaults?.removeObject(forKey: Self.protectionEnabledKey)
         defaults?.removeObject(forKey: Self.manualModeKey)
@@ -164,15 +160,17 @@ final class InstagramProtectionStore {
     }
 
     private func applyShield() {
-        let scheduleRequiresProtection = scheduledMode != nil
         guard authorizationStatus == .approved,
-              protectionEnabled || scheduleRequiresProtection,
+              protectionEnabled || isScheduled,
+              !PauseModeState.isPaused("instagram", defaults: defaults),
               !familySelection.applicationTokens.isEmpty else {
             managedSettings.shield.applications = nil
             return
         }
         managedSettings.shield.applications = familySelection.applicationTokens
     }
+
+    func refreshPauseMode() { applyShield() }
 }
 
 private extension WKWebsiteDataStore {

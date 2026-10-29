@@ -19,6 +19,25 @@ enum StreakWeekDayStatus: String, Equatable {
     case beforeTrackingStarted
 }
 
+enum StreakEligibility {
+    static func activeSource(
+        instagramManual: Bool,
+        instagramScheduled: Bool,
+        instagramPaused: Bool,
+        tiktokManual: Bool,
+        tiktokScheduled: Bool,
+        tiktokPaused: Bool
+    ) -> String? {
+        if (instagramManual || instagramScheduled) && !instagramPaused {
+            return instagramScheduled ? "instagram_scheduled" : "instagram_manual"
+        }
+        if (tiktokManual || tiktokScheduled) && !tiktokPaused {
+            return tiktokScheduled ? "tiktok_scheduled" : "tiktok_manual"
+        }
+        return nil
+    }
+}
+
 struct StreakWeekDayState: Equatable, Identifiable {
     var id: String { date }
 
@@ -79,6 +98,10 @@ final class StreakStore {
     func hasEarnedToday(now: Date = Date(), calendar: Calendar = .current) -> Bool {
         let calendar = Self.normalizedCalendar(calendar)
         return earnedDateSet.contains(Self.localDateString(for: now, calendar: calendar))
+    }
+
+    func refreshFromDisk() {
+        load()
     }
 
     func resetForAccountDeletion() {

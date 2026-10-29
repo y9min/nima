@@ -129,14 +129,6 @@ enum TimeWindowAppAction: String, Codable, CaseIterable, Equatable {
     case instagramClean = "instagram_clean"
     case instagramDMOnly = "instagram_dm_only"
     case tiktokBlock = "tiktok_block"
-
-    var instagramMode: InstagramMode? {
-        switch self {
-        case .instagramClean: return .clean
-        case .instagramDMOnly: return .dmOnly
-        case .tiktokBlock: return nil
-        }
-    }
 }
 
 struct TimeWindow: Codable, Identifiable, Equatable {
@@ -172,22 +164,10 @@ struct TimeWindow: Codable, Identifiable, Equatable {
         self.endTime = endTime
         self.repeatDays = repeatDays
         self.apps = apps
-        var resolvedActions = appActions
-        if apps.contains("instagram"), resolvedActions["instagram"] == nil {
-            resolvedActions["instagram"] = .instagramClean
-        }
-        self.appActions = resolvedActions
+        self.appActions = appActions
         self.enabled = enabled
         self.createdAt = createdAt
         self.updatedAt = updatedAt
-    }
-
-    var requiresInstagramActionChoice: Bool {
-        apps.contains("instagram") && appActions["instagram"]?.instagramMode == nil
-    }
-
-    var instagramMode: InstagramMode? {
-        appActions["instagram"]?.instagramMode
     }
 
     private enum CodingKeys: String, CodingKey {

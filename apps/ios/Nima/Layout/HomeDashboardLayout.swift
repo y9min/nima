@@ -179,18 +179,27 @@ struct HomeDashboardLayout {
             minimumLowerSectionGap,
             (resolvedAvailableHeight - fixedHeight - logoToGreetingGap) / 3
         )
+        let unliftedMinimumHeight = fixedHeight
+            + minimumLogoToGreeting
+            + minimumLowerSectionGap * 3
+        let blockerLift = min(
+            minimumLowerSectionGap,
+            max(0, unliftedMinimumHeight - resolvedAvailableHeight)
+        )
+        let greetingToBlockerGap = max(
+            0,
+            lowerSectionGap - blockerLift
+        )
 
         let fittedSpacings = HomeDashboardLayoutSpacings(
             top: 0,
             logoToGreeting: logoToGreetingGap,
-            greetingToBlocker: lowerSectionGap,
+            greetingToBlocker: greetingToBlockerGap,
             blockerToInsights: lowerSectionGap,
             insightsToDock: 0,
             bottom: lowerSectionGap
         )
-        let minimumHeight = fixedHeight
-            + minimumLogoToGreeting
-            + minimumLowerSectionGap * 3
+        let minimumHeight = unliftedMinimumHeight - blockerLift
 
         topPadding = fittedSpacings.top
         logoToGreeting = fittedSpacings.logoToGreeting
@@ -249,7 +258,7 @@ private enum HomeDashboardLayoutConstants {
     static let logoSize = CGSize(width: 139, height: 50.4)
     static let greetingHeight: CGFloat = 126
     static let blockerHeight: CGFloat = 367
-    static let insightsHeight: CGFloat = 126
+    static let insightsHeight: CGFloat = 136
     static let dockHeight: CGFloat = 58
     static let minimumDockBottomPadding: CGFloat = 2
     static let contentTopLift: CGFloat = 74

@@ -15,9 +15,11 @@ struct NimaApp: App {
     @State private var store = AppStore()
     @State private var streakStore = StreakStore()
     @State private var timeWindowStore = TimeWindowStore()
+    @State private var appControlRulesStore = AppControlRulesStore()
     @State private var gridPositionStore = GridPositionStore()
     @State private var appSettingsStore = AppSettingsStore()
     @State private var instagramProtectionStore = InstagramProtectionStore()
+    @State private var tiktokProtectionStore = TikTokProtectionStore()
     @State private var onboardingStore = OnboardingStore()
     @State private var subscriptionStore = SubscriptionStore()
     @State private var didConfigureProtection = false
@@ -33,6 +35,7 @@ struct NimaApp: App {
     @State private var didStartLaunchServices = false
     @State private var hasHandledGuidedPracticeReviewRequest = false
     @State private var didTrackAppUnlock = false
+    @State private var appRuleAlertMessage: String?
     private let guidedPracticeReviewPromptStore = GuidedPracticeReviewPromptStore()
 
     init() {
@@ -114,6 +117,8 @@ struct NimaApp: App {
                                 onGuidedPracticeCompleted: completeInstagramGuidedPractice,
                                 onGuidedPracticeCancelled: cancelInstagramGuidedPractice
                             )
+                        case .tiktokClient:
+                            TikTokClientScreen()
                         case .settings:
                             SettingsScreen(
                                 onHome: {
@@ -134,9 +139,11 @@ struct NimaApp: App {
                 .environment(store)
                 .environment(streakStore)
                 .environment(timeWindowStore)
+                .environment(appControlRulesStore)
                 .environment(gridPositionStore)
                 .environment(appSettingsStore)
                 .environment(instagramProtectionStore)
+                .environment(tiktokProtectionStore)
                 .environment(onboardingStore)
                 .environment(subscriptionStore)
                 .environmentObject(vpnManager)
@@ -196,6 +203,17 @@ struct NimaApp: App {
                         markStreakIfEligible(source: "vpn.status")
                     }
                 }
+                .onChange(of: [
+                    instagramProtectionStore.protectionEnabled,
+                    instagramProtectionStore.isScheduled,
+                    tiktokProtectionStore.protectionEnabled,
+                    tiktokProtectionStore.isScheduled
+                ]) { _, _ in
+                    markStreakIfEligible(source: "feed_protection.changed")
+                }
+                .onChange(of: timeWindowStore.pauseAll) { _, _ in
+                    markStreakIfEligible(source: "time_windows.pause_changed")
+                }
                 .task(id: guidedPracticePhase) {
                     await handleGuidedPracticePhaseTask()
                 }
@@ -239,6 +257,14 @@ struct NimaApp: App {
                 isPresented: $isShowingGuidedPracticeFamilyPicker,
                 selection: $guidedPracticeFamilySelection
             )
+            .alert("App blocked", isPresented: Binding(
+                get: { appRuleAlertMessage != nil },
+                set: { if !$0 { appRuleAlertMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { appRuleAlertMessage = nil }
+            } message: {
+                Text(appRuleAlertMessage ?? "")
+            }
             .onChange(of: isShowingGuidedPracticeFamilyPicker) { wasShowing, isShowing in
                 guard wasShowing, !isShowing else { return }
                 finishGuidedPracticeFamilyPicker()
@@ -282,8 +308,13 @@ struct NimaApp: App {
             applyScheduledApps: { appIDs, source in
                 store.setScheduledBlockedAppIDs(appIDs, source: source)
             },
-            applyInstagramMode: { mode, source in
-                instagramProtectionStore.setScheduledMode(mode, source: source)
+            applyInstagramProtection: { enabled, source in
+                instagramProtectionStore.setScheduled(enabled, source: source)
+                markStreakIfEligible(source: source)
+            },
+            applyTikTokProtection: { enabled, source in
+                tiktokProtectionStore.setScheduled(enabled, source: source)
+                markStreakIfEligible(source: source)
             },
             startProtection: { source in
                 vpnManager.requestProtectionReconciliation(source: source)
@@ -318,7 +349,11 @@ struct NimaApp: App {
         MainTabsScreen(
             onSelectApp: { app in
                 if app.id == "instagram" {
+                    guard canOpenControlledClient("instagram") else { return }
                     path.append(Route.instagramClient())
+                } else if app.id == "tiktok" {
+                    guard canOpenControlledClient("tiktok") else { return }
+                    path.append(Route.tiktokClient)
                 } else {
                     path.append(Route.blockingOptions(appId: app.id))
                 }
@@ -662,12 +697,21 @@ struct NimaApp: App {
                 source: "guided_practice.app_connections"
             )
         }
+        if let tiktokSelection = savedConnections.selection(for: GuidedPracticeLaunchApp.tiktok.rawValue),
+           chosenAppIDs.contains(GuidedPracticeLaunchApp.tiktok.rawValue) {
+            tiktokProtectionStore.familySelection = tiktokSelection
+            tiktokProtectionStore.setProtectionEnabled(
+                true,
+                source: "guided_practice.app_connections"
+            )
+        }
 
         guidedPracticeActiveApps = Set(guidedPracticeChosenApps)
         guidedPracticePhase = .openAppPrompt
     }
 
     private func openGuidedPracticeInstagram() {
+        guard canOpenControlledClient("instagram") else { return }
         AnalyticsService.shared.capture("instagram_practice_open_tapped")
         guidedPracticePhase = .waitingForReturn
         path.append(Route.instagramClient(context: .guidedPractice))
@@ -838,13 +882,17 @@ struct NimaApp: App {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         switch newPhase {
         case .active:
+            streakStore.refreshFromDisk()
             handlePendingInstagramShieldDestination()
+            appControlRulesStore.reconcile()
             instagramProtectionStore.refreshAuthorizationStatus()
+            tiktokProtectionStore.refreshAuthorizationStatus()
             MetaAdsService.shared.refreshConsent()
             subscriptionStore.refreshAfterForeground()
             subscriptionStore.reconcilePendingPurchaseAfterForeground()
             if onboardingStore.isCompleted {
                 timeWindowStore.evaluateSchedules(source: "app.scene.active", forceApply: true)
+                markStreakIfEligible(source: "app.scene.active")
                 timeWindowStore.refreshActivationPrompt(source: "app.scene.active")
                 store.syncVPNState(source: "app.scene.active")
                 vpnManager.repairScheduledProtectionIfNeeded(source: "app.scene.active")
@@ -861,42 +909,72 @@ struct NimaApp: App {
     }
 
     private func handleIncomingURL(_ url: URL) {
-        if url.scheme?.lowercased() == "nima",
-           url.host?.lowercased() == "instagram" {
+        guard url.scheme?.lowercased() == "nima" else { return }
+        if url.host?.lowercased() == "instagram" {
+            guard canOpenControlledClient("instagram") else { return }
             let opensLinkSheet = url.path.lowercased() == "/open-link"
             path = NavigationPath()
             path.append(
                 Route.instagramClient(context: opensLinkSheet ? .openLink : .standard)
             )
+        } else if url.host?.lowercased() == "tiktok" {
+            guard canOpenControlledClient("tiktok") else { return }
+            path = NavigationPath()
+            path.append(Route.tiktokClient)
         }
     }
 
-    private func handlePendingInstagramShieldDestination() {
-        guard let defaults = UserDefaults(suiteName: NimaConstants.appGroupID),
-              let destination = defaults.string(
-                forKey: NimaConstants.instagramShieldPendingDestinationKey
-              ) else { return }
+    private func canOpenControlledClient(_ appID: String) -> Bool {
+        let tokens: Set<ApplicationToken>
+        switch appID {
+        case "instagram": tokens = instagramProtectionStore.familySelection.applicationTokens
+        case "tiktok": tokens = tiktokProtectionStore.familySelection.applicationTokens
+        default: return true
+        }
+        guard let kind = appControlRulesStore.activeKind(for: tokens) else { return true }
+        appRuleAlertMessage = kind == .blocked
+            ? "You blocked this app in Controls. Remove the block there to open it."
+            : "Your daily time limit for this app has been reached. It resets tomorrow."
+        return false
+    }
 
+    private func handlePendingInstagramShieldDestination() {
+        guard let defaults = UserDefaults(suiteName: NimaConstants.appGroupID) else { return }
+        let destination = defaults.string(forKey: NimaConstants.shieldPendingDestinationKey)
+            ?? defaults.string(forKey: NimaConstants.instagramShieldPendingDestinationKey)
+        guard let destination else { return }
+
+        defaults.removeObject(forKey: NimaConstants.shieldPendingDestinationKey)
         defaults.removeObject(forKey: NimaConstants.instagramShieldPendingDestinationKey)
         defaults.synchronize()
 
-        let opensLinkSheet = destination == "open_link"
         path = NavigationPath()
-        path.append(
-            Route.instagramClient(context: opensLinkSheet ? .openLink : .standard)
-        )
+        if destination == "tiktok" {
+            guard canOpenControlledClient("tiktok") else { return }
+            path.append(Route.tiktokClient)
+        } else {
+            guard canOpenControlledClient("instagram") else { return }
+            let opensLinkSheet = destination == "open_link"
+            path.append(Route.instagramClient(context: opensLinkSheet ? .openLink : .standard))
+        }
     }
 
-    private func markStreakIfEligible(source: String) {
-        guard Self.isProtectionActive(vpnManager.vpnStatus),
-              store.hasAnyEnabledBlockingOption else {
+    private func markStreakIfEligible(source _: String) {
+        let defaults = UserDefaults(suiteName: NimaConstants.appGroupID)
+        guard onboardingStore.isCompleted,
+              let activeSource = StreakEligibility.activeSource(
+                instagramManual: instagramProtectionStore.protectionEnabled,
+                instagramScheduled: instagramProtectionStore.isScheduled,
+                instagramPaused: PauseModeState.isPaused("instagram", defaults: defaults),
+                tiktokManual: tiktokProtectionStore.protectionEnabled,
+                tiktokScheduled: tiktokProtectionStore.isScheduled,
+                tiktokPaused: PauseModeState.isPaused("tiktok", defaults: defaults)
+              ) else {
             syncStreakReminder()
             return
         }
 
-        streakStore.markTodayEarned(
-            source: store.firstEnabledBlockerSource ?? source
-        )
+        streakStore.markTodayEarned(source: activeSource)
         syncStreakReminder()
     }
 
@@ -906,9 +984,6 @@ struct NimaApp: App {
         )
     }
 
-    private static func isProtectionActive(_ status: NEVPNStatus) -> Bool {
-        status == .connected || status == .connecting || status == .reasserting
-    }
 }
 
 private struct SubscriptionStatusLoadingScreen: View {
