@@ -15,6 +15,16 @@
   let reelTouchStart = null;
   const reelPointerStarts = new Map();
   const reelSwipeThreshold = 12;
+  let storyViewportHeight = window.visualViewport?.height || innerHeight;
+  let storyKeyboardFrame = null;
+  let storyReplyRow = null;
+  let storyReactions = null;
+  const storyOriginalStyles = new Map();
+  let commentComposer = null;
+  let commentNavigation = null;
+  let commentField = null;
+  let commentSurfaceVisible = false;
+  const commentOriginalStyles = new Map();
 
   const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nimaInstagram;
   const send = (payload) => {
@@ -62,6 +72,7 @@
       || path.startsWith("/explore/locations/");
   };
   const isDirect = () => location.pathname.toLowerCase().startsWith("/direct");
+  const isStory = () => location.pathname.toLowerCase().startsWith("/stories/");
   const isDirectInbox = () => pathOf(location.href).replace(/\/$/, "") === "/direct/inbox";
   const isSharedReelOpen = () => window.__nimaSharedReelOpen
     || isIndividualReel(window.__nimaSharedURL || "");
@@ -242,6 +253,263 @@
     if (node.getAttribute("data-nima-hidden") !== "true") {
       node.setAttribute("data-nima-hidden", "true");
     }
+  };
+
+  // Instagram's story viewer uses a full-height web overlay. On iOS the
+  // keyboard can shrink the visual viewport without moving that overlay's
+  // reply row, leaving the focused field behind the keyboard.
+  const setStoryStyle = (node, property, value) => {
+    if (!node) return;
+    if (!storyOriginalStyles.has(node)) storyOriginalStyles.set(node, new Map());
+    const original = storyOriginalStyles.get(node);
+    if (!original.has(property)) {
+      original.set(property, {
+        value: node.style.getPropertyValue(property),
+        priority: node.style.getPropertyPriority(property)
+      });
+    }
+    if (node.style.getPropertyValue(property) !== value
+        || node.style.getPropertyPriority(property) !== "important") {
+      node.style.setProperty(property, value, "important");
+    }
+  };
+
+  const restoreStoryStyles = (node) => {
+    const original = storyOriginalStyles.get(node);
+    if (!original) return;
+    original.forEach((saved, property) => {
+      if (saved.value) node.style.setProperty(property, saved.value, saved.priority);
+      else node.style.removeProperty(property);
+    });
+    storyOriginalStyles.delete(node);
+  };
+
+  const clearStoryKeyboardLayout = () => {
+    restoreStoryStyles(storyReactions);
+    restoreStoryStyles(storyReplyRow);
+    restoreStoryStyles(storyKeyboardFrame);
+    storyReactions = null;
+    storyReplyRow = null;
+    storyKeyboardFrame = null;
+  };
+
+  const storyReplyField = () => {
+    const field = document.activeElement;
+    if (!field || !field.matches || !field.matches("input, textarea, [contenteditable='true']")) {
+      return null;
+    }
+    if (field.matches("input[type='search'], input[type='password']")) return null;
+    return field;
+  };
+
+  const findStoryReactions = (field) => {
+    const title = Array.from(document.querySelectorAll("h1, h2, h3, div, span, p"))
+      .find((node) => node.childElementCount === 0
+        && (node.textContent || "").trim() === "Quick Reactions");
+    if (!title) return null;
+
+    const reactions = ["😂", "😮", "😍", "😢", "👏", "🔥", "🎉", "💯"];
+    let group = title.parentElement;
+    while (group && group !== document.body && !group.contains(field)) {
+      const rect = group.getBoundingClientRect();
+      const text = group.textContent || "";
+      const reactionCount = reactions.filter((emoji) => text.includes(emoji)).length;
+      const controlCount = group.querySelectorAll("button, [role='button'], img[alt]").length;
+      if (rect.height >= 100 && rect.height <= 420
+          && rect.width > 0 && rect.width <= innerWidth
+          && (reactionCount >= 4 || controlCount >= 4)) return group;
+      group = group.parentElement;
+    }
+    return null;
+  };
+
+  const updateStoryKeyboardLayout = () => {
+    const viewport = window.visualViewport;
+    const field = isStory() ? storyReplyField() : null;
+    if (!viewport || !field) {
+      clearStoryKeyboardLayout();
+      return;
+    }
+
+    const obscuredHeight = storyViewportHeight - viewport.height - viewport.offsetTop;
+    if (obscuredHeight < 120) {
+      storyViewportHeight = Math.max(storyViewportHeight, viewport.height);
+      clearStoryKeyboardLayout();
+      return;
+    }
+
+    let frame = field.parentElement;
+    while (frame && frame !== document.body) {
+      const rect = frame.getBoundingClientRect();
+      if (getComputedStyle(frame).position === "fixed"
+          && rect.width >= innerWidth * 0.7
+          && rect.height >= viewport.height * 0.6) break;
+      frame = frame.parentElement;
+    }
+    if (!frame || frame === document.body) frame = null;
+    if (storyKeyboardFrame !== frame) {
+      restoreStoryStyles(storyKeyboardFrame);
+      storyKeyboardFrame = frame;
+    }
+    if (frame) {
+      setStoryStyle(frame, "top", `${Math.floor(viewport.offsetTop)}px`);
+      setStoryStyle(frame, "bottom", "auto");
+      setStoryStyle(frame, "height", `${Math.floor(viewport.height)}px`);
+      setStoryStyle(frame, "max-height", `${Math.floor(viewport.height)}px`);
+    }
+
+    // A nested fixed-height row may still sit below the resized story frame.
+    // Move only that row, keeping the original editable element and its events.
+    requestAnimationFrame(() => {
+      if (!isStory() || document.activeElement !== field) return;
+      restoreStoryStyles(storyReactions);
+      storyReactions = null;
+      restoreStoryStyles(storyReplyRow);
+      storyReplyRow = null;
+      const visibleBottom = viewport.offsetTop + viewport.height;
+      if (field.getBoundingClientRect().bottom > visibleBottom - 8) {
+        let row = field.parentElement;
+        let compactRow = null;
+        while (row && row !== frame && row !== document.body) {
+          const rect = row.getBoundingClientRect();
+          if (rect.height > 0 && rect.height <= 180 && rect.width <= innerWidth) compactRow = row;
+          else if (compactRow) break;
+          row = row.parentElement;
+        }
+        if (compactRow) {
+          const distance = Math.ceil(field.getBoundingClientRect().bottom - visibleBottom + 12);
+          storyReplyRow = compactRow;
+          setStoryStyle(compactRow, "translate", `0 -${distance}px`);
+        }
+      }
+
+      const reactions = findStoryReactions(field);
+      if (!reactions) return;
+      const replyTop = storyReplyRow
+        ? storyReplyRow.getBoundingClientRect().top
+        : field.getBoundingClientRect().top;
+      const overlap = reactions.getBoundingClientRect().bottom - (replyTop - 48);
+      if (overlap <= 0) return;
+      storyReactions = reactions;
+      setStoryStyle(reactions, "translate", `0 -${Math.ceil(overlap)}px`);
+    });
+  };
+
+  const setCommentStyle = (node, property, value) => {
+    if (!node) return;
+    if (!commentOriginalStyles.has(node)) commentOriginalStyles.set(node, new Map());
+    const original = commentOriginalStyles.get(node);
+    if (!original.has(property)) {
+      original.set(property, {
+        value: node.style.getPropertyValue(property),
+        priority: node.style.getPropertyPriority(property)
+      });
+    }
+    node.style.setProperty(property, value, "important");
+  };
+
+  const restoreCommentStyles = (node) => {
+    const original = commentOriginalStyles.get(node);
+    if (!original) return;
+    original.forEach((saved, property) => {
+      if (saved.value) node.style.setProperty(property, saved.value, saved.priority);
+      else node.style.removeProperty(property);
+    });
+    commentOriginalStyles.delete(node);
+  };
+
+  const commentFieldCandidate = () => {
+    if (isStory() || isDirect()) return null;
+    const heading = Array.from(document.querySelectorAll("h1, h2, h3, div, span"))
+      .find((node) => node.childElementCount === 0
+        && (node.textContent || "").trim().toLowerCase() === "comments"
+        && visible(node));
+    if (!heading) return null;
+    // The original field stays mounted for Instagram's submit handler even
+    // while its web composer is removed from layout.
+    if (commentField && document.contains(commentField)) return commentField;
+    return Array.from(document.querySelectorAll(
+      "input, textarea, [contenteditable]:not([contenteditable='false'])"
+    )).find((field) => {
+      const label = ["placeholder", "aria-label", "data-placeholder"]
+        .map((attribute) => field.getAttribute(attribute) || "")
+        .join(" ").toLowerCase();
+      return /comment/.test(label) && visible(field);
+    }) || null;
+  };
+
+  const commentComposerFor = (field) => {
+    let node = field.parentElement;
+    let composer = null;
+    while (node && node !== document.body) {
+      const rect = node.getBoundingClientRect();
+      if (rect.height > 180 || rect.width > innerWidth + 8) break;
+      if (rect.height > 0 && rect.width >= innerWidth * 0.6) composer = node;
+      node = node.parentElement;
+    }
+    return composer;
+  };
+
+  const updateCommentSurface = () => {
+    const field = commentFieldCandidate();
+    const composer = field && commentComposer && commentComposer.contains(field)
+      ? commentComposer : field && commentComposerFor(field);
+    if (commentComposer !== composer) restoreCommentStyles(commentComposer);
+    if (commentNavigation && !composer) restoreCommentStyles(commentNavigation);
+    commentField = composer ? field : null;
+    commentComposer = composer;
+
+    if (commentField) {
+      setCommentStyle(commentComposer, "display", "none");
+      const navigation = commentNavigation && document.contains(commentNavigation)
+        ? commentNavigation : findBottomNavigation();
+      if (commentNavigation && commentNavigation !== navigation) {
+        restoreCommentStyles(commentNavigation);
+      }
+      commentNavigation = navigation && !navigation.contains(field) ? navigation : null;
+      if (commentNavigation) setCommentStyle(commentNavigation, "display", "none");
+    } else {
+      commentNavigation = null;
+    }
+
+    const nextVisible = Boolean(commentField);
+    if (nextVisible !== commentSurfaceVisible) {
+      commentSurfaceVisible = nextVisible;
+      send({ event: "commentSurface", visible: nextVisible,
+        draft: nextVisible ? (commentField.value || commentField.textContent || "") : "" });
+    }
+  };
+
+  const setOriginalCommentValue = (field, value) => {
+    if (field.matches("input, textarea")) {
+      const prototype = field.matches("textarea")
+        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+      if (setter) setter.call(field, value);
+      else field.value = value;
+    } else {
+      field.textContent = value;
+    }
+    field.dispatchEvent(new InputEvent("input", {
+      bubbles: true, inputType: "insertText", data: value
+    }));
+  };
+
+  window.__nimaSubmitComment = async (text) => {
+    const field = commentFieldCandidate();
+    if (!field || typeof text !== "string" || !text.trim()) return false;
+    setOriginalCommentValue(field, text);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const form = field.closest("form");
+    const surface = form || field.closest("[role='dialog']") || document;
+    const post = Array.from(surface.querySelectorAll("button, [role='button']"))
+      .find((button) => {
+        const label = (button.getAttribute("aria-label") || button.textContent || "").trim().toLowerCase();
+        return label === "post" || label === "send";
+      }) || form?.querySelector("button[type='submit']");
+    if (!post || post.disabled || post.getAttribute("aria-disabled") === "true") return false;
+    post.click();
+    return true;
   };
 
   const hideAppInstallPrompts = () => {
@@ -508,6 +776,8 @@
         document.body && document.body.style.setProperty("overscroll-behavior", "none", "important");
       }
       updateReelGestureSurface();
+      if (isStory() && storyReplyField()) updateStoryKeyboardLayout();
+      updateCommentSurface();
 
       const healthKey = window.__nimaMode + "|" + location.href;
       if (healthKey !== lastHealthKey) {
@@ -624,8 +894,30 @@
     }
   }, true);
 
+  document.addEventListener("focusin", () => {
+    if (isStory()) {
+      [0, 100, 300].forEach((delay) => setTimeout(updateStoryKeyboardLayout, delay));
+    } else {
+      if (document.activeElement === commentFieldCandidate()) {
+        send({ event: "commentFocus",
+          draft: document.activeElement.value || document.activeElement.textContent || "" });
+      }
+    }
+  }, true);
+  document.addEventListener("focusout", () => {
+    setTimeout(updateStoryKeyboardLayout, 100);
+  }, true);
+  window.visualViewport?.addEventListener("resize", updateStoryKeyboardLayout);
+  window.visualViewport?.addEventListener("scroll", updateStoryKeyboardLayout);
+  window.addEventListener("orientationchange", () => {
+    clearStoryKeyboardLayout();
+    storyViewportHeight = window.visualViewport?.height || innerHeight;
+  });
+
   const notifyLocation = () => {
     send({ event: "locationChanged", url: location.href });
+    updateStoryKeyboardLayout();
+    updateCommentSurface();
     clean();
   };
   ["pushState", "replaceState"].forEach((method) => {

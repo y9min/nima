@@ -19,6 +19,9 @@ final class InstagramWebSession: NSObject {
     private(set) var isLoading = false
     private(set) var currentURL: URL?
     private(set) var sessionStatus: InstagramSessionStatus = .unknown
+    private(set) var isCommentComposerVisible = false
+    private(set) var commentFocusRequestID = 0
+    private(set) var commentPrefill = ""
 
     @ObservationIgnored private weak var protectionStore: InstagramProtectionStore?
     @ObservationIgnored private var mode: InstagramMode = .clean
@@ -56,7 +59,7 @@ final class InstagramWebSession: NSObject {
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
 
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = InstagramWebViewWithoutInputAccessory(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
@@ -66,6 +69,23 @@ final class InstagramWebSession: NSObject {
 
     func configure(store: InstagramProtectionStore) {
         protectionStore = store
+    }
+
+    func submitComment(_ text: String) async -> Bool {
+        guard isCommentComposerVisible, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        do {
+            let result = try await webView.callAsyncJavaScript(
+                "return await window.__nimaSubmitComment(text)",
+                arguments: ["text": text],
+                in: nil,
+                contentWorld: .defaultClient
+            )
+            return result as? Bool == true
+        } catch {
+            return false
+        }
     }
 
     func startIfNeeded(at initialURL: URL? = nil, mode initialMode: InstagramMode) {
@@ -370,6 +390,7 @@ extension InstagramWebSession: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         healthCheckTask?.cancel()
         receivedHealthPing = false
+        isCommentComposerVisible = false
         if let url = webView.url,
            InstagramNavigationPolicy.isAuthenticationURL(url) {
             sessionStatus = .signingIn
@@ -502,6 +523,16 @@ extension InstagramWebSession: WKScriptMessageHandler {
                           let rawStatus = payload["status"] as? String,
                           let status = InstagramSessionStatus(rawValue: rawStatus) {
                     self.sessionStatus = status
+                } else if event == "commentSurface",
+                          let visible = payload["visible"] as? Bool {
+                    self.isCommentComposerVisible = visible
+                    if visible, let draft = payload["draft"] as? String, !draft.isEmpty {
+                        self.commentPrefill = draft
+                    }
+                } else if event == "commentFocus" {
+                    self.isCommentComposerVisible = true
+                    self.commentPrefill = payload["draft"] as? String ?? ""
+                    self.commentFocusRequestID += 1
                 } else if event == "linkActivated",
                           let rawURL = payload["url"] as? String,
                           let url = URL(string: rawURL, relativeTo: self.webView.url)?.absoluteURL {
@@ -562,6 +593,12 @@ private final class WeakInstagramScriptHandler: NSObject, WKScriptMessageHandler
     ) {
         target?.userContentController(userContentController, didReceive: message)
     }
+}
+
+// WebKit's form navigation toolbar takes space above the keyboard that the
+// Instagram story composer needs. Instagram provides its own reply controls.
+private final class InstagramWebViewWithoutInputAccessory: WKWebView {
+    override var inputAccessoryView: UIView? { nil }
 }
 
 struct InstagramWebView: UIViewRepresentable {

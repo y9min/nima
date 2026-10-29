@@ -16,7 +16,7 @@ struct InstagramClientScreen: View {
     @State private var isOpenLinkPresented = false
     @State private var linkPasteError: String?
     @State private var controlPosition: CGPoint?
-    @State private var controlDragOrigin: CGPoint?
+    @State private var controlGrabOffset: CGSize?
     @State private var isDraggingControl = false
     @State private var isControlIdle = false
     @State private var controlIdleTask: Task<Void, Never>?
@@ -27,6 +27,10 @@ struct InstagramClientScreen: View {
     @State private var isGuidedControlsExplanationPresented = false
     @State private var guidedCoachStep: InstagramGuidedCoachStep = .hidden
     @State private var hasCompletedGuidedPractice = false
+    @State private var commentDraft = ""
+    @State private var isSubmittingComment = false
+    @State private var commentPostFailed = false
+    @FocusState private var isCommentInputFocused: Bool
 
     init(
         launchContext: InstagramLaunchContext = .standard,
@@ -59,7 +63,7 @@ struct InstagramClientScreen: View {
                             icon: "exclamationmark.triangle.fill",
                             text: "Instagram changed—Clean mode temporarily limited to DMs."
                         )
-                    } else if (protectionStore.protectionEnabled || protectionStore.scheduledMode != nil),
+                    } else if (protectionStore.protectionEnabled || protectionStore.isScheduled),
                               protectionStore.shieldStatus != .protected {
                         shieldSetupBanner
                     }
@@ -96,6 +100,14 @@ struct InstagramClientScreen: View {
                         .zIndex(2)
                 }
 
+                if session.isCommentComposerVisible && !isLoginIntroPresented {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        nativeCommentComposer
+                    }
+                    .zIndex(2)
+                }
+
                 if !isControlMenuPresented && !isLoginIntroPresented {
                     assistiveControl(in: proxy.size)
                         .transition(.scale(scale: 0.55).combined(with: .opacity))
@@ -125,6 +137,7 @@ struct InstagramClientScreen: View {
                 guidedPracticeCoachOverlay(in: proxy.size)
                     .zIndex(8)
             }
+            .coordinateSpace(name: "controlDragArea")
         }
         .background(Color.black)
         .navigationBarBackButtonHidden(true)
@@ -133,11 +146,6 @@ struct InstagramClientScreen: View {
         .onAppear {
             session.configure(store: protectionStore)
             protectionStore.refreshAuthorizationStatus()
-            if launchContext == .guidedPractice,
-               protectionStore.scheduledMode == nil,
-               protectionStore.manualMode != .clean {
-                protectionStore.setManualMode(.clean, source: "guided_practice.instagram_opened")
-            }
             AnalyticsService.shared.capture(
                 "instagram_client_opened",
                 properties: [
@@ -153,6 +161,17 @@ struct InstagramClientScreen: View {
         }
         .onChange(of: session.sessionStatus) { _, _ in
             presentGuidedControlsExplanationIfReady()
+        }
+        .onChange(of: session.isCommentComposerVisible) { _, visible in
+            if !visible {
+                isCommentInputFocused = false
+                commentDraft = ""
+                commentPostFailed = false
+            }
+        }
+        .onChange(of: session.commentFocusRequestID) { _, _ in
+            commentDraft = session.commentPrefill
+            isCommentInputFocused = true
         }
         .onChange(of: protectionStore.filteringHealth) { _, _ in
             presentGuidedControlsExplanationIfReady()
@@ -190,6 +209,84 @@ struct InstagramClientScreen: View {
             Button("OK", role: .cancel) { authorizationError = nil }
         } message: {
             Text(authorizationError ?? "Please try again.")
+        }
+    }
+
+    private var nativeCommentComposer: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 0) {
+                ForEach(["❤️", "🙌", "🔥", "👏", "🥲", "😍", "😮", "😂"], id: \.self) { emoji in
+                    Button {
+                        commentDraft += emoji
+                        isCommentInputFocused = true
+                    } label: {
+                        Text(emoji)
+                            .font(.system(size: 28))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add \(emoji) to comment")
+                }
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 33))
+                    .foregroundStyle(Color(red: 0.86, green: 0.88, blue: 0.91))
+
+                HStack(spacing: 6) {
+                    TextField("What do you think of this?", text: $commentDraft)
+                        .focused($isCommentInputFocused)
+                        .submitLabel(.send)
+                        .onSubmit(submitNativeComment)
+                        .font(.system(size: 16))
+                        .tint(.blue)
+                        .accessibilityIdentifier("instagram.comment.input")
+
+                    if !commentDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Button("Post", action: submitNativeComment)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.25, green: 0.60, blue: 1.0))
+                            .disabled(isSubmittingComment)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 46)
+                .background(
+                    RoundedRectangle(cornerRadius: 24)
+                        .strokeBorder(Color.white.opacity(0.17), lineWidth: 1)
+                )
+            }
+
+            if commentPostFailed {
+                Text("Could not post. Try again.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .background(Color(red: 0.09, green: 0.11, blue: 0.12))
+        .overlay(alignment: .top) {
+            Color.white.opacity(0.12).frame(height: 1)
+        }
+    }
+
+    private func submitNativeComment() {
+        let text = commentDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isSubmittingComment else { return }
+        isSubmittingComment = true
+        commentPostFailed = false
+        Task {
+            let accepted = await session.submitComment(text)
+            isSubmittingComment = false
+            if accepted {
+                commentDraft = ""
+            } else {
+                commentPostFailed = true
+            }
         }
     }
 
@@ -727,28 +824,29 @@ struct InstagramClientScreen: View {
             .animation(.easeInOut(duration: 0.55), value: isControlIdle)
         }
         .buttonStyle(NativeAssistiveButtonStyle())
-        .allowsHitTesting(guidedCoachStep != .freeExplore)
-        .position(position)
-        .gesture(
-            DragGesture(minimumDistance: 8, coordinateSpace: .local)
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 8, coordinateSpace: .named("controlDragArea"))
                 .onChanged { value in
                     markControlActive()
-                    if controlDragOrigin == nil {
-                        controlDragOrigin = position
+                    if controlGrabOffset == nil {
+                        controlGrabOffset = CGSize(
+                            width: position.x - value.startLocation.x,
+                            height: position.y - value.startLocation.y
+                        )
                         isDraggingControl = true
                         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                     }
-                    guard let controlDragOrigin else { return }
+                    guard let controlGrabOffset else { return }
                     controlPosition = clampedControlPosition(
                         CGPoint(
-                            x: controlDragOrigin.x + value.translation.width,
-                            y: controlDragOrigin.y + value.translation.height
+                            x: value.location.x + controlGrabOffset.width,
+                            y: value.location.y + controlGrabOffset.height
                         ),
                         in: size
                     )
                 }
                 .onEnded { _ in
-                    controlDragOrigin = nil
+                    controlGrabOffset = nil
                     isDraggingControl = false
                     guard let controlPosition else { return }
                     UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.7)
@@ -761,6 +859,8 @@ struct InstagramClientScreen: View {
                     scheduleControlFade()
                 }
         )
+        .allowsHitTesting(guidedCoachStep != .freeExplore)
+        .position(position)
         .accessibilityLabel(isControlMenuPresented ? "Close Instagram controls" : "Open Instagram controls")
     }
 
@@ -769,7 +869,7 @@ struct InstagramClientScreen: View {
     }
 
     private var canChangeMode: Bool {
-        protectionStore.scheduledMode == nil && protectionStore.filteringHealth != .limited
+        protectionStore.filteringHealth != .limited
     }
 
     private var isGuidedMenuWalkthroughActive: Bool {
@@ -839,7 +939,7 @@ struct InstagramClientScreen: View {
 
     private func modeChangeAccessibilityHint(for title: String) -> String {
         guard title == InstagramMode.clean.title || title == InstagramMode.dmOnly.title else { return "" }
-        return canChangeMode ? "Switches Instagram to \(title)" : "Mode is controlled by a schedule or filter status"
+        return canChangeMode ? "Switches Instagram to \(title)" : "Mode is temporarily limited by filter status"
     }
 
     private var shieldSetupBanner: some View {
@@ -956,7 +1056,7 @@ enum InstagramLoginIntroduction {
     }
 }
 
-private struct NativeMenuControlButtonStyle: ButtonStyle {
+struct NativeMenuControlButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.88 : 1)
@@ -968,7 +1068,7 @@ private struct NativeMenuControlButtonStyle: ButtonStyle {
     }
 }
 
-private struct NativeAssistiveButtonStyle: ButtonStyle {
+struct NativeAssistiveButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.86 : 1)
