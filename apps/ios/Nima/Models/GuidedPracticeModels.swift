@@ -194,6 +194,32 @@ enum GuidedPracticePhase: Equatable {
     case reviewPrompt
     case troubleshooting
     case completed
+
+    var showsOpenAppPromptOverlay: Bool {
+        self == .openAppPrompt
+    }
+}
+
+struct GuidedPracticeInstagramOpenGate {
+    private(set) var isRouteActive = false
+
+    mutating func requestOpen(
+        from phase: GuidedPracticePhase,
+        canOpenControlledClient: () -> Bool
+    ) -> Bool {
+        guard phase == .openAppPrompt,
+              !isRouteActive,
+              canOpenControlledClient() else {
+            return false
+        }
+
+        isRouteActive = true
+        return true
+    }
+
+    mutating func finishRoute() {
+        isRouteActive = false
+    }
 }
 
 struct GuidedWindowsDraft: Codable, Equatable {

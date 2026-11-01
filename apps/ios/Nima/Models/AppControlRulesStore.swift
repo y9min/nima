@@ -29,6 +29,7 @@ final class AppControlRulesStore {
     }
 
     func activeKind(for tokens: Set<ApplicationToken>) -> AppControlKind? {
+        guard !PaywallBlockingState.isActive(defaults: defaults) else { return nil }
         if blocked.contains(where: { tokens.contains($0.applicationToken) }) { return .blocked }
         let reached = AppControlRuleState.reachedLimitIDs(defaults: defaults)
         if limits.contains(where: { tokens.contains($0.applicationToken) && reached.contains($0.id) }) { return .limit }
@@ -116,6 +117,11 @@ final class AppControlRulesStore {
     }
 
     private func applyShields() {
+        guard !PaywallBlockingState.isActive(defaults: defaults) else {
+            blockedStore.shield.applications = nil
+            limitsStore.shield.applications = nil
+            return
+        }
         let blockedTokens = Set(blocked.filter {
             !HardModeProtectionState.isRulePaused($0.id, defaults: defaults)
         }.map(\.applicationToken))

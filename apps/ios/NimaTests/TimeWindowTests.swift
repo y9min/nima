@@ -436,6 +436,41 @@ final class ClientShieldPolicyTests: XCTestCase {
         )
     }
 
+    func testPaywallSuspensionUnshieldsManualProtectionAndActiveWindow() {
+        let defaults = testDefaults()
+        defaults.set(true, forKey: NimaConstants.instagramProtectionEnabledKey)
+        PaywallBlockingState.setActive(true, defaults: defaults)
+        setWindows([
+            TimeWindow(
+                startTime: "22:00",
+                endTime: "08:00",
+                repeatDays: [.monday],
+                apps: ["instagram"]
+            )
+        ], defaults: defaults)
+
+        XCTAssertEqual(
+            ClientShieldPolicy.decision(
+                for: "instagram",
+                defaults: defaults,
+                now: date(day: 3, hour: 7, minute: 0),
+                calendar: calendar
+            ),
+            .unshield(.paywall)
+        )
+
+        PaywallBlockingState.setActive(false, defaults: defaults)
+        XCTAssertEqual(
+            ClientShieldPolicy.decision(
+                for: "instagram",
+                defaults: defaults,
+                now: date(day: 3, hour: 7, minute: 0),
+                calendar: calendar
+            ),
+            .shield(.manualProtection)
+        )
+    }
+
     func testHardModeScheduleOffPreventsScheduledShield() {
         let defaults = testDefaults()
         defaults.set(

@@ -35,6 +35,7 @@ struct NimaApp: App {
     @State private var guidedPracticeAppAssignments: [ApplicationToken: String] = [:]
     @State private var isShowingGuidedPracticeFamilyPicker = false
     @State private var guidedPracticeFamilyPickerError: String?
+    @State private var guidedPracticeInstagramOpenGate = GuidedPracticeInstagramOpenGate()
     @State private var didStartLaunchServices = false
     @State private var hasHandledGuidedPracticeReviewRequest = false
     @State private var didTrackGuidedPracticeResume = false
@@ -43,6 +44,7 @@ struct NimaApp: App {
     private let guidedPracticeReviewPromptStore = GuidedPracticeReviewPromptStore()
 
     init() {
+        PaywallBlockingState.setActive(false)
         let onboardingStore = OnboardingStore()
         let restoredStep = onboardingStore.hasGuidedPracticeReturnPending
             ? GuidedPracticeStep.success
@@ -242,6 +244,7 @@ struct NimaApp: App {
                         guidedPracticeFamilySelection = FamilyActivitySelection()
                         guidedPracticeApplicationTokens = []
                         guidedPracticeAppAssignments = [:]
+                        guidedPracticeInstagramOpenGate.finishRoute()
                         isShowingGuidedPracticeFamilyPicker = false
                         guidedPracticeFamilyPickerError = nil
                         hasHandledGuidedPracticeReviewRequest = false
@@ -606,18 +609,14 @@ struct NimaApp: App {
             )
             .transition(.opacity)
             .zIndex(11)
-        case .openAppPrompt:
-            GuidedPracticeOpenAppPromptModal(
-                onContinue: openGuidedPracticeInstagram
-            )
-            .transition(.opacity)
-            .zIndex(11)
-        case .waitingForReturn:
-            GuidedPracticeOpenAppPromptModal(
-                onContinue: openGuidedPracticeInstagram
-            )
-            .transition(.opacity)
-            .zIndex(11)
+        case .openAppPrompt, .waitingForReturn:
+            if guidedPracticePhase.showsOpenAppPromptOverlay {
+                GuidedPracticeOpenAppPromptModal(
+                    onContinue: openGuidedPracticeInstagram
+                )
+                .transition(.opacity)
+                .zIndex(11)
+            }
         case .success:
             GuidedPracticeSuccessModal(
                 onContinue: continueGuidedPracticeSuccess,
@@ -700,6 +699,9 @@ struct NimaApp: App {
                     "resumed": false,
                 ]
             )
+        }
+        if nextPhase != .waitingForReturn {
+            guidedPracticeInstagramOpenGate.finishRoute()
         }
         guidedPracticePhase = nextPhase
     }
@@ -932,7 +934,10 @@ struct NimaApp: App {
     }
 
     private func openGuidedPracticeInstagram() {
-        guard canOpenControlledClient("instagram") else { return }
+        guard guidedPracticeInstagramOpenGate.requestOpen(
+            from: guidedPracticePhase,
+            canOpenControlledClient: { canOpenControlledClient("instagram") }
+        ) else { return }
         AnalyticsService.shared.capture("instagram_practice_open_tapped")
         setGuidedPracticePhase(.waitingForReturn, source: "instagram_opened")
         path.append(Route.instagramClient(context: .guidedPractice))

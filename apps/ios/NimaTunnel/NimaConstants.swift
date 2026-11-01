@@ -148,6 +148,7 @@ enum NimaConstants {
     static let featurePolicyKey = "featurePolicyV1"
     static let manualFeaturePolicyKey = "manualFeaturePolicyV1"
     static let streakDaysKey = "streakDaysV1"
+    static let paywallBlockingSuspendedKey = "blocking.paywall_suspended"
     static let timeWindowsKey = "timeWindowsV1"
     static let timeWindowsPauseAllKey = "timeWindows.pause_all"
     static let timeWindowsPauseExpiresAtKey = "timeWindows.pause_expires_at"

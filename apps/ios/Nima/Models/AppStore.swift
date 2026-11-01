@@ -180,6 +180,7 @@ final class AppStore {
     }
 
     private func shouldVPNBeOnFromPolicy(now: Date = Date()) -> Bool {
+        guard !PaywallBlockingState.isActive(defaults: sharedDefaults) else { return false }
         let scheduled = ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults)
         let hasTunnelBackedSchedule = scheduled.isDesiredProtectionActive(now: now)
             && !scheduled.activeAppIDs.isSubset(of: Self.controlledClientAppIDs)

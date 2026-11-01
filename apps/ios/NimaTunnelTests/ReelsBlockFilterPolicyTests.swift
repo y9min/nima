@@ -1180,6 +1180,34 @@ final class ReelsBlockFilterPolicyTests: XCTestCase {
         XCTAssertFalse(TunnelProtectionState(defaults: defaults).shouldKeepVPNRunning(now: now, calendar: testCalendar))
     }
 
+    func testTunnelProtectionStatePaywallSuspensionOverridesActiveBlockers() {
+        let now = testDate(hour: 12)
+        var manualPolicy = FeaturePolicyV1.defaultPolicy()
+        manualPolicy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let defaults = makeProtectionDefaults(
+            manualPolicy: manualPolicy,
+            windows: [
+                testWindow(id: "tw_focus", startTime: "09:00", endTime: "17:00", apps: ["instagram"])
+            ]
+        )
+        defaults?.set(true, forKey: NimaConstants.paywallBlockingSuspendedKey)
+        persistScheduleState(
+            defaults: defaults,
+            desiredVPNOn: true,
+            desiredUntil: testDate(hour: 17),
+            activeAppIDs: ["instagram"]
+        )
+
+        let evaluation = TunnelProtectionState(defaults: defaults).evaluate(
+            now: now,
+            calendar: testCalendar
+        )
+
+        XCTAssertFalse(evaluation.manualBlockerActive)
+        XCTAssertFalse(evaluation.persistedScheduleActive)
+        XCTAssertFalse(evaluation.shouldKeepVPNRunning)
+    }
+
     func testAutoStopGateRequiresTwoInactiveResultsAndResetsOnActiveProtection() {
         let now = testDate(hour: 12)
         let inactiveDefaults = makeProtectionDefaults(windows: [])

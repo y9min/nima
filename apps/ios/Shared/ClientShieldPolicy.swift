@@ -38,6 +38,7 @@ enum ClientShieldDecision: Equatable {
         case hardMode = "hard_mode"
         case hardModeScheduleOff = "hard_mode_schedule_off"
         case pauseAllWindows = "pause_all_windows"
+        case paywall = "paywall"
         case unsupportedApp = "unsupported_app"
     }
 
@@ -68,6 +69,9 @@ enum ClientShieldPolicy {
             return .unshield(.unsupportedApp)
         }
 
+        if PaywallBlockingState.isActive(defaults: defaults) {
+            return .unshield(.paywall)
+        }
         if PauseModeState.isPaused(app.rawValue, defaults: defaults, now: now) {
             return .unshield(.pauseMode)
         }

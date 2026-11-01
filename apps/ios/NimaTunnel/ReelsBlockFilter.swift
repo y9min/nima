@@ -176,6 +176,17 @@ struct TunnelProtectionState {
     }
 
     func evaluate(now: Date = Date(), calendar: Calendar = .current) -> Evaluation {
+        if defaults?.bool(forKey: NimaConstants.paywallBlockingSuspendedKey) == true {
+            let persistedSchedule = ScheduledProtectionSnapshotReader.snapshot(defaults: defaults)
+            return Evaluation(
+                manualBlockerActive: false,
+                persistedSchedule: persistedSchedule,
+                persistedScheduleActive: false,
+                persistedScheduleManualOffActive: false,
+                directScheduledBlockerActive: false,
+                shouldKeepVPNRunning: false
+            )
+        }
         let manualBlockerActive = hasManualEnabledBlocker()
         let persistedSchedule = ScheduledProtectionSnapshotReader.snapshot(defaults: defaults)
         let persistedScheduleActive = persistedSchedule.isActive(now: now)

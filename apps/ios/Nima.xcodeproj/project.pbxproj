@@ -42,6 +42,7 @@
 		281240CB3974FBE4BCE0C8E1 /* TunnelLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB171C4EB89D104C345EEF8 /* TunnelLogger.swift */; };
 		29FC4F3FB1066207726ACF64 /* AnalyticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCAAA7C67E48E967CA64B3BD /* AnalyticsService.swift */; };
 		2D0195B6F0A035DA7477D82A /* StreakStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4772947D80DED926571C57D /* StreakStore.swift */; };
+		2FF3C6C26BDA1A1C73AC918B /* GuidedPracticeInstagramNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C6BD09ED556731202EC39C2 /* GuidedPracticeInstagramNavigationTests.swift */; };
 		301D8571AAA95AC76BA00940 /* nima_logo_green.png in Resources */ = {isa = PBXBuildFile; fileRef = 563285F2A3B005DE2D8E9077 /* nima_logo_green.png */; };
 		312D6C7F3336D2CE2C06420C /* TimeWindowCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A874B2926B91419186BA8F /* TimeWindowCore.swift */; };
 		31ECD1ECE60434E4A468A3A6 /* BlockedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47545C93357327545B171412 /* BlockedApp.swift */; };
@@ -313,6 +314,7 @@
 		48811CA34E5F213978A961EA /* guided_windows_ready.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = guided_windows_ready.png; sourceTree = "<group>"; };
 		4885D6900F778A2FDE6E16EA /* InstagramNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstagramNavigationPolicy.swift; sourceTree = "<group>"; };
 		4984B2D9B17468982DC7FE2E /* PaintDrying */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PaintDrying; path = Nima/Resources/PaintDrying; sourceTree = SOURCE_ROOT; };
+		4C6BD09ED556731202EC39C2 /* GuidedPracticeInstagramNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedPracticeInstagramNavigationTests.swift; sourceTree = "<group>"; };
 		4CA46B8CB9147781EC71A23C /* TikTokClientScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokClientScreen.swift; sourceTree = "<group>"; };
 		4EFE4FD705C4A5BE18386CB1 /* MetaAdsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetaAdsService.swift; sourceTree = "<group>"; };
 		4F093A3121DAF773D1933C0D /* NimaColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NimaColors.swift; sourceTree = "<group>"; };
@@ -639,6 +641,7 @@
 				14F8ED3FF4AF5AF5B958872C /* AppControlRuleStateTests.swift */,
 				86A12F62FF8F624CB4CB6FBA /* AppSettingsStoreTests.swift */,
 				D58D79FCE20E77C461069F62 /* ControlledNavigationGuardTests.swift */,
+				4C6BD09ED556731202EC39C2 /* GuidedPracticeInstagramNavigationTests.swift */,
 				FF102F140C4819214391B369 /* HardModeCoordinatorTests.swift */,
 				67E335E8F0AC90F5B758F014 /* HomeDashboardLayoutTests.swift */,
 				4528D84B1E2DB5F8CA9F12B6 /* InstagramNavigationPolicyTests.swift */,
@@ -1224,6 +1227,7 @@
 				042703733AB384144C73FE37 /* AppControlRuleStateTests.swift in Sources */,
 				980E2D72613FE35923D41C74 /* AppSettingsStoreTests.swift in Sources */,
 				B032C233D1577C8F6F6AE317 /* ControlledNavigationGuardTests.swift in Sources */,
+				2FF3C6C26BDA1A1C73AC918B /* GuidedPracticeInstagramNavigationTests.swift in Sources */,
 				AA706DA4CCAFFB32A5C5182D /* HardModeCoordinatorTests.swift in Sources */,
 				0EB3F8E91571742F57D9C608 /* HomeDashboardLayoutTests.swift in Sources */,
 				722FBEDEEFB0EEA7FEF9F578 /* InstagramNavigationPolicyTests.swift in Sources */,

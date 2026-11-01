@@ -1693,6 +1693,9 @@ final class VPNManager: ObservableObject {
     }
 
     private func shouldVPNBeOnFromPolicy() -> Bool {
+        guard sharedDefaults?.bool(forKey: NimaConstants.paywallBlockingSuspendedKey) != true else {
+            return false
+        }
         let scheduleSnapshot = ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults)
         if scheduleSnapshot.isDesiredProtectionActive() {
             if manualOffRequested {
@@ -1715,6 +1718,9 @@ final class VPNManager: ObservableObject {
     }
 
     private func manualRecoveryRequiredFromPolicy() -> Bool {
+        guard sharedDefaults?.bool(forKey: NimaConstants.paywallBlockingSuspendedKey) != true else {
+            return false
+        }
         guard let data = sharedDefaults?.data(forKey: NimaConstants.manualFeaturePolicyKey),
               var policy = try? JSONDecoder().decode(FeaturePolicyV1.self, from: data) else {
             return false

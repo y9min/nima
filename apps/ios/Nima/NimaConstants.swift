@@ -92,6 +92,7 @@ enum NimaConstants {
     static let pauseModeAppIDsKey = "pause_mode.app_ids"
     static let pauseModeExpiresAtKey = "pause_mode.expires_at"
     static let pauseModeWindowIDsKey = "pause_mode.window_ids"
+    static let paywallBlockingSuspendedKey = "blocking.paywall_suspended"
     static let hardModeEnabledKey = "hard_mode.enabled"
     static let hardModeOffAppIDsKey = "hard_mode.off_app_ids"
     static let hardModePauseExpiriesKey = "hard_mode.pause_expiries"

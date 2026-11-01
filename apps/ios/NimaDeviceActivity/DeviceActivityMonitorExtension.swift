@@ -8,6 +8,10 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
+        guard !PaywallBlockingState.isActive(defaults: defaults) else {
+            clearAppControlShields()
+            return
+        }
         if activity.rawValue == AppControlRuleState.limitActivityName {
             if defaults?.double(forKey: AppControlRuleState.reachedDayKey) != AppControlRuleState.dayStart() {
                 AppControlRuleState.saveReachedLimitIDs([], defaults: defaults)
@@ -31,6 +35,10 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
+        guard !PaywallBlockingState.isActive(defaults: defaults) else {
+            clearAppControlShields()
+            return
+        }
         if activity.rawValue == AppControlRuleState.limitActivityName { return }
         if activity.rawValue == "nima.pause_mode" {
             restorePausedShields()
@@ -48,6 +56,10 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
         super.eventDidReachThreshold(event, activity: activity)
+        guard !PaywallBlockingState.isActive(defaults: defaults) else {
+            clearAppControlShields()
+            return
+        }
         guard activity.rawValue == AppControlRuleState.limitActivityName,
               event.rawValue.hasPrefix(AppControlRuleState.limitEventPrefix) else { return }
         let id = String(event.rawValue.dropFirst(AppControlRuleState.limitEventPrefix.count))
@@ -109,5 +121,14 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         if activity.rawValue.hasPrefix("nima.tiktok.") { return "tiktok" }
         if activity.rawValue.hasPrefix("nima.x.") { return "x" }
         return nil
+    }
+
+    private func clearAppControlShields() {
+        ManagedSettingsStore(named: .init("nima.controls.blocked")).shield.applications = nil
+        ManagedSettingsStore(named: .init("nima.controls.limits")).shield.applications = nil
+        ClientShieldPolicy.clearLegacyWindowActivityShields()
+        for appID in ClientShieldAppID.allCases {
+            ManagedSettingsStore(named: .init(appID.managedSettingsStoreName)).shield.applications = nil
+        }
     }
 }

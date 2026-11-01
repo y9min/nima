@@ -72,7 +72,7 @@ targets:
         CFBundleDisplayName: Nima
         CFBundleName: Nima
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "25"
+        CFBundleVersion: "28"
         UIAppFonts:
           - SK Pupok Solid 400.ttf
           - Coolvetica Rg.otf
@@ -95,7 +95,7 @@ targets:
         FacebookAutoInitEnabled: false
         FacebookAutoLogAppEventsEnabled: false
         FacebookAdvertiserIDCollectionEnabled: false
-        NSUserTrackingUsageDescription: Used to improve our ads and reach more people who want to stop scrolling.
+        NSUserTrackingUsageDescription: Your permission helps us measure which Nima ads lead to downloads and subscriptions.
         NSCameraUsageDescription: Allow Instagram inside Nima to take photos and videos when you choose to create a post or message.
         NSMicrophoneUsageDescription: Allow Instagram inside Nima to record audio when you choose to create a post or message.
         REVENUECAT_API_KEY: $(REVENUECAT_API_KEY)
@@ -134,7 +134,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Tunnel
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "25"
+        CFBundleVersion: "28"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
@@ -171,7 +171,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Device Activity
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "25"
+        CFBundleVersion: "28"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.deviceactivity.monitor-extension
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).DeviceActivityMonitorExtension
@@ -205,7 +205,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Shield Configuration
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "25"
+        CFBundleVersion: "28"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.ManagedSettingsUI.shield-configuration-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldConfigurationExtension
@@ -236,7 +236,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Shield Action
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "25"
+        CFBundleVersion: "28"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.ManagedSettings.shield-action-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldActionExtension

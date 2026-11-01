@@ -4,6 +4,12 @@ import SwiftUI
 
 struct PaywallScreen: View {
     @Environment(SubscriptionStore.self) private var subscriptionStore
+    @Environment(AppStore.self) private var appStore
+    @Environment(TimeWindowStore.self) private var timeWindowStore
+    @Environment(AppControlRulesStore.self) private var appControlRulesStore
+    @Environment(InstagramProtectionStore.self) private var instagramProtectionStore
+    @Environment(TikTokProtectionStore.self) private var tiktokProtectionStore
+    @Environment(XProtectionStore.self) private var xProtectionStore
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var didPrepareMeasurement = false
@@ -68,6 +74,12 @@ struct PaywallScreen: View {
             }
 
         }
+        .onAppear {
+            suspendBlockingForPaywall()
+        }
+        .onDisappear {
+            resumeBlockingAfterPaywall()
+        }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             await MetaAdsService.shared.requestPermissionBeforePaywall()
@@ -95,6 +107,28 @@ struct PaywallScreen: View {
         .accessibilityIdentifier("subscription.paywall")
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    @MainActor
+    private func suspendBlockingForPaywall() {
+        PaywallBlockingState.setActive(true)
+        reconcileBlockingPolicies(source: "paywall.blocking_suspended")
+    }
+
+    @MainActor
+    private func resumeBlockingAfterPaywall() {
+        PaywallBlockingState.setActive(false)
+        reconcileBlockingPolicies(source: "paywall.blocking_resumed")
+    }
+
+    @MainActor
+    private func reconcileBlockingPolicies(source: String) {
+        timeWindowStore.evaluateSchedules(source: source, forceApply: true)
+        instagramProtectionStore.refreshPauseMode()
+        tiktokProtectionStore.refreshPauseMode()
+        xProtectionStore.refreshPauseMode()
+        appControlRulesStore.reconcile()
+        appStore.syncVPNState(source: source)
     }
 
     private func startLoadingOfferings() {

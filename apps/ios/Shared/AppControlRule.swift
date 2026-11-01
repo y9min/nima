@@ -31,6 +31,24 @@ enum ShieldActionAvailability {
     }
 }
 
+enum PaywallBlockingState {
+    static let defaultsKey = "blocking.paywall_suspended"
+
+    static func isActive(
+        defaults: UserDefaults? = UserDefaults(suiteName: AppControlRuleState.appGroupID)
+    ) -> Bool {
+        defaults?.bool(forKey: defaultsKey) ?? false
+    }
+
+    static func setActive(
+        _ active: Bool,
+        defaults: UserDefaults? = UserDefaults(suiteName: AppControlRuleState.appGroupID)
+    ) {
+        defaults?.set(active, forKey: defaultsKey)
+        defaults?.synchronize()
+    }
+}
+
 enum AppControlRuleState {
     static let appGroupID = "group.so.nima.app"
     static let rulesKey = "app_controls.rules_v1"
@@ -64,6 +82,7 @@ enum AppControlRuleState {
     }
 
     static func activeKind(for token: ApplicationToken, defaults: UserDefaults? = UserDefaults(suiteName: appGroupID)) -> AppControlKind? {
+        guard !PaywallBlockingState.isActive(defaults: defaults) else { return nil }
         let rules = rules(defaults: defaults)
         if rules.contains(where: { $0.applicationToken == token && $0.kind == .blocked }) { return .blocked }
         let reached = reachedLimitIDs(defaults: defaults)
