@@ -26,6 +26,9 @@ packages:
   PostHog:
     url: https://github.com/PostHog/posthog-ios.git
     exactVersion: "3.90.2"
+  Lottie:
+    url: https://github.com/airbnb/lottie-spm.git
+    exactVersion: "4.6.1"
 
 targets:
   Nima:
@@ -33,6 +36,11 @@ targets:
     platform: iOS
     sources:
       - path: Nima
+        excludes:
+          - Resources/PaintDrying
+      - path: Nima/Resources/PaintDrying
+        type: folder
+        buildPhase: resources
       - path: Shared
     resources:
       - path: Nima/PrivacyInfo.xcprivacy
@@ -48,6 +56,8 @@ targets:
       - sdk: AdSupport.framework
       - package: PostHog
         product: PostHog
+      - package: Lottie
+        product: Lottie
       - target: NimaTunnel
       - sdk: NetworkExtension.framework
       - sdk: FamilyControls.framework
@@ -61,7 +71,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima
         CFBundleName: Nima
-        CFBundleShortVersionString: "1.3"
+        CFBundleShortVersionString: "1.4"
         CFBundleVersion: "25"
         UIAppFonts:
           - SK Pupok Solid 400.ttf
@@ -85,7 +95,7 @@ targets:
         FacebookAutoInitEnabled: false
         FacebookAutoLogAppEventsEnabled: false
         FacebookAdvertiserIDCollectionEnabled: false
-        NSUserTrackingUsageDescription: Your permission helps us measure which Nima ads lead to downloads and subscriptions.
+        NSUserTrackingUsageDescription: Used to improve our ads and reach more people who want to stop scrolling.
         NSCameraUsageDescription: Allow Instagram inside Nima to take photos and videos when you choose to create a post or message.
         NSMicrophoneUsageDescription: Allow Instagram inside Nima to record audio when you choose to create a post or message.
         REVENUECAT_API_KEY: $(REVENUECAT_API_KEY)
@@ -123,7 +133,7 @@ targets:
       path: NimaTunnel/Info.plist
       properties:
         CFBundleDisplayName: Nima Tunnel
-        CFBundleShortVersionString: "1.3"
+        CFBundleShortVersionString: "1.4"
         CFBundleVersion: "25"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
@@ -150,6 +160,8 @@ targets:
       - Nima/NimaConstants.swift
       - Nima/Models/StreakStore.swift
       - Shared/AppControlRule.swift
+      - Shared/TimeWindowCore.swift
+      - Shared/ClientShieldPolicy.swift
     dependencies:
       - sdk: DeviceActivity.framework
       - sdk: FamilyControls.framework
@@ -158,7 +170,7 @@ targets:
       path: NimaDeviceActivity/Info.plist
       properties:
         CFBundleDisplayName: Nima Device Activity
-        CFBundleShortVersionString: "1.3"
+        CFBundleShortVersionString: "1.4"
         CFBundleVersion: "25"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.deviceactivity.monitor-extension
@@ -192,7 +204,7 @@ targets:
       path: NimaShieldConfiguration/Info.plist
       properties:
         CFBundleDisplayName: Nima Shield Configuration
-        CFBundleShortVersionString: "1.3"
+        CFBundleShortVersionString: "1.4"
         CFBundleVersion: "25"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.ManagedSettingsUI.shield-configuration-service
@@ -223,7 +235,7 @@ targets:
       path: NimaShieldAction/Info.plist
       properties:
         CFBundleDisplayName: Nima Shield Action
-        CFBundleShortVersionString: "1.3"
+        CFBundleShortVersionString: "1.4"
         CFBundleVersion: "25"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.ManagedSettings.shield-action-service

@@ -1,5 +1,5 @@
 {
-  "originHash" : "e633edacb2a665442c4f9b47a88dbc7826adbbe7cad4718a8d4a07be13439950",
+  "originHash" : "4e2e9cd1eb5d3430b9542aae21f6e19cd2cda3de4ff055aa2d1034871915fede",
   "pins" : [
     {
       "identity" : "facebook-ios-sdk",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "80d0ee82f6370d1bace1431a80cb80575f98ee90",
         "version" : "18.1.1"
+      }
+    },
+    {
+      "identity" : "lottie-spm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/airbnb/lottie-spm.git",
+      "state" : {
+        "revision" : "0aff16288f8dc1e3dab35cbf5cf45979673fd3df",
+        "version" : "4.6.1"
       }
     },
     {
