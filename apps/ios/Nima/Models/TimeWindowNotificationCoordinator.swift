@@ -2,12 +2,10 @@ import Foundation
 import UserNotifications
 
 enum TimeWindowNotificationAction: Equatable {
-    case windowStart(windowID: String)
     case pauseReminder
 }
 
 enum TimeWindowNotificationKind: String {
-    case windowStart = "window_start"
     case pauseReminder = "pause_reminder"
 }
 
@@ -22,7 +20,24 @@ final class TimeWindowNotificationCoordinator: NSObject, UNUserNotificationCente
     }
 
     func install() {
-        UNUserNotificationCenter.current().delegate = self
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.getPendingNotificationRequests { requests in
+            let legacyIdentifiers = requests
+                .map(\.identifier)
+                .filter { $0.hasPrefix(TimeWindowNotificationScheduler.legacyStartNotificationIdentifierPrefix) }
+            if !legacyIdentifiers.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: legacyIdentifiers)
+            }
+        }
+        center.getDeliveredNotifications { notifications in
+            let legacyIdentifiers = notifications
+                .map(\.request.identifier)
+                .filter { $0.hasPrefix(TimeWindowNotificationScheduler.legacyStartNotificationIdentifierPrefix) }
+            if !legacyIdentifiers.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: legacyIdentifiers)
+            }
+        }
     }
 
     func setActionHandler(_ handler: @escaping (TimeWindowNotificationAction) -> Void) {
@@ -39,11 +54,8 @@ final class TimeWindowNotificationCoordinator: NSObject, UNUserNotificationCente
         switch kind {
         case .pauseReminder:
             return .pauseReminder
-        case .windowStart, nil:
-            guard let windowID = userInfo[TimeWindowNotificationScheduler.windowIDUserInfoKey] as? String else {
-                return nil
-            }
-            return .windowStart(windowID: windowID)
+        case nil:
+            return nil
         }
     }
 
@@ -76,12 +88,6 @@ final class TimeWindowNotificationCoordinator: NSObject, UNUserNotificationCente
 }
 
 protocol TimeWindowNotificationScheduling {
-    func rescheduleStartNotifications(
-        for windows: [TimeWindow],
-        pauseAll: Bool,
-        requestAuthorizationIfNeeded: Bool
-    )
-    func cancelStartNotifications()
     func schedulePauseReminderNotifications(
         firstReminderAt: Date,
         windowEndDate: Date?,
@@ -92,33 +98,15 @@ protocol TimeWindowNotificationScheduling {
 }
 
 struct TimeWindowNotificationScheduler {
-    static let startNotificationIdentifierPrefix = "time-window-start"
-    static let categoryIdentifier = "TIME_WINDOW_START"
+    static let legacyStartNotificationIdentifierPrefix = "time-window-start"
     static let pauseReminderCategoryIdentifier = "TIME_WINDOW_PAUSE_REMINDER"
     static let notificationKindUserInfoKey = "timeWindowNotificationKind"
-    static let windowIDUserInfoKey = "timeWindowID"
     static let pauseReminderIdentifierPrefix = "time-window-pause-reminder"
 
     private let center: UNUserNotificationCenter
 
     init(center: UNUserNotificationCenter = .current()) {
         self.center = center
-    }
-
-    func rescheduleStartNotifications(
-        for windows: [TimeWindow],
-        pauseAll: Bool,
-        requestAuthorizationIfNeeded: Bool
-    ) {
-        cancelExistingStartNotifications {
-            guard !pauseAll else { return }
-            let enabledWindows = windows.filter { $0.enabled }
-            guard !enabledWindows.isEmpty else { return }
-
-            scheduleWhenAuthorized(requestIfNeeded: requestAuthorizationIfNeeded) {
-                enabledWindows.forEach { scheduleStartNotifications(for: $0) }
-            }
-        }
     }
 
     private func scheduleWhenAuthorized(requestIfNeeded: Bool, schedule: @escaping () -> Void) {
@@ -137,52 +125,9 @@ struct TimeWindowNotificationScheduler {
             }
         }
     }
-
-    private func scheduleStartNotifications(for window: TimeWindow) {
-        guard let startMinutes = TimeWindowScheduleEvaluator.minutes(from: window.startTime) else { return }
-        let hour = startMinutes / 60
-        let minute = startMinutes % 60
-
-        for day in TimeWindowScheduleEvaluator.orderedUniqueDays(window.repeatDays) {
-            var components = DateComponents()
-            components.weekday = day.calendarWeekday
-            components.hour = hour
-            components.minute = minute
-
-            let content = UNMutableNotificationContent()
-            content.title = "\(window.name) has started"
-            content.body = "Tap to activate."
-            content.sound = .default
-            content.categoryIdentifier = Self.categoryIdentifier
-            content.userInfo = [
-                Self.notificationKindUserInfoKey: TimeWindowNotificationKind.windowStart.rawValue,
-                Self.windowIDUserInfoKey: window.id
-            ]
-
-            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
-            let request = UNNotificationRequest(
-                identifier: Self.startNotificationID(windowID: window.id, weekday: day),
-                content: content,
-                trigger: trigger
-            )
-            center.add(request)
-        }
-    }
-
-    static func startNotificationIDs(for window: TimeWindow) -> [String] {
-        TimeWindowWeekday.allCases.map { startNotificationID(windowID: window.id, weekday: $0) }
-    }
-
-    static func startNotificationID(windowID: String, weekday: TimeWindowWeekday) -> String {
-        "\(startNotificationIdentifierPrefix)-\(windowID)-\(weekday.rawValue)"
-    }
 }
 
 extension TimeWindowNotificationScheduler: TimeWindowNotificationScheduling {
-    func cancelStartNotifications() {
-        cancelExistingStartNotifications()
-    }
-
     func schedulePauseReminderNotifications(
         firstReminderAt: Date,
         windowEndDate: Date?,
@@ -265,18 +210,6 @@ extension TimeWindowNotificationScheduler: TimeWindowNotificationScheduling {
             let identifiers = requests
                 .map(\.identifier)
                 .filter { $0.hasPrefix(Self.pauseReminderIdentifierPrefix) }
-            if !identifiers.isEmpty {
-                center.removePendingNotificationRequests(withIdentifiers: identifiers)
-            }
-            completion?()
-        }
-    }
-
-    private func cancelExistingStartNotifications(completion: (() -> Void)? = nil) {
-        center.getPendingNotificationRequests { requests in
-            let identifiers = requests
-                .map(\.identifier)
-                .filter { $0.hasPrefix(Self.startNotificationIdentifierPrefix) }
             if !identifiers.isEmpty {
                 center.removePendingNotificationRequests(withIdentifiers: identifiers)
             }

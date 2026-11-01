@@ -16,20 +16,17 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             return
         }
         if activity.rawValue == "nima.pause_mode" { return }
+        if activity.rawValue == "nima.hard_mode_pause" { return }
         guard let appID = scheduledFeedAppID(for: activity) else { return }
-        if PauseModeState.isPaused(appID, defaults: defaults) {
-            let windowID = activity.rawValue
-                .dropFirst("nima.\(appID).".count)
-                .split(separator: ".")
-                .first
-                .map(String.init)
-            let pausedWindows = Set(defaults?.stringArray(forKey: NimaConstants.pauseModeWindowIDsKey) ?? [])
-            if let windowID, pausedWindows.contains(windowID) { return }
+        ManagedSettingsStore(named: .init(activity.rawValue)).shield.applications = nil
+        ClientShieldPolicy.clearLegacyWindowActivityShields(for: [appID])
+        let decision = ClientShieldPolicy.reconcile(
+            for: appID,
+            defaults: defaults
+        )
+        if decision.shouldShield {
+            StreakStore(defaults: defaults).markTodayEarned(source: "\(appID)_scheduled")
         }
-        let selection = loadSelection(for: appID)
-        guard !selection.applicationTokens.isEmpty else { return }
-        store(for: activity).shield.applications = selection.applicationTokens
-        StreakStore(defaults: defaults).markTodayEarned(source: "\(appID)_scheduled")
     }
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
@@ -39,8 +36,14 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             restorePausedShields()
             return
         }
-        guard scheduledFeedAppID(for: activity) != nil else { return }
-        store(for: activity).shield.applications = nil
+        if activity.rawValue == "nima.hard_mode_pause" {
+            restoreHardModePauseShields()
+            return
+        }
+        guard let appID = scheduledFeedAppID(for: activity) else { return }
+        ManagedSettingsStore(named: .init(activity.rawValue)).shield.applications = nil
+        ClientShieldPolicy.clearLegacyWindowActivityShields(for: [appID])
+        ClientShieldPolicy.reconcile(for: appID, defaults: defaults)
     }
 
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
@@ -62,51 +65,49 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         let now = Date()
         guard (defaults?.object(forKey: NimaConstants.pauseModeExpiresAtKey) as? Date).map({ $0 <= now }) == true else { return }
         let paused = Set(defaults?.stringArray(forKey: NimaConstants.pauseModeAppIDsKey) ?? [])
-        let scheduledEnds = defaults?.dictionary(forKey: NimaConstants.clientScheduleEndDatesKey) as? [String: Date] ?? [:]
         for appID in paused {
-            let manuallyEnabled: Bool
-            let selectionKey: String
-            switch appID {
-            case "instagram":
-                manuallyEnabled = defaults?.bool(forKey: "instagram.client.protection_enabled") ?? false
-                selectionKey = NimaConstants.instagramFamilySelectionKey
-            case "tiktok":
-                manuallyEnabled = defaults?.bool(forKey: "tiktok.client.protection_enabled") ?? false
-                selectionKey = NimaConstants.tiktokFamilySelectionKey
-            default: continue
-            }
-            let scheduled = (scheduledEnds[appID] ?? .distantPast) > now
-            let target = ManagedSettingsStore(named: .init("nima.\(appID)"))
-            guard manuallyEnabled || scheduled,
-                  let data = defaults?.data(forKey: selectionKey),
-                  let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data),
-                  !selection.applicationTokens.isEmpty else {
-                target.shield.applications = nil
-                continue
-            }
-            target.shield.applications = selection.applicationTokens
+            ClientShieldPolicy.reconcile(
+                for: appID,
+                defaults: defaults,
+                now: now
+            )
         }
         PauseModeState.clear(defaults: defaults)
     }
 
-    private func loadSelection(for appID: String) -> FamilyActivitySelection {
-        let key = appID == "instagram"
-            ? NimaConstants.instagramFamilySelectionKey
-            : NimaConstants.tiktokFamilySelectionKey
-        guard let data = defaults?.data(forKey: key),
-              let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) else {
-            return FamilyActivitySelection()
+    private func restoreHardModePauseShields() {
+        let now = Date()
+        HardModeProtectionState.purgeExpiredPauses(defaults: defaults, now: now)
+        for appID in ["instagram", "tiktok", "x"] {
+            ClientShieldPolicy.reconcile(
+                for: appID,
+                defaults: defaults,
+                now: now
+            )
         }
-        return selection
+
+        let rules = AppControlRuleState.rules(defaults: defaults)
+        let blockedTokens = Set(rules.filter {
+            $0.kind == .blocked
+                && !HardModeProtectionState.isRulePaused($0.id, defaults: defaults, now: now)
+        }.map(\.applicationToken))
+        ManagedSettingsStore(named: .init("nima.controls.blocked")).shield.applications =
+            blockedTokens.isEmpty ? nil : blockedTokens
+
+        let reached = AppControlRuleState.reachedLimitIDs(defaults: defaults, now: now)
+        let limitedTokens = Set(rules.filter {
+            $0.kind == .limit
+                && reached.contains($0.id)
+                && !HardModeProtectionState.isRulePaused($0.id, defaults: defaults, now: now)
+        }.map(\.applicationToken))
+        ManagedSettingsStore(named: .init("nima.controls.limits")).shield.applications =
+            limitedTokens.isEmpty ? nil : limitedTokens
     }
 
     private func scheduledFeedAppID(for activity: DeviceActivityName) -> String? {
         if activity.rawValue.hasPrefix("nima.instagram.") { return "instagram" }
         if activity.rawValue.hasPrefix("nima.tiktok.") { return "tiktok" }
+        if activity.rawValue.hasPrefix("nima.x.") { return "x" }
         return nil
-    }
-
-    private func store(for activity: DeviceActivityName) -> ManagedSettingsStore {
-        ManagedSettingsStore(named: .init(activity.rawValue))
     }
 }

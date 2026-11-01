@@ -5,6 +5,8 @@ import UIKit
 struct TimeWindowsScreen: View {
     @Environment(TimeWindowStore.self) private var store
     @Environment(AppControlRulesStore.self) private var appRules
+    @Environment(HardModeCoordinator.self) private var hardModeCoordinator
+    @Environment(OnboardingStore.self) private var onboardingStore
     @Environment(\.sizeCategory) private var contentSizeCategory
     @State private var editorPresentation: TimeWindowEditorPresentation?
     @State private var ruleEditorPresentation: AppRuleEditorPresentation?
@@ -19,6 +21,7 @@ struct TimeWindowsScreen: View {
     var onGuidedWindowsEditorAdvance: () -> Void = {}
     var onGuidedWindowsEditorFinished: () -> Void = {}
     var showsDock = true
+    var authorizeFeatureAccess = FeatureAccessGate.unrestricted
 
     @State private var handledAddWindowRequestID: UUID?
 
@@ -66,25 +69,27 @@ struct TimeWindowsScreen: View {
             TimeWindowEditorSheet(
                 window: presentation.window,
                 onSave: { window in
-                    if presentation.window == nil {
-                        store.addWindow(window)
-                    } else {
-                        store.updateWindow(window)
-                    }
+                    saveWindow(window, replacing: presentation.window)
                 },
                 onDelete: { id in
-                    store.deleteWindow(id: id)
+                    deleteWindow(id: id)
                 },
                 guidedStep: guidedWindowsEditorStep,
+                guidedDraft: guidedWindowsEditorStep == nil ? nil : onboardingStore.guidedWindowsDraft,
                 onGuidedStepAdvance: onGuidedWindowsEditorAdvance,
-                onGuidedEditorFinished: onGuidedWindowsEditorFinished
+                onGuidedEditorFinished: onGuidedWindowsEditorFinished,
+                onGuidedDraftChanged: onboardingStore.saveGuidedWindowsDraft
             )
             .id(presentation.id)
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
         }
         .sheet(item: $ruleEditorPresentation) { presentation in
-            AppRuleEditorSheet(kind: presentation.kind, rule: presentation.rule)
+            AppRuleEditorSheet(
+                kind: presentation.kind,
+                rule: presentation.rule,
+                authorizeFeatureAccess: authorizeFeatureAccess
+            )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
         }
@@ -106,8 +111,10 @@ struct TimeWindowsScreen: View {
             return
         }
         handledAddWindowRequestID = addWindowRequestID
-        selectedControlTab = .windows
-        editorPresentation = .add()
+        authorizeFeatureAccess {
+            selectedControlTab = .windows
+            editorPresentation = .add()
+        }
         onAddWindowRequestHandled?()
     }
 
@@ -259,7 +266,9 @@ struct TimeWindowsScreen: View {
 
     private func ruleAddButton(kind: AppControlKind, scale: CGFloat) -> some View {
         Button {
-            ruleEditorPresentation = AppRuleEditorPresentation(kind: kind, rule: nil)
+            authorizeFeatureAccess {
+                ruleEditorPresentation = AppRuleEditorPresentation(kind: kind, rule: nil)
+            }
         } label: {
             controlAddLabel(kind == .limit ? "add limit" : "block an app", scale: scale)
         }
@@ -288,7 +297,23 @@ struct TimeWindowsScreen: View {
 
             Toggle("", isOn: Binding(
                 get: { store.pauseAll },
-                set: { store.setPauseAll($0) }
+                set: { value in
+                    if value,
+                       hardModeCoordinator.requestOff(
+                            .pauseAllWindows,
+                            affectedAppIDs: Set(store.activeWindows().flatMap(\.apps)),
+                            source: "time_windows.pause_all"
+                       ) {
+                        return
+                    }
+                    if value {
+                        store.setPauseAll(true)
+                    } else {
+                        authorizeFeatureAccess {
+                            store.setPauseAll(false)
+                        }
+                    }
+                }
             ))
             .labelsHidden()
             .tint(TimeWindowsPalette.accent)
@@ -341,7 +366,23 @@ struct TimeWindowsScreen: View {
                         editorPresentation = .edit(window)
                     },
                     onToggle: { enabled in
-                        store.setEnabled(enabled, for: window.id)
+                        if !enabled,
+                           window.enabled,
+                           store.status(for: window) == .activeNow,
+                           hardModeCoordinator.requestOff(
+                                .setWindowEnabled(windowID: window.id, enabled: false),
+                                affectedAppIDs: Set(window.apps),
+                                source: "time_windows.toggle"
+                           ) {
+                            return
+                        }
+                        if enabled {
+                            authorizeFeatureAccess {
+                                store.setEnabled(true, for: window.id)
+                            }
+                        } else {
+                            store.setEnabled(false, for: window.id)
+                        }
                     }
                 )
             }
@@ -350,7 +391,9 @@ struct TimeWindowsScreen: View {
 
     private func addButton(scale: CGFloat) -> some View {
         return Button {
-            editorPresentation = .add()
+            authorizeFeatureAccess {
+                editorPresentation = .add()
+            }
         } label: {
             controlAddLabel("add a time window", scale: scale)
         }
@@ -373,6 +416,57 @@ struct TimeWindowsScreen: View {
         .background(TimeWindowsPalette.accent.opacity(0.18))
         .clipShape(Capsule())
     }
+
+    private func saveWindow(_ updated: TimeWindow, replacing original: TimeWindow?) {
+        let isEnablingProtection = original == nil
+            || (updated.enabled && original?.enabled != true)
+        if isEnablingProtection {
+            authorizeFeatureAccess {
+                commitWindow(updated, replacing: original)
+            }
+        } else {
+            commitWindow(updated, replacing: original)
+        }
+    }
+
+    private func commitWindow(_ updated: TimeWindow, replacing original: TimeWindow?) {
+        guard let original else {
+            store.addWindow(updated)
+            return
+        }
+        let originalIsActive = store.status(for: original) == .activeNow
+        let updatedIsActive = TimeWindowScheduleEvaluator.isActive(
+            updated,
+            now: Date(),
+            pauseAll: store.pauseAll,
+            endedWindowIDs: []
+        )
+        let affectedApps = originalIsActive
+            ? Set(original.apps).subtracting(updatedIsActive ? Set(updated.apps) : [])
+            : []
+        if !affectedApps.isEmpty,
+           hardModeCoordinator.requestOff(
+                .updateWindow(updated, expectedUpdatedAt: original.updatedAt),
+                affectedAppIDs: affectedApps,
+                source: "time_windows.edit"
+           ) {
+            return
+        }
+        store.updateWindow(updated)
+    }
+
+    private func deleteWindow(id: String) {
+        guard let window = store.windows.first(where: { $0.id == id }) else { return }
+        if store.status(for: window) == .activeNow,
+           hardModeCoordinator.requestOff(
+                .deleteWindow(windowID: id),
+                affectedAppIDs: Set(window.apps),
+                source: "time_windows.delete"
+           ) {
+            return
+        }
+        store.deleteWindow(id: id)
+    }
 }
 
 private enum ControlTab: String, CaseIterable, Identifiable {
@@ -389,8 +483,13 @@ private struct AppRuleEditorPresentation: Identifiable {
 private struct AppRuleEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppControlRulesStore.self) private var store
+    @Environment(HardModeCoordinator.self) private var hardModeCoordinator
+    @Environment(InstagramProtectionStore.self) private var instagramProtectionStore
+    @Environment(TikTokProtectionStore.self) private var tiktokProtectionStore
+    @Environment(XProtectionStore.self) private var xProtectionStore
     let kind: AppControlKind
     let rule: AppControlRule?
+    let authorizeFeatureAccess: FeatureAccessAuthorizer
 
     @State private var selection: FamilyActivitySelection
     @State private var dailyMinutes: Int
@@ -399,9 +498,14 @@ private struct AppRuleEditorSheet: View {
     @State private var isShowingReplaceConfirmation = false
     @State private var message: String?
 
-    init(kind: AppControlKind, rule: AppControlRule?) {
+    init(
+        kind: AppControlKind,
+        rule: AppControlRule?,
+        authorizeFeatureAccess: @escaping FeatureAccessAuthorizer = FeatureAccessGate.unrestricted
+    ) {
         self.kind = kind
         self.rule = rule
+        self.authorizeFeatureAccess = authorizeFeatureAccess
         var initialSelection = FamilyActivitySelection()
         if let rule { initialSelection.applicationTokens = [rule.applicationToken] }
         _selection = State(initialValue: initialSelection)
@@ -485,13 +589,28 @@ private struct AppRuleEditorSheet: View {
         }
         .familyActivityPicker(isPresented: $isShowingPicker, selection: $selection)
         .confirmationDialog("Replace existing rule?", isPresented: $isShowingReplaceConfirmation) {
-            Button("Replace rule") { commitSave() }
+            Button("Replace rule") {
+                authorizeFeatureAccess {
+                    commitSave()
+                }
+            }
         } message: {
             Text("This app already has a limit or block. Its existing rule will be replaced.")
         }
         .alert(kind == .limit ? "Delete limit?" : "Remove block?", isPresented: $isShowingDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 guard let rule else { return }
+                if store.activeKind(for: [rule.applicationToken]) != nil,
+                   hardModeCoordinator.requestOff(
+                        .deleteAppRule(
+                            ruleID: rule.id,
+                            affectedAppIDs: affectedAppIDs(for: rule)
+                        ),
+                        source: "time_windows.app_rule_delete"
+                   ) {
+                    dismiss()
+                    return
+                }
                 if store.delete(id: rule.id) {
                     dismiss()
                 } else {
@@ -557,16 +676,50 @@ private struct AppRuleEditorSheet: View {
             isShowingReplaceConfirmation = true
             return
         }
-        commitSave()
+        authorizeFeatureAccess {
+            commitSave()
+        }
     }
 
     private func commitSave() {
         guard let token = selection.applicationTokens.first else { return }
+        let activeKind = store.activeKind(for: [token])
+        let wouldLiftActiveProtection = activeKind != nil
+            && !(activeKind == .blocked && kind == .blocked)
+        if let rule,
+           wouldLiftActiveProtection,
+           hardModeCoordinator.requestOff(
+                .updateAppRule(
+                    ruleID: rule.id,
+                    kind: kind,
+                    dailyMinutes: dailyMinutes,
+                    affectedAppIDs: affectedAppIDs(for: rule)
+                ),
+                source: "time_windows.app_rule_edit"
+           ) {
+            dismiss()
+            return
+        }
         if store.save(token: token, kind: kind, dailyMinutes: dailyMinutes, replacing: rule?.id) {
             dismiss()
         } else {
             message = store.monitoringError ?? "Could not save this rule. Please try again."
         }
+    }
+
+    private func affectedAppIDs(for rule: AppControlRule) -> Set<String> {
+        let token = rule.applicationToken
+        var appIDs = Set<String>()
+        if instagramProtectionStore.familySelection.applicationTokens.contains(token) {
+            appIDs.insert("instagram")
+        }
+        if tiktokProtectionStore.familySelection.applicationTokens.contains(token) {
+            appIDs.insert("tiktok")
+        }
+        if xProtectionStore.familySelection.applicationTokens.contains(token) {
+            appIDs.insert("x")
+        }
+        return appIDs
     }
 }
 
@@ -678,6 +831,7 @@ private struct TimeWindowCard: View {
             switch $0 {
             case "instagram": return "Instagram"
             case "tiktok": return "TikTok"
+            case "x": return "X"
             default: return $0.capitalized
             }
         }
@@ -702,8 +856,10 @@ private struct TimeWindowEditorSheet: View {
     let onSave: (TimeWindow) -> Void
     let onDelete: (String) -> Void
     let guidedStep: GuidedWindowsEditorStep?
+    let guidedDraft: GuidedWindowsDraft?
     let onGuidedStepAdvance: () -> Void
     let onGuidedEditorFinished: () -> Void
+    let onGuidedDraftChanged: (GuidedWindowsDraft) -> Void
 
     @State private var emoji: String
     @State private var name: String
@@ -721,23 +877,31 @@ private struct TimeWindowEditorSheet: View {
         onSave: @escaping (TimeWindow) -> Void,
         onDelete: @escaping (String) -> Void,
         guidedStep: GuidedWindowsEditorStep? = nil,
+        guidedDraft: GuidedWindowsDraft? = nil,
         onGuidedStepAdvance: @escaping () -> Void = {},
-        onGuidedEditorFinished: @escaping () -> Void = {}
+        onGuidedEditorFinished: @escaping () -> Void = {},
+        onGuidedDraftChanged: @escaping (GuidedWindowsDraft) -> Void = { _ in }
     ) {
         self.window = window
         self.onSave = onSave
         self.onDelete = onDelete
         self.guidedStep = guidedStep
+        self.guidedDraft = guidedStep == nil ? nil : guidedDraft
         self.onGuidedStepAdvance = onGuidedStepAdvance
         self.onGuidedEditorFinished = onGuidedEditorFinished
+        self.onGuidedDraftChanged = onGuidedDraftChanged
 
         let draft = window ?? TimeWindow()
-        _emoji = State(initialValue: draft.emoji)
-        _name = State(initialValue: draft.name)
-        _startDate = State(initialValue: Self.date(from: draft.startTime))
-        _endDate = State(initialValue: Self.date(from: draft.endTime))
-        _selectedApps = State(initialValue: Set(draft.apps))
-        _selectedDays = State(initialValue: TimeWindowEditorDefaults.repeatDays(for: window))
+        let restoredDraft = guidedStep == nil ? nil : guidedDraft
+        _emoji = State(initialValue: restoredDraft?.emoji ?? draft.emoji)
+        _name = State(initialValue: restoredDraft?.name ?? draft.name)
+        _startDate = State(initialValue: Self.date(from: restoredDraft?.startTime ?? draft.startTime))
+        _endDate = State(initialValue: Self.date(from: restoredDraft?.endTime ?? draft.endTime))
+        _selectedApps = State(initialValue: restoredDraft?.selectedApps ?? Set(draft.apps))
+        _selectedDays = State(
+            initialValue: restoredDraft?.selectedDays
+                ?? TimeWindowEditorDefaults.repeatDays(for: window)
+        )
     }
 
     var body: some View {
@@ -812,22 +976,32 @@ private struct TimeWindowEditorSheet: View {
         .onChange(of: endDate) { _, _ in
             advanceGuidedStepIfNeeded(.time)
         }
+        .onChange(of: currentGuidedDraft) { _, draft in
+            guard let draft else { return }
+            onGuidedDraftChanged(draft)
+        }
+        .interactiveDismissDisabled(guidedStep != nil)
     }
 
     private var sheetHeader: some View {
         HStack {
-            Button {
-                finishGuidedEditorIfNeeded()
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(TimeWindowsPalette.muted)
+            if guidedStep == nil {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(TimeWindowsPalette.muted)
+                        .frame(width: 46, height: 46)
+                        .background(Circle().stroke(TimeWindowsPalette.border, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("guided_windows.editor.close")
+            } else {
+                Color.clear
                     .frame(width: 46, height: 46)
-                    .background(Circle().stroke(TimeWindowsPalette.border, lineWidth: 1))
+                    .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("guided_windows.editor.close")
 
             Spacer()
 
@@ -943,6 +1117,7 @@ private struct TimeWindowEditorSheet: View {
                 .editorLabel()
             appRow(appID: "instagram", title: "Instagram")
             appRow(appID: "tiktok", title: "TikTok")
+            appRow(appID: "x", title: "X")
         }
         .guidedWindowsCoachMark(
             isPresented: guidedStep == .apps,
@@ -1054,6 +1229,7 @@ private struct TimeWindowEditorSheet: View {
         } else {
             appActions.removeValue(forKey: "tiktok")
         }
+        appActions.removeValue(forKey: "x")
 
         let now = Date()
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1078,6 +1254,18 @@ private struct TimeWindowEditorSheet: View {
     private func advanceGuidedStepIfNeeded(_ step: GuidedWindowsEditorStep) {
         guard guidedStep == step else { return }
         onGuidedStepAdvance()
+    }
+
+    private var currentGuidedDraft: GuidedWindowsDraft? {
+        guard guidedStep != nil else { return nil }
+        return GuidedWindowsDraft(
+            emoji: emoji,
+            name: name,
+            startTime: Self.timeString(from: startDate),
+            endTime: Self.timeString(from: endDate),
+            selectedApps: selectedApps,
+            selectedDays: selectedDays
+        )
     }
 
     private func finishGuidedEditorIfNeeded() {

@@ -3,7 +3,7 @@ import Foundation
 import ManagedSettings
 
 enum InstagramScheduleMonitor {
-    private static let activityPrefixes = ["nima.instagram.", "nima.tiktok."]
+    private static let activityPrefixes = ["nima.instagram.", "nima.tiktok.", "nima.x."]
 
     static func sync(windows: [TimeWindow]) {
         let center = DeviceActivityCenter()
@@ -11,6 +11,9 @@ enum InstagramScheduleMonitor {
             activityPrefixes.contains { activity.rawValue.hasPrefix($0) }
         }
         if !existing.isEmpty {
+            for activity in existing {
+                ManagedSettingsStore(named: .init(activity.rawValue)).shield.applications = nil
+            }
             center.stopMonitoring(existing)
         }
 
@@ -19,7 +22,7 @@ enum InstagramScheduleMonitor {
                   let endMinutes = TimeWindowScheduleEvaluator.minutes(from: window.endTime),
                   startMinutes != endMinutes else { continue }
 
-            for appID in window.apps where appID == "instagram" || appID == "tiktok" {
+            for appID in window.apps where ["instagram", "tiktok", "x"].contains(appID) {
                 for day in window.repeatDays {
                     let name = DeviceActivityName("nima.\(appID).\(window.id).\(day.rawValue)")
                     let schedule = DeviceActivitySchedule(
@@ -95,7 +98,47 @@ enum PauseModeMonitor {
     }
 
     static func clearClientScheduleShields() {
-        for activity in DeviceActivityCenter().activities where ["nima.instagram.", "nima.tiktok."].contains(where: { activity.rawValue.hasPrefix($0) }) {
+        for activity in DeviceActivityCenter().activities where ["nima.instagram.", "nima.tiktok.", "nima.x."].contains(where: { activity.rawValue.hasPrefix($0) }) {
+            ManagedSettingsStore(named: .init(activity.rawValue)).shield.applications = nil
+        }
+    }
+}
+
+enum HardModePauseMonitor {
+    static let activity = DeviceActivityName("nima.hard_mode_pause")
+
+    @discardableResult
+    static func schedule(
+        until expiresAt: Date,
+        defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID),
+        now: Date = Date()
+    ) -> Bool {
+        let center = DeviceActivityCenter()
+        center.stopMonitoring([activity])
+        let intervalStart = min(now, expiresAt.addingTimeInterval(-15 * 60))
+        let calendar = Calendar.current
+        let schedule = DeviceActivitySchedule(
+            intervalStart: calendar.dateComponents([.hour, .minute, .second], from: intervalStart),
+            intervalEnd: calendar.dateComponents([.hour, .minute, .second], from: expiresAt),
+            repeats: false
+        )
+        guard schedule.nextInterval != nil else { return false }
+        do {
+            try center.startMonitoring(activity, during: schedule)
+            return true
+        } catch {
+            AppDiagnosticsLogger.log(
+                "HARD_MODE_PAUSE_MONITOR_FAILED error=\(error.localizedDescription)"
+            )
+            return false
+        }
+    }
+
+    static func clearScheduleShields(for appIDs: Set<String>) {
+        for activity in DeviceActivityCenter().activities {
+            guard appIDs.contains(where: { activity.rawValue.hasPrefix("nima.\($0).") }) else {
+                continue
+            }
             ManagedSettingsStore(named: .init(activity.rawValue)).shield.applications = nil
         }
     }

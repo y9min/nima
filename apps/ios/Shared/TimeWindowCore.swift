@@ -193,12 +193,6 @@ struct TimeWindow: Codable, Identifiable, Equatable {
     }
 }
 
-enum TimeWindowOccurrenceDecision: String, Codable, Equatable {
-    case pending
-    case activated
-    case declined
-}
-
 struct TimeWindowOccurrence: Codable, Identifiable, Equatable {
     let windowID: String
     let startDate: Date
@@ -207,11 +201,6 @@ struct TimeWindowOccurrence: Codable, Identifiable, Equatable {
     var id: String {
         "\(windowID)|\(Int(startDate.timeIntervalSince1970))|\(Int(endDate.timeIntervalSince1970))"
     }
-}
-
-struct PersistedTimeWindowOccurrenceDecision: Codable, Equatable {
-    let occurrence: TimeWindowOccurrence
-    var decision: TimeWindowOccurrenceDecision
 }
 
 enum TimeWindowStatus: Equatable {

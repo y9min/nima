@@ -30,21 +30,29 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
                 primaryButtonBackgroundColor: UIColor(red: 0.20, green: 0.46, blue: 0.30, alpha: 1)
             )
         }
+        let canOpenNima = ShieldActionAvailability.canOpenParentApp
         return ShieldConfiguration(
             backgroundBlurStyle: .systemUltraThinMaterialDark,
             backgroundColor: UIColor(red: 0.035, green: 0.047, blue: 0.039, alpha: 0.96),
             icon: UIImage(named: "AppIcon-1024x1024"),
-            title: .init(text: "Open in Nima", color: .white),
+            title: .init(text: "App blocked", color: .white),
             subtitle: .init(
-                text: "Choose how you’d like to continue",
+                text: canOpenNima
+                    ? "Continue without the distracting feed."
+                    : "Open Nima from your Home Screen to continue without the distracting feed.",
                 color: UIColor.white.withAlphaComponent(0.68)
             ),
-            primaryButtonLabel: .init(text: "Open controlled app", color: .white),
+            primaryButtonLabel: .init(
+                text: canOpenNima ? "Open in Nima" : "Close app",
+                color: .white
+            ),
             primaryButtonBackgroundColor: UIColor(red: 0.20, green: 0.46, blue: 0.30, alpha: 1),
-            secondaryButtonLabel: .init(
-                text: "Open a link",
-                color: UIColor(red: 0.47, green: 0.86, blue: 0.61, alpha: 1)
-            )
+            secondaryButtonLabel: canOpenNima
+                ? .init(
+                    text: "Open a link",
+                    color: UIColor(red: 0.47, green: 0.86, blue: 0.61, alpha: 1)
+                )
+                : nil
         )
     }
 }
