@@ -1,6 +1,29 @@
 import SwiftUI
 import UIKit
 
+enum BlockingAppModeBadge: Equatable {
+    case clean
+    case directMessages
+
+    var systemImage: String {
+        switch self {
+        case .clean:
+            return "sparkles"
+        case .directMessages:
+            return "message.fill"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .clean:
+            return "Clean mode"
+        case .directMessages:
+            return "DM only mode"
+        }
+    }
+}
+
 struct BlockingDashboardApp: Identifiable, Equatable {
     let id: String
     let name: String
@@ -10,25 +33,20 @@ struct BlockingDashboardApp: Identifiable, Equatable {
     var isScheduled: Bool = false
     var instagramMode: InstagramMode? = nil
     var tiktokMode: TikTokMode? = nil
+    var xMode: XMode? = nil
 
-    var activeStatusLabel: String? {
+    var activeModeBadge: BlockingAppModeBadge? {
         guard isBlocked else { return nil }
-
-        if isPaused {
-            switch id {
-            case "instagram": return instagramMode == .dmOnly ? "DM ONLY\nPAUSED" : "CLEAN MODE\nPAUSED"
-            case "tiktok": return tiktokMode == .dmOnly ? "DM ONLY\nPAUSED" : "FYP BLOCK\nPAUSED"
-            default: return "\(name)\nPAUSED"
-            }
-        }
 
         switch id {
         case "instagram":
-            return instagramMode == .dmOnly ? "DM ONLY\nMODE ACTIVE" : "CLEAN MODE\nACTIVE"
+            return instagramMode == .dmOnly ? .directMessages : .clean
         case "tiktok":
-            return tiktokMode == .dmOnly ? "DM ONLY\nMODE ACTIVE" : "FYP BLOCKED"
+            return tiktokMode == .dmOnly ? .directMessages : .clean
+        case "x":
+            return xMode == .dmOnly ? .directMessages : .clean
         default:
-            return "\(name) BLOCKED"
+            return nil
         }
     }
 }
@@ -91,21 +109,34 @@ enum BlockingRingState: Equatable {
     case empty
     case instagramOnly
     case tiktokOnly
+    case xOnly
     case both
+    case instagramAndX
+    case tiktokAndX
+    case all
 
     init(blockedAppIDs: Set<String>) {
         let hasInstagram = blockedAppIDs.contains("instagram")
         let hasTikTok = blockedAppIDs.contains("tiktok")
+        let hasX = blockedAppIDs.contains("x")
 
-        switch (hasInstagram, hasTikTok) {
-        case (false, false):
+        switch (hasInstagram, hasTikTok, hasX) {
+        case (false, false, false):
             self = .empty
-        case (true, false):
+        case (true, false, false):
             self = .instagramOnly
-        case (false, true):
+        case (false, true, false):
             self = .tiktokOnly
-        case (true, true):
+        case (false, false, true):
+            self = .xOnly
+        case (true, true, false):
             self = .both
+        case (true, false, true):
+            self = .instagramAndX
+        case (false, true, true):
+            self = .tiktokAndX
+        case (true, true, true):
+            self = .all
         }
     }
 
@@ -114,11 +145,15 @@ enum BlockingRingState: Equatable {
     }
 
     var isInstagramBlocked: Bool {
-        self == .instagramOnly || self == .both
+        self == .instagramOnly || self == .both || self == .instagramAndX || self == .all
     }
 
     var isTikTokBlocked: Bool {
-        self == .tiktokOnly || self == .both
+        self == .tiktokOnly || self == .both || self == .tiktokAndX || self == .all
+    }
+
+    var isXBlocked: Bool {
+        self == .xOnly || self == .instagramAndX || self == .tiktokAndX || self == .all
     }
 
     var hasBlockedApp: Bool {
@@ -126,7 +161,66 @@ enum BlockingRingState: Equatable {
     }
 
     var centerTitle: String {
-        self == .both ? "UNBLOCK" : "BLOCK"
+        blockedCount > 1 ? "UNBLOCK" : "BLOCK"
+    }
+
+    var blockedCount: Int {
+        [isInstagramBlocked, isTikTokBlocked, isXBlocked].filter { $0 }.count
+    }
+}
+
+enum BlockingTileSlot: Equatable {
+    case left
+    case right
+    case upperLeft
+    case upperRight
+    case bottom
+
+    static func resolve(for appID: String, visibleAppIDs: Set<String>) -> BlockingTileSlot {
+        let visibleAppCount = visibleAppIDs.intersection(["instagram", "tiktok", "x"]).count
+
+        if visibleAppCount >= 3 {
+            switch appID {
+            case "instagram":
+                return .left
+            case "tiktok":
+                return .right
+            case "x":
+                return .bottom
+            default:
+                return .bottom
+            }
+        }
+
+        if visibleAppCount == 1 {
+            return .left
+        }
+
+        if visibleAppIDs.contains("x") {
+            if visibleAppIDs.contains("instagram") {
+                return appID == "instagram" ? .left : .right
+            }
+            if visibleAppIDs.contains("tiktok") {
+                return appID == "x" ? .left : .right
+            }
+        }
+
+        return appID == "tiktok" ? .right : .left
+    }
+
+    fileprivate var chevronDirection: TileChevronDirection {
+        switch self {
+        case .left:
+            return .right
+        case .right:
+            return .left
+        case .upperLeft:
+            return .right
+        case .upperRight:
+            return .left
+        case .bottom:
+            return .up
+        }
     }
 }
 
@@ -134,7 +228,7 @@ struct BlockingStatusCard: View {
     let apps: [BlockingDashboardApp]
     let vpnState: BlockingVPNState
     let sessionEndsAt: Date?
-    var visibleAppIDs: Set<String> = ["instagram", "tiktok"]
+    var visibleAppIDs: Set<String> = ["instagram", "tiktok", "x"]
     var onEditBlockers: () -> Void = {}
     var pauseEndsAt: Date? = nil
     var onToggleApp: (String) -> Void
@@ -163,6 +257,13 @@ struct BlockingStatusCard: View {
         apps.contains { visibleAppIDs.contains($0.id) && $0.isBlocked }
     }
 
+    private var visibleRingApps: [BlockingDashboardApp] {
+        let clockwiseAppIDs = ["tiktok", "x", "instagram"]
+        return clockwiseAppIDs.compactMap { appID in
+            apps.first { $0.id == appID && visibleAppIDs.contains(appID) }
+        }
+    }
+
     private var mode: BlockingCardMode {
         guard hasBlockedApps else { return .idle }
         switch vpnState {
@@ -178,7 +279,8 @@ struct BlockingStatusCard: View {
     var body: some View {
         GeometryReader { proxy in
             let layout = BlockingCardLayout(actualSize: proxy.size)
-            let ringState = BlockingRingState(apps: apps)
+            let ringApps = visibleRingApps
+            let ringState = BlockingRingState(apps: ringApps)
             let targetRadius = layout.dialSize * (isDropTargeted ? 0.35 : 0.29)
             let centerTitle = hasVisibleApps
                 ? centerTitle(forDraggingAppID: draggingAppID, ringState: ringState)
@@ -210,8 +312,10 @@ struct BlockingStatusCard: View {
                 RadialBlockDial(
                     mode: mode,
                     ringState: ringState,
+                    segmentAppIDs: ringApps.map(\.id),
                     instagramPaused: apps.first(where: { $0.id == "instagram" })?.isPaused == true,
                     tiktokPaused: apps.first(where: { $0.id == "tiktok" })?.isPaused == true,
+                    xPaused: apps.first(where: { $0.id == "x" })?.isPaused == true,
                     isDragging: draggingAppID != nil,
                     isDropTargeted: isDropTargeted,
                     labelPrefix: draggingAppID == nil ? "drag to" : "release to",
@@ -226,20 +330,20 @@ struct BlockingStatusCard: View {
                     .position(layout.dialCenter)
 
                 ForEach(apps.filter { visibleAppIDs.contains($0.id) }) { app in
-                    let origin = layout.tileCenter(for: app.id)
+                    let slot = BlockingTileSlot.resolve(for: app.id, visibleAppIDs: visibleAppIDs)
+                    let origin = layout.tileCenter(for: slot)
                     let dragOffset = dragOffsets[app.id] ?? .zero
                     let isDragging = draggingAppID == app.id
-                    let isInstagram = app.id == "instagram"
 
                     if !app.isBlocked {
                         PulsingTileChevrons(
-                            direction: isInstagram ? .right : .left,
+                            direction: slot.chevronDirection,
                             isLive: mode == .active || mode == .starting || draggingAppID != nil,
                             isPaused: app.isPaused,
                             scale: layout.visualScale
                         )
                         .frame(width: layout.tileSize * 0.45, height: layout.tileSize * 0.42)
-                        .position(layout.chevronCenter(for: app.id))
+                        .position(layout.chevronCenter(for: slot))
                         .opacity(isDragging ? 0 : 1)
                         .zIndex(0.5)
                     }
@@ -267,22 +371,18 @@ struct BlockingStatusCard: View {
                     }
                     .accessibilityElement(children: .ignore)
                     .accessibilityIdentifier("nima.app.\(app.id)")
-                    .accessibilityLabel("\(app.name.capitalized) \(app.isPaused ? "protection paused" : app.isBlocked ? "blocked" : "not blocked")")
+                    .accessibilityLabel(accessibilityLabel(for: app))
                     .accessibilityValue(app.isPaused ? "paused" : app.isBlocked ? "enabled" : "disabled")
                     .accessibilityHint(accessibilityHint(for: app))
                     .accessibilityAction(named: "Open \(app.name.capitalized)") {
                         onOpenApp(app.id)
                     }
                     .accessibilityAction(named: app.isBlocked ? "Disable protection" : "Enable protection") {
-                        if !app.isScheduled { onToggleApp(app.id) }
-                    }
-
-                    if let label = app.activeStatusLabel {
-                        BlockedAppStatusPill(text: label, isPaused: app.isPaused, scale: layout.visualScale)
-                            .position(x: origin.x, y: origin.y + layout.tileSize * 0.58)
-                            .opacity(isDragging ? 0 : 1)
-                            .zIndex(3)
-                            .accessibilityHidden(true)
+                        if app.isScheduled {
+                            onEndScheduledWindow(app.id)
+                        } else {
+                            onToggleApp(app.id)
+                        }
                     }
                 }
 
@@ -341,7 +441,11 @@ struct BlockingStatusCard: View {
                 }
 
                 if let guidedPracticeStep {
-                    BlockingGuidedPracticeOverlay(step: guidedPracticeStep, layout: layout)
+                    BlockingGuidedPracticeOverlay(
+                        step: guidedPracticeStep,
+                        layout: layout,
+                        visibleAppIDs: visibleAppIDs
+                    )
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         .allowsHitTesting(false)
                         .zIndex(30)
@@ -374,7 +478,7 @@ struct BlockingStatusCard: View {
     }
 
     private func accessibilityHint(for app: BlockingDashboardApp) -> String {
-        if app.id == "instagram" || app.id == "tiktok" {
+        if ["instagram", "tiktok", "x"].contains(app.id) {
             return app.isScheduled
                 ? "Double tap to open \(app.name.capitalized). Drag to the center to end the current window."
                 : "Double tap to open \(app.name.capitalized). Use the custom action or drag to change protection."
@@ -384,6 +488,19 @@ struct BlockingStatusCard: View {
             : (app.isBlocked
                 ? "Double tap, drag outward, or drag to the center to unblock"
                 : "Double tap or drag to the center to block")
+    }
+
+    private func accessibilityLabel(for app: BlockingDashboardApp) -> String {
+        if app.isPaused {
+            return "\(app.name.capitalized) protection paused"
+        }
+        guard app.isBlocked else {
+            return "\(app.name.capitalized) not blocked"
+        }
+        if let badge = app.activeModeBadge {
+            return "\(app.name.capitalized) blocked in \(badge.accessibilityLabel)"
+        }
+        return "\(app.name.capitalized) blocked"
     }
 
     private var vpnPermissionButton: some View {
@@ -533,6 +650,7 @@ private struct BlockingCardLayout {
     static let designSize = CGSize(width: 357, height: 367)
 
     private let space: ScaledDesignSpace
+    private let clusterVerticalOffset: CGFloat = -18
 
     init(actualSize: CGSize) {
         space = ScaledDesignSpace(
@@ -566,7 +684,7 @@ private struct BlockingCardLayout {
     }
 
     var dialCenter: CGPoint {
-        space.point(x: 178.5, y: 158)
+        space.point(x: 178.5, y: 158 + clusterVerticalOffset)
     }
 
     var tileCenterY: CGFloat {
@@ -597,25 +715,34 @@ private struct BlockingCardLayout {
         space.point(x: 178.5, y: 340)
     }
 
-    func tileCenter(for appID: String) -> CGPoint {
-        switch appID {
-        case "instagram":
-            return space.point(x: 60, y: 158)
-        case "tiktok":
-            return space.point(x: 297, y: 158)
-        default:
-            return space.point(x: 178.5, y: 158)
+    func tileCenter(for slot: BlockingTileSlot) -> CGPoint {
+        switch slot {
+        case .left:
+            return space.point(x: 60, y: 158 + clusterVerticalOffset)
+        case .right:
+            return space.point(x: 297, y: 158 + clusterVerticalOffset)
+        // Three equal arcs start at 12 o'clock, so their centres sit at 2, 6 and 10 o'clock.
+        case .upperLeft:
+            return space.point(x: 75.9, y: 80.7 + clusterVerticalOffset)
+        case .upperRight:
+            return space.point(x: 281.1, y: 80.7 + clusterVerticalOffset)
+        case .bottom:
+            return space.point(x: 178.5, y: 258 + clusterVerticalOffset)
         }
     }
 
-    func chevronCenter(for appID: String) -> CGPoint {
-        switch appID {
-        case "instagram":
-            return space.point(x: 95, y: 158)
-        case "tiktok":
-            return space.point(x: 262, y: 158)
-        default:
-            return space.point(x: 178.5, y: 158)
+    func chevronCenter(for slot: BlockingTileSlot) -> CGPoint {
+        switch slot {
+        case .left:
+            return space.point(x: 95, y: 158 + clusterVerticalOffset)
+        case .right:
+            return space.point(x: 262, y: 158 + clusterVerticalOffset)
+        case .upperLeft:
+            return space.point(x: 106.2, y: 96.7 + clusterVerticalOffset)
+        case .upperRight:
+            return space.point(x: 250.8, y: 96.7 + clusterVerticalOffset)
+        case .bottom:
+            return space.point(x: 178.5, y: 222 + clusterVerticalOffset)
         }
     }
 }
@@ -623,6 +750,7 @@ private struct BlockingCardLayout {
 private struct BlockingGuidedPracticeOverlay: View {
     let step: GuidedPracticeCardStep
     let layout: BlockingCardLayout
+    let visibleAppIDs: Set<String>
 
     var body: some View {
         ZStack {
@@ -637,11 +765,12 @@ private struct BlockingGuidedPracticeOverlay: View {
                     .position(layout.dialCenter)
 
                 ForEach(["instagram", "tiktok"], id: \.self) { appID in
+                    let slot = BlockingTileSlot.resolve(for: appID, visibleAppIDs: visibleAppIDs)
                     RoundedRectangle(cornerRadius: layout.tileSize * 0.24, style: .continuous)
                         .strokeBorder(BlockingCardStyle.accent.opacity(0.74), lineWidth: 3)
                         .shadow(color: BlockingCardStyle.accent.opacity(0.45), radius: 10)
                         .frame(width: layout.tileSize * 1.15, height: layout.tileSize * 1.15)
-                        .position(layout.tileCenter(for: appID))
+                        .position(layout.tileCenter(for: slot))
                 }
             }
 
@@ -657,7 +786,7 @@ private struct BlockingGuidedPracticeOverlay: View {
         case .ready:
             return "Ready to test? we'll guide you through a quick 30 second test"
         case .dragTikTok:
-            return "Drag an app into the centre to block short form feeds"
+            return "Drag an app into the centre to block infinite feeds"
         }
     }
 
@@ -958,8 +1087,10 @@ private struct AddTimeWindowPill: View {
 struct RadialBlockDial: View {
     let mode: BlockingCardMode
     let ringState: BlockingRingState
+    let segmentAppIDs: [String]
     let instagramPaused: Bool
     let tiktokPaused: Bool
+    let xPaused: Bool
     let isDragging: Bool
     let isDropTargeted: Bool
     let labelPrefix: String
@@ -973,6 +1104,7 @@ struct RadialBlockDial: View {
         ringState.hasBlockedApp
             && (!ringState.isInstagramBlocked || instagramPaused)
             && (!ringState.isTikTokBlocked || tiktokPaused)
+            && (!ringState.isXBlocked || xPaused)
     }
 
     private var dialAccent: Color {
@@ -1025,20 +1157,17 @@ struct RadialBlockDial: View {
                     .frame(width: size * 0.78, height: size * 0.78)
                     .blur(radius: 0.5)
 
-                if ringState == .both {
-                    if instagramPaused == tiktokPaused {
-                        activeRing(size: size, lineWidth: activeRingWidth, isPaused: instagramPaused)
-                            .transition(.opacity)
-                    } else {
-                        activeHalfRing(from: 0, to: 0.5, size: size, lineWidth: activeRingWidth, isPaused: tiktokPaused)
-                        activeHalfRing(from: 0.5, to: 1, size: size, lineWidth: activeRingWidth, isPaused: instagramPaused)
-                    }
-                } else if ringState.isTikTokBlocked {
-                    activeHalfRing(from: 0, to: 0.5, size: size, lineWidth: activeRingWidth, isPaused: tiktokPaused)
-                        .transition(.opacity)
-                } else if ringState.isInstagramBlocked {
-                    activeHalfRing(from: 0.5, to: 1, size: size, lineWidth: activeRingWidth, isPaused: instagramPaused)
-                        .transition(.opacity)
+                if ringState.hasBlockedApp {
+                    activeSegmentedRing(
+                        ringState: ringState,
+                        segmentAppIDs: segmentAppIDs,
+                        size: size,
+                        lineWidth: activeRingWidth,
+                        instagramPaused: instagramPaused,
+                        tiktokPaused: tiktokPaused,
+                        xPaused: xPaused
+                    )
+                    .transition(.opacity)
                 }
 
                 Circle()
@@ -1083,7 +1212,7 @@ struct RadialBlockDial: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.76)
 
-            Text("short-form feeds")
+            Text("infinite feeds")
                 .font(NimaFonts.inter(size: labelSize, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.58))
                 .lineLimit(1)
@@ -1108,9 +1237,80 @@ struct RadialBlockDial: View {
         index.isMultiple(of: 6) ? 0.2 : 0.07
     }
 
-    private func activeHalfRing(from start: CGFloat, to end: CGFloat, size: CGFloat, lineWidth: CGFloat, isPaused: Bool) -> some View {
+    private func activeSegmentedRing(
+        ringState: BlockingRingState,
+        segmentAppIDs: [String],
+        size: CGFloat,
+        lineWidth: CGFloat,
+        instagramPaused: Bool,
+        tiktokPaused: Bool,
+        xPaused: Bool
+    ) -> some View {
+        let segmentCount = max(1, segmentAppIDs.count)
+        let segmentLength = 1 / CGFloat(segmentCount)
+
+        return ZStack {
+            ForEach(Array(segmentAppIDs.enumerated()), id: \.element) { index, appID in
+                if isRingAppBlocked(appID, ringState: ringState) {
+                    let start = CGFloat(index) * segmentLength
+                    let end = start + segmentLength
+                    activeSegment(
+                        from: start,
+                        to: end,
+                        size: size,
+                        lineWidth: lineWidth,
+                        isPaused: isRingAppPaused(
+                            appID,
+                            instagramPaused: instagramPaused,
+                            tiktokPaused: tiktokPaused,
+                            xPaused: xPaused
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private func isRingAppBlocked(_ appID: String, ringState: BlockingRingState) -> Bool {
+        switch appID {
+        case "instagram":
+            return ringState.isInstagramBlocked
+        case "tiktok":
+            return ringState.isTikTokBlocked
+        case "x":
+            return ringState.isXBlocked
+        default:
+            return false
+        }
+    }
+
+    private func isRingAppPaused(
+        _ appID: String,
+        instagramPaused: Bool,
+        tiktokPaused: Bool,
+        xPaused: Bool
+    ) -> Bool {
+        switch appID {
+        case "instagram":
+            return instagramPaused
+        case "tiktok":
+            return tiktokPaused
+        case "x":
+            return xPaused
+        default:
+            return false
+        }
+    }
+
+    private func activeSegment(
+        from start: CGFloat,
+        to end: CGFloat,
+        size: CGFloat,
+        lineWidth: CGFloat,
+        isPaused: Bool
+    ) -> some View {
         let ringDiameter = size * 0.78
-        let strokeStyle = StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+        let strokeStyle = StrokeStyle(lineWidth: lineWidth, lineCap: .butt)
         let color = isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent
         let hotColor = isPaused ? BlockingCardStyle.pausedAccentHot : BlockingCardStyle.accentHot
 
@@ -1145,69 +1345,6 @@ struct RadialBlockDial: View {
         }
     }
 
-    private func activeRing(size: CGFloat, lineWidth: CGFloat, isPaused: Bool) -> some View {
-        let ringDiameter = size * 0.78
-        let strokeStyle = StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-        let color = isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent
-        let hotColor = isPaused ? BlockingCardStyle.pausedAccentHot : BlockingCardStyle.accentHot
-
-        return ZStack {
-            Circle()
-                .stroke(color.opacity(isPaused ? 0.52 : 0.64), style: strokeStyle)
-                .frame(width: ringDiameter, height: ringDiameter)
-                .blur(radius: 10)
-                .opacity(isDropTargeted ? 0.72 : 0.52)
-
-            Circle()
-                .stroke(
-                    AngularGradient(
-                        colors: [
-                            hotColor,
-                            color,
-                            hotColor,
-                            color
-                        ],
-                        center: .center,
-                        startAngle: .degrees(-90),
-                        endAngle: .degrees(270)
-                    ),
-                    style: strokeStyle
-                )
-                .frame(width: ringDiameter, height: ringDiameter)
-                .shadow(color: color.opacity(isPaused ? 0.39 : 0.52), radius: 8)
-        }
-    }
-
-}
-
-private struct BlockedAppStatusPill: View {
-    let text: String
-    let isPaused: Bool
-    var scale: CGFloat = 1
-
-    private var visualScale: CGFloat {
-        min(1.08, max(0.9, scale))
-    }
-
-    var body: some View {
-        Text(text)
-            .font(NimaFonts.inter(size: 13 * visualScale, weight: .bold))
-            .foregroundStyle(.white)
-            .multilineTextAlignment(.center)
-            .lineLimit(2)
-            .minimumScaleFactor(0.8)
-            .padding(.horizontal, 8 * visualScale)
-            .padding(.vertical, 3 * visualScale)
-            .background(
-                Capsule()
-                    .fill(.black.opacity(0.78))
-            )
-            .overlay(
-                Capsule()
-                    .strokeBorder((isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent).opacity(0.52), lineWidth: 0.8)
-            )
-            .shadow(color: (isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent).opacity(isPaused ? 0.46 : 0.62), radius: 7)
-    }
 }
 
 struct AppBlockTile: View {
@@ -1219,21 +1356,65 @@ struct AppBlockTile: View {
     let hasPermissionError: Bool
 
     var body: some View {
-        ExactBlockingAppIcon(
-            platform: app.platform,
-            size: size * 1.49
-        )
-        .shadow(
-            color: (app.isPaused ? BlockingCardStyle.pausedAccent : BlockingCardStyle.accent)
-                .opacity(app.isBlocked ? (app.isPaused ? 0.35 : 0.46) : 0),
-            radius: app.isBlocked ? 15 : 0,
-            y: app.isBlocked ? 2 : 0
-        )
+        ZStack {
+            ExactBlockingAppIcon(
+                platform: app.platform,
+                size: size * 1.49
+            )
+        }
         .frame(width: size, height: size)
+        .overlay(alignment: .topTrailing) {
+            if let badge = visibleBadge {
+                BlockingAppTileBadge(
+                    systemImage: badge.systemImage,
+                    color: badge.color,
+                    size: size * 0.31
+                )
+                .offset(x: size * 0.11, y: -size * 0.11)
+            }
+        }
         .contentShape(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
         .scaleEffect(isDragging ? 1.12 : 1)
         .animation(.spring(response: 0.32, dampingFraction: 0.74), value: isDragging)
         .animation(.easeInOut(duration: 0.2), value: app.isBlocked)
+        .animation(.easeInOut(duration: 0.2), value: app.isPaused)
+    }
+
+    private var visibleBadge: BlockingAppTileBadge.Content? {
+        if app.isPaused {
+            return .init(systemImage: "pause.fill", color: BlockingCardStyle.warning)
+        }
+        guard let mode = app.activeModeBadge else { return nil }
+        return .init(systemImage: mode.systemImage, color: BlockingCardStyle.accent)
+    }
+}
+
+private struct BlockingAppTileBadge: View {
+    struct Content {
+        let systemImage: String
+        let color: Color
+    }
+
+    let systemImage: String
+    let color: Color
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(BlockingCardStyle.backgroundDeep.opacity(0.96))
+
+            Circle()
+                .strokeBorder(color.opacity(0.46), lineWidth: 1)
+
+            Image(systemName: systemImage)
+                .font(.system(size: size * 0.46, weight: .bold))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(color)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: color.opacity(0.3), radius: size * 0.28, y: size * 0.08)
+        .accessibilityHidden(true)
     }
 }
 
@@ -1242,35 +1423,15 @@ private struct ExactBlockingAppIcon: View {
     let size: CGFloat
 
     var body: some View {
-        Group {
-            if let image = UIImage.blockingCardResource(named: resourceName) {
-                Image(uiImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .antialiased(true)
-                    .scaledToFit()
-            } else {
-                SocialMediaIcon(platform: platform, size: size * 0.58)
-            }
-        }
+        SocialMediaIcon(platform: platform, size: size * 0.58)
         .frame(width: size, height: size)
-    }
-
-    private var resourceName: String {
-        switch platform.lowercased() {
-        case "instagram":
-            return "home_instagram_blocking_icon"
-        case "tiktok":
-            return "home_tiktok_blocking_icon"
-        default:
-            return platform
-        }
     }
 }
 
 private enum TileChevronDirection {
     case left
     case right
+    case up
 }
 
 private struct PulsingTileChevrons: View {
@@ -1290,19 +1451,19 @@ private struct PulsingTileChevrons: View {
     }
 
     var body: some View {
-        HStack(spacing: -1) {
-            ForEach(0..<2, id: \.self) { index in
-                Image(systemName: direction == .right ? "chevron.right" : "chevron.left")
-                    .font(.system(size: 15 * visualScale, weight: .black))
-                    .foregroundStyle(accent)
-                    .opacity((pulse ? 0.78 : 0.38) - Double(index) * 0.18)
-                    .shadow(
-                        color: accent.opacity(isPaused ? 0.30 : isLive ? 0.42 : 0.16),
-                        radius: (isLive ? 7 : 4) * visualScale
-                    )
+        Group {
+            if direction == .up {
+                VStack(spacing: -1) {
+                    chevrons
+                }
+            } else {
+                HStack(spacing: -1) {
+                    chevrons
+                }
             }
         }
-        .offset(x: pulse ? pulseOffset : -pulseOffset * 0.35)
+        .offset(y: direction == .up ? (pulse ? -pulseOffset : pulseOffset * 0.35) : 0)
+        .offset(x: direction == .up ? 0 : (pulse ? pulseOffset : -pulseOffset * 0.35))
         .opacity(isLive ? 1 : 0.55)
         .onAppear {
             withAnimation(.easeInOut(duration: 1.15).repeatForever(autoreverses: true)) {
@@ -1311,8 +1472,39 @@ private struct PulsingTileChevrons: View {
         }
     }
 
+    private var chevrons: some View {
+        ForEach(0..<2, id: \.self) { index in
+            Image(systemName: chevronSystemName)
+                .font(.system(size: 15 * visualScale, weight: .black))
+                .foregroundStyle(accent)
+                .opacity((pulse ? 0.78 : 0.38) - Double(index) * 0.18)
+                .shadow(
+                    color: accent.opacity(isPaused ? 0.30 : isLive ? 0.42 : 0.16),
+                    radius: (isLive ? 7 : 4) * visualScale
+                )
+        }
+    }
+
+    private var chevronSystemName: String {
+        switch direction {
+        case .left:
+            return "chevron.left"
+        case .right:
+            return "chevron.right"
+        case .up:
+            return "chevron.up"
+        }
+    }
+
     private var pulseOffset: CGFloat {
-        (direction == .right ? 4 : -4) * visualScale
+        switch direction {
+        case .left:
+            return -4 * visualScale
+        case .right:
+            return 4 * visualScale
+        case .up:
+            return 4 * visualScale
+        }
     }
 }
 

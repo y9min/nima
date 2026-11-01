@@ -10,6 +10,8 @@ struct HomeScreen: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(InstagramProtectionStore.self) private var instagramProtectionStore
     @Environment(TikTokProtectionStore.self) private var tiktokProtectionStore
+    @Environment(XProtectionStore.self) private var xProtectionStore
+    @Environment(HardModeCoordinator.self) private var hardModeCoordinator
     @Environment(\.sizeCategory) private var contentSizeCategory
     @EnvironmentObject private var vpnManager: VPNManager
     @State private var appIDPendingWindowEnd: String?
@@ -19,6 +21,9 @@ struct HomeScreen: View {
     @State private var isShowingTikTokPicker = false
     @State private var shouldEnableTikTokAfterSelection = false
     @State private var tiktokSetupError: String?
+    @State private var isShowingXPicker = false
+    @State private var shouldEnableXAfterSelection = false
+    @State private var xSetupError: String?
     @State private var isShowingPauseMode = false
     @State private var pauseDurationMinutes = 10
     @State private var pauseNow = Date()
@@ -30,6 +35,8 @@ struct HomeScreen: View {
     private var showsInstagramOnCard = true
     @AppStorage("blocking_card.tiktok_visible", store: UserDefaults(suiteName: NimaConstants.appGroupID))
     private var showsTikTokOnCard = true
+    @AppStorage("blocking_card.x_visible", store: UserDefaults(suiteName: NimaConstants.appGroupID))
+    private var showsXOnCard = true
     private let pauseDefaults = UserDefaults(suiteName: NimaConstants.appGroupID)
 
     var onSelectApp: (BlockedApp) -> Void
@@ -41,6 +48,7 @@ struct HomeScreen: View {
     var guidedPracticeCardStep: GuidedPracticeCardStep? = nil
     var showsGuidedWindowsHomeCoachMark = false
     var showsDock = true
+    var authorizeFeatureAccess = FeatureAccessGate.unrestricted
 
     var body: some View {
         GeometryReader { proxy in
@@ -112,16 +120,22 @@ struct HomeScreen: View {
             EditBlockersSheet(
                 showsInstagram: showsInstagramOnCard,
                 showsTikTok: showsTikTokOnCard,
+                showsX: showsXOnCard,
                 instagramMode: instagramProtectionStore.manualMode,
-                tiktokMode: tiktokProtectionStore.manualMode
-            ) { showsInstagram, showsTikTok, instagramMode, tiktokMode in
+                tiktokMode: tiktokProtectionStore.manualMode,
+                xMode: xProtectionStore.manualMode
+            ) { showsInstagram, showsTikTok, showsX, instagramMode, tiktokMode, xMode in
                 showsInstagramOnCard = showsInstagram
                 showsTikTokOnCard = showsTikTok
+                showsXOnCard = showsX
                 if instagramMode != instagramProtectionStore.manualMode {
                     instagramProtectionStore.setManualMode(instagramMode, source: "edit_blockers")
                 }
                 if tiktokMode != tiktokProtectionStore.manualMode {
                     tiktokProtectionStore.setManualMode(tiktokMode, source: "edit_blockers")
+                }
+                if xMode != xProtectionStore.manualMode {
+                    xProtectionStore.setManualMode(xMode, source: "edit_blockers")
                 }
             }
             .presentationDetents([.large])
@@ -155,23 +169,45 @@ struct HomeScreen: View {
                 set: { tiktokProtectionStore.familySelection = $0 }
             )
         )
+        .familyActivityPicker(
+            isPresented: $isShowingXPicker,
+            selection: Binding(
+                get: { xProtectionStore.familySelection },
+                set: { xProtectionStore.familySelection = $0 }
+            )
+        )
         .onChange(of: isShowingInstagramPicker) { wasShowing, isShowing in
             guard wasShowing, !isShowing, shouldEnableInstagramAfterSelection else { return }
             shouldEnableInstagramAfterSelection = false
             guard !instagramProtectionStore.familySelection.applicationTokens.isEmpty else { return }
-            instagramProtectionStore.setProtectionEnabled(
-                true,
-                source: "blocking_status_card.family_picker"
-            )
+            authorizeFeatureAccess {
+                instagramProtectionStore.setProtectionEnabled(
+                    true,
+                    source: "blocking_status_card.family_picker"
+                )
+            }
         }
         .onChange(of: isShowingTikTokPicker) { wasShowing, isShowing in
             guard wasShowing, !isShowing, shouldEnableTikTokAfterSelection else { return }
             shouldEnableTikTokAfterSelection = false
             guard !tiktokProtectionStore.familySelection.applicationTokens.isEmpty else { return }
-            tiktokProtectionStore.setProtectionEnabled(
-                true,
-                source: "blocking_status_card.family_picker"
-            )
+            authorizeFeatureAccess {
+                tiktokProtectionStore.setProtectionEnabled(
+                    true,
+                    source: "blocking_status_card.family_picker"
+                )
+            }
+        }
+        .onChange(of: isShowingXPicker) { wasShowing, isShowing in
+            guard wasShowing, !isShowing, shouldEnableXAfterSelection else { return }
+            shouldEnableXAfterSelection = false
+            guard !xProtectionStore.familySelection.applicationTokens.isEmpty else { return }
+            authorizeFeatureAccess {
+                xProtectionStore.setProtectionEnabled(
+                    true,
+                    source: "blocking_status_card.family_picker"
+                )
+            }
         }
         .alert("Instagram setup", isPresented: Binding(
             get: { instagramSetupError != nil },
@@ -189,10 +225,21 @@ struct HomeScreen: View {
         } message: {
             Text(tiktokSetupError ?? "Please try again.")
         }
+        .alert("X setup", isPresented: Binding(
+            get: { xSetupError != nil },
+            set: { if !$0 { xSetupError = nil } }
+        )) {
+            Button("OK", role: .cancel) { xSetupError = nil }
+        } message: {
+            Text(xSetupError ?? "Please try again.")
+        }
         .alert("End current window?", isPresented: isShowingEndWindowConfirmation) {
             Button("End Window", role: .destructive) {
                 if let appIDPendingWindowEnd {
-                    timeWindowStore.endActiveWindow(for: appIDPendingWindowEnd)
+                    _ = hardModeCoordinator.requestOff(
+                        .endActiveWindows(appID: appIDPendingWindowEnd),
+                        source: "blocking_status_card.end_window"
+                    )
                 }
                 appIDPendingWindowEnd = nil
             }
@@ -259,6 +306,18 @@ struct HomeScreen: View {
                 todayEarned: streakStore.hasEarnedToday(),
                 scale: layout.scale,
                 pauseEndsAt: pauseEndsAt,
+                hardModeEnabled: hardModeCoordinator.isEnabled,
+                onActivateHardMode: {
+                    authorizeFeatureAccess {
+                        hardModeCoordinator.requestActivationWarning()
+                    }
+                },
+                onDeactivateHardMode: {
+                    _ = hardModeCoordinator.requestOff(
+                        .turnOffHardMode,
+                        source: "home.hard_mode"
+                    )
+                },
                 onPause: {
                     guard pauseEndsAt == nil else { return }
                     guard !activeUnpausedAppIDs.isEmpty else {
@@ -275,27 +334,44 @@ struct HomeScreen: View {
     }
 
     private var dashboardApps: [BlockingDashboardApp] {
-        ["instagram", "tiktok"].compactMap { appId in
+        ["instagram", "tiktok", "x"].compactMap { appId in
             guard let app = store.app(for: appId) else { return nil }
             let isScheduled = timeWindowStore.isAppScheduled(app.id)
-            let isCurrentlyBlocked: Bool
+            let isManuallyBlocked: Bool
             switch app.id {
-            case "instagram": isCurrentlyBlocked = instagramProtectionStore.protectionEnabled || isScheduled
-            case "tiktok": isCurrentlyBlocked = tiktokProtectionStore.protectionEnabled || isScheduled
-            default: isCurrentlyBlocked = app.options.contains { $0.isEnabled } || isScheduled
+            case "instagram": isManuallyBlocked = instagramProtectionStore.protectionEnabled
+            case "tiktok": isManuallyBlocked = tiktokProtectionStore.protectionEnabled
+            case "x": isManuallyBlocked = xProtectionStore.protectionEnabled
+            default: isManuallyBlocked = app.options.contains { $0.isEnabled }
             }
+            let effectiveSchedule = HardModeProtectionState.effectivelyScheduled(
+                app.id,
+                scheduled: isScheduled,
+                defaults: pauseDefaults
+            )
+            let isCurrentlyBlocked = isManuallyBlocked || effectiveSchedule
             return BlockingDashboardApp(
                 id: app.id,
                 name: app.name,
                 platform: app.platform ?? app.id,
                 isBlocked: isCurrentlyBlocked,
-                isPaused: isCurrentlyBlocked && PauseModeState.isPaused(app.id, defaults: pauseDefaults, now: pauseNow),
-                isScheduled: isScheduled,
+                isPaused: isCurrentlyBlocked && (
+                    PauseModeState.isPaused(app.id, defaults: pauseDefaults, now: pauseNow)
+                        || HardModeProtectionState.isPaused(
+                            app.id,
+                            defaults: pauseDefaults,
+                            now: pauseNow
+                        )
+                ),
+                isScheduled: effectiveSchedule,
                 instagramMode: app.id == "instagram"
                     ? instagramProtectionStore.effectiveMode
                     : nil,
                 tiktokMode: app.id == "tiktok"
                     ? tiktokProtectionStore.effectiveMode
+                    : nil,
+                xMode: app.id == "x"
+                    ? xProtectionStore.effectiveMode
                     : nil
             )
         }
@@ -305,6 +381,7 @@ struct HomeScreen: View {
         var result = Set<String>()
         if showsInstagramOnCard { result.insert("instagram") }
         if showsTikTokOnCard { result.insert("tiktok") }
+        if showsXOnCard { result.insert("x") }
         return result
     }
 
@@ -321,6 +398,7 @@ struct HomeScreen: View {
 
     private func refreshPauseMode() {
         pauseNow = Date()
+        hardModeCoordinator.reconcilePauses()
         let expiry = pauseDefaults?.object(forKey: NimaConstants.pauseModeExpiresAtKey) as? Date
         if let expiry, expiry > pauseNow {
             pauseEndsAt = expiry
@@ -330,6 +408,7 @@ struct HomeScreen: View {
         }
         instagramProtectionStore.refreshPauseMode()
         tiktokProtectionStore.refreshPauseMode()
+        xProtectionStore.refreshPauseMode()
     }
 
     private func beginPauseMode() {
@@ -428,7 +507,7 @@ struct HomeScreen: View {
 
     private var blockingVPNState: BlockingVPNState {
         let onlyClientProtection = dashboardApps.contains(where: { $0.isBlocked })
-            && dashboardApps.filter(\.isBlocked).allSatisfy { ["instagram", "tiktok"].contains($0.id) }
+            && dashboardApps.filter(\.isBlocked).allSatisfy { ["instagram", "tiktok", "x"].contains($0.id) }
         if onlyClientProtection {
             return .connected
         }
@@ -452,6 +531,12 @@ struct HomeScreen: View {
         if appId == "instagram" {
             guard !timeWindowStore.isAppScheduled(appId) else { return }
             if instagramProtectionStore.protectionEnabled {
+                if hardModeCoordinator.requestOff(
+                    .disableClientProtection(appID: appId),
+                    source: "blocking_status_card.drag"
+                ) {
+                    return
+                }
                 instagramProtectionStore.setProtectionEnabled(
                     false,
                     source: "blocking_status_card.drag"
@@ -464,12 +549,36 @@ struct HomeScreen: View {
         if appId == "tiktok" {
             guard !timeWindowStore.isAppScheduled(appId) else { return }
             if tiktokProtectionStore.protectionEnabled {
+                if hardModeCoordinator.requestOff(
+                    .disableClientProtection(appID: appId),
+                    source: "blocking_status_card.drag"
+                ) {
+                    return
+                }
                 tiktokProtectionStore.setProtectionEnabled(
                     false,
                     source: "blocking_status_card.drag"
                 )
             } else {
                 enableTikTokProtection()
+            }
+            return
+        }
+        if appId == "x" {
+            guard !timeWindowStore.isAppScheduled(appId) else { return }
+            if xProtectionStore.protectionEnabled {
+                if hardModeCoordinator.requestOff(
+                    .disableClientProtection(appID: appId),
+                    source: "blocking_status_card.drag"
+                ) {
+                    return
+                }
+                xProtectionStore.setProtectionEnabled(
+                    false,
+                    source: "blocking_status_card.drag"
+                )
+            } else {
+                enableXProtection()
             }
             return
         }
@@ -487,51 +596,93 @@ struct HomeScreen: View {
             return
         }
 
-        store.toggleOption(appId: appId, optionId: optionId, source: "blocking_status_card")
+        if isCurrentlyBlocked,
+           hardModeCoordinator.requestOff(
+                .disableBlockingOption(appID: appId, optionID: optionId),
+                source: "blocking_status_card"
+           ) {
+            return
+        }
+        if isCurrentlyBlocked {
+            store.toggleOption(appId: appId, optionId: optionId, source: "blocking_status_card")
+        } else {
+            authorizeFeatureAccess {
+                store.toggleOption(appId: appId, optionId: optionId, source: "blocking_status_card")
+            }
+        }
     }
 
     private func enableInstagramProtection() {
-        Task {
-            do {
-                if instagramProtectionStore.authorizationStatus != .approved {
-                    try await instagramProtectionStore.requestAuthorization()
-                }
+        authorizeFeatureAccess {
+            Task { @MainActor in
+                do {
+                    if instagramProtectionStore.authorizationStatus != .approved {
+                        try await instagramProtectionStore.requestAuthorization()
+                    }
 
-                guard instagramProtectionStore.familySelection.applicationTokens.isEmpty else {
-                    instagramProtectionStore.setProtectionEnabled(
-                        true,
-                        source: "blocking_status_card.drag"
-                    )
-                    return
-                }
+                    guard instagramProtectionStore.familySelection.applicationTokens.isEmpty else {
+                        instagramProtectionStore.setProtectionEnabled(
+                            true,
+                            source: "blocking_status_card.drag"
+                        )
+                        return
+                    }
 
-                shouldEnableInstagramAfterSelection = true
-                isShowingInstagramPicker = true
-            } catch {
-                instagramSetupError = "Nima needs Screen Time access before it can block the official Instagram app."
+                    shouldEnableInstagramAfterSelection = true
+                    isShowingInstagramPicker = true
+                } catch {
+                    instagramSetupError = "Nima needs Screen Time access before it can block the official Instagram app."
+                }
             }
         }
     }
 
     private func enableTikTokProtection() {
-        Task {
-            do {
-                if tiktokProtectionStore.authorizationStatus != .approved {
-                    try await tiktokProtectionStore.requestAuthorization()
-                }
+        authorizeFeatureAccess {
+            Task { @MainActor in
+                do {
+                    if tiktokProtectionStore.authorizationStatus != .approved {
+                        try await tiktokProtectionStore.requestAuthorization()
+                    }
 
-                guard tiktokProtectionStore.familySelection.applicationTokens.isEmpty else {
-                    tiktokProtectionStore.setProtectionEnabled(
-                        true,
-                        source: "blocking_status_card.drag"
-                    )
-                    return
-                }
+                    guard tiktokProtectionStore.familySelection.applicationTokens.isEmpty else {
+                        tiktokProtectionStore.setProtectionEnabled(
+                            true,
+                            source: "blocking_status_card.drag"
+                        )
+                        return
+                    }
 
-                shouldEnableTikTokAfterSelection = true
-                isShowingTikTokPicker = true
-            } catch {
-                tiktokSetupError = "Nima needs Screen Time access before it can block the official TikTok app."
+                    shouldEnableTikTokAfterSelection = true
+                    isShowingTikTokPicker = true
+                } catch {
+                    tiktokSetupError = "Nima needs Screen Time access before it can block the official TikTok app."
+                }
+            }
+        }
+    }
+
+    private func enableXProtection() {
+        authorizeFeatureAccess {
+            Task { @MainActor in
+                do {
+                    if xProtectionStore.authorizationStatus != .approved {
+                        try await xProtectionStore.requestAuthorization()
+                    }
+
+                    guard xProtectionStore.familySelection.applicationTokens.isEmpty else {
+                        xProtectionStore.setProtectionEnabled(
+                            true,
+                            source: "blocking_status_card.drag"
+                        )
+                        return
+                    }
+
+                    shouldEnableXAfterSelection = true
+                    isShowingXPicker = true
+                } catch {
+                    xSetupError = "Nima needs Screen Time access before it can block the official X app."
+                }
             }
         }
     }
@@ -651,14 +802,22 @@ private struct StreakActionRail: View {
     let todayEarned: Bool
     let scale: CGFloat
     let pauseEndsAt: Date?
+    let hardModeEnabled: Bool
+    let onActivateHardMode: () -> Void
+    let onDeactivateHardMode: () -> Void
     let onPause: () -> Void
+    @State private var hardModeHoldProgress: CGFloat = 0
 
     private var visualScale: CGFloat {
         min(1.06, max(0.9, scale))
     }
 
+    private var iconSlotSize: CGFloat {
+        68 * visualScale
+    }
+
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             railItem(
                 title: currentStreakDays > 0 ? "\(currentStreakDays) day streak" : "Start a streak",
                 subtitle: streakSubtitle,
@@ -691,22 +850,78 @@ private struct StreakActionRail: View {
                 }
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .allowsHitTesting(pauseEndsAt == nil)
 
             divider
 
             railItem(
                 title: "Hard Mode",
-                subtitle: "Hold to activate",
-                accessibilityHint: "Coming soon"
+                subtitle: hardModeEnabled ? "On · tap to turn off" : "Hold to activate",
+                accessibilityHint: hardModeEnabled
+                    ? "Opens the Hard Mode challenge"
+                    : "Hold to turn on Hard Mode"
             ) {
-                Image(systemName: "power")
-                    .font(.system(size: 32 * visualScale, weight: .medium))
-                    .foregroundStyle(hardModeColor)
-                    .frame(width: 54 * visualScale, height: 54 * visualScale)
-                    .background(Circle().fill(hardModeColor.opacity(0.07)))
-                    .overlay(Circle().strokeBorder(hardModeColor.opacity(0.72), lineWidth: 1.5))
-                    .shadow(color: hardModeColor.opacity(0.17), radius: 12 * visualScale)
+                ZStack {
+                    if hardModeEnabled {
+                        HardModeActiveRing(scale: visualScale)
+                            .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    } else {
+                        HardModeHoldRing(
+                            progress: hardModeHoldProgress,
+                            color: hardModeColor,
+                            scale: visualScale
+                        )
+                        .opacity(hardModeHoldProgress > 0 ? 1 : 0)
+                    }
+
+                    Image(systemName: "power")
+                        .font(.system(size: 32 * visualScale, weight: .medium))
+                        .foregroundStyle(hardModeColor)
+                        .frame(width: 54 * visualScale, height: 54 * visualScale)
+                        .background(
+                            Circle().fill(
+                                hardModeColor.opacity(hardModeEnabled ? 0.12 : 0.07)
+                            )
+                        )
+                        .overlay(
+                            Circle().strokeBorder(
+                                hardModeColor.opacity(hardModeEnabled ? 0.95 : 0.72),
+                                lineWidth: hardModeEnabled ? 1.8 : 1.5
+                            )
+                        )
+                        .shadow(
+                            color: hardModeColor.opacity(hardModeEnabled ? 0.58 : 0.17),
+                            radius: (hardModeEnabled ? 13 : 12) * visualScale
+                        )
+                }
+                .animation(.easeInOut(duration: 0.24), value: hardModeEnabled)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard hardModeEnabled else { return }
+                onDeactivateHardMode()
+            }
+            .onLongPressGesture(
+                minimumDuration: 0.85,
+                maximumDistance: 24,
+                pressing: { isPressing in
+                    withAnimation(.linear(duration: isPressing ? 0.85 : 0.16)) {
+                        hardModeHoldProgress = isPressing ? 1 : 0
+                    }
+                },
+                perform: {
+                    guard !hardModeEnabled else { return }
+                    hardModeHoldProgress = 0
+                    onActivateHardMode()
+                }
+            )
+            .accessibilityAction(named: hardModeEnabled ? "Turn off Hard Mode" : "Activate Hard Mode") {
+                if hardModeEnabled {
+                    onDeactivateHardMode()
+                } else {
+                    onActivateHardMode()
+                }
             }
         }
         .padding(.horizontal, 8 * visualScale)
@@ -728,12 +943,13 @@ private struct StreakActionRail: View {
     ) -> some View {
         VStack(spacing: 0) {
             icon()
-            Spacer(minLength: 4 * visualScale)
+                .frame(width: iconSlotSize, height: iconSlotSize)
             Text(title)
                 .font(.system(size: 14 * visualScale, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.76)
+                .padding(.top, 8 * visualScale)
             Text(subtitle)
                 .font(NimaFonts.coolvetica(size: 11.8 * visualScale))
                 .foregroundStyle(HomeDashboardPalette.muted)
@@ -741,7 +957,7 @@ private struct StreakActionRail: View {
                 .minimumScaleFactor(0.7)
                 .padding(.top, 2 * visualScale)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title). \(subtitle).")
         .accessibilityHint(accessibilityHint ?? "")
@@ -765,6 +981,61 @@ private struct StreakActionRail: View {
             return "Block today"
         }
         return "Keep it going"
+    }
+}
+
+private struct HardModeActiveRing: View {
+    let scale: CGFloat
+
+    private let red = Color(red: 1.0, green: 0.32, blue: 0.39)
+    private let hotRed = Color(red: 1.0, green: 0.68, blue: 0.66)
+
+    var body: some View {
+        let diameter = 64 * scale
+        let lineWidth = 4 * scale
+        let gradient = AngularGradient(
+            colors: [hotRed, red, hotRed, red],
+            center: .center,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(270)
+        )
+
+        ZStack {
+            Circle()
+                .stroke(red.opacity(0.58), lineWidth: lineWidth)
+                .frame(width: diameter, height: diameter)
+                .blur(radius: 7 * scale)
+
+            Circle()
+                .stroke(
+                    gradient,
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+                .frame(width: diameter, height: diameter)
+                .shadow(color: red.opacity(0.72), radius: 8 * scale)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct HardModeHoldRing: View {
+    let progress: CGFloat
+    let color: Color
+    let scale: CGFloat
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: min(1, max(0, progress)))
+            .stroke(
+                color,
+                style: StrokeStyle(lineWidth: 3.5 * scale, lineCap: .round)
+            )
+            .rotationEffect(.degrees(-90))
+            .frame(width: 60 * scale, height: 60 * scale)
+            .shadow(color: color.opacity(0.55), radius: 5 * scale)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -895,12 +1166,14 @@ private struct HomeDashboardDebugOverlay: View {
 private struct EditBlockersSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    let onSave: (Bool, Bool, InstagramMode, TikTokMode) -> Void
+    let onSave: (Bool, Bool, Bool, InstagramMode, TikTokMode, XMode) -> Void
 
     @State private var showsInstagram: Bool
     @State private var showsTikTok: Bool
+    @State private var showsX: Bool
     @State private var instagramMode: InstagramMode
     @State private var tiktokMode: TikTokMode
+    @State private var xMode: XMode
 
     private let background = Color(red: 0.0, green: 0.105, blue: 0.068)
     private let tile = Color(red: 0.035, green: 0.17, blue: 0.095)
@@ -910,15 +1183,19 @@ private struct EditBlockersSheet: View {
     init(
         showsInstagram: Bool,
         showsTikTok: Bool,
+        showsX: Bool,
         instagramMode: InstagramMode,
         tiktokMode: TikTokMode,
-        onSave: @escaping (Bool, Bool, InstagramMode, TikTokMode) -> Void
+        xMode: XMode,
+        onSave: @escaping (Bool, Bool, Bool, InstagramMode, TikTokMode, XMode) -> Void
     ) {
         self.onSave = onSave
         _showsInstagram = State(initialValue: showsInstagram)
         _showsTikTok = State(initialValue: showsTikTok)
+        _showsX = State(initialValue: showsX)
         _instagramMode = State(initialValue: instagramMode)
         _tiktokMode = State(initialValue: tiktokMode)
+        _xMode = State(initialValue: xMode)
     }
 
     var body: some View {
@@ -949,11 +1226,11 @@ private struct EditBlockersSheet: View {
     }
 
     private var shownAppIDs: [String] {
-        ["instagram", "tiktok"].filter { isShown($0) }
+        ["instagram", "tiktok", "x"].filter { isShown($0) }
     }
 
     private var hiddenAppIDs: [String] {
-        ["instagram", "tiktok"].filter { !isShown($0) }
+        ["instagram", "tiktok", "x"].filter { !isShown($0) }
     }
 
     private var header: some View {
@@ -979,7 +1256,7 @@ private struct EditBlockersSheet: View {
             Spacer()
 
             Button {
-                onSave(showsInstagram, showsTikTok, instagramMode, tiktokMode)
+                onSave(showsInstagram, showsTikTok, showsX, instagramMode, tiktokMode, xMode)
                 dismiss()
             } label: {
                 Image(systemName: "checkmark")
@@ -1022,7 +1299,7 @@ private struct EditBlockersSheet: View {
             } label: {
                 HStack(spacing: 14) {
                     SocialMediaIcon(platform: appID, size: 40)
-                    Text(appID == "instagram" ? "Instagram" : "TikTok")
+                    Text(displayName(for: appID))
                         .font(.system(size: 21, weight: .medium, design: .rounded))
                         .foregroundStyle(.white)
                     Spacer()
@@ -1034,7 +1311,7 @@ private struct EditBlockersSheet: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(appID == "instagram" ? "Instagram" : "TikTok") on Home")
+            .accessibilityLabel("\(displayName(for: appID)) on Home")
             .accessibilityValue(isShown(appID) ? "Shown" : "Hidden")
 
             if isShown(appID) {
@@ -1066,7 +1343,7 @@ private struct EditBlockersSheet: View {
                 modeRowContent(value: instagramMode == .dmOnly ? "DM Only mode" : "Clean mode", showsChevron: true)
             }
             .accessibilityLabel("Instagram opens in \(instagramMode.title) mode")
-        } else {
+        } else if appID == "tiktok" {
             Menu {
                 ForEach(TikTokMode.allCases) { mode in
                     Button {
@@ -1083,6 +1360,23 @@ private struct EditBlockersSheet: View {
                 modeRowContent(value: tiktokMode == .dmOnly ? "DM Only mode" : "Clean mode", showsChevron: true)
             }
             .accessibilityLabel("TikTok opens in \(tiktokMode.title) mode")
+        } else {
+            Menu {
+                ForEach(XMode.allCases) { mode in
+                    Button {
+                        xMode = mode
+                    } label: {
+                        if xMode == mode {
+                            Label(mode == .clean ? "Clean mode" : "DM Only mode", systemImage: "checkmark")
+                        } else {
+                            Text(mode == .clean ? "Clean mode" : "DM Only mode")
+                        }
+                    }
+                }
+            } label: {
+                modeRowContent(value: xMode == .dmOnly ? "DM Only mode" : "Clean mode", showsChevron: true)
+            }
+            .accessibilityLabel("X opens in \(xMode.title) mode")
         }
     }
 
@@ -1108,14 +1402,33 @@ private struct EditBlockersSheet: View {
     }
 
     private func isShown(_ appID: String) -> Bool {
-        appID == "instagram" ? showsInstagram : showsTikTok
+        switch appID {
+        case "instagram": return showsInstagram
+        case "tiktok": return showsTikTok
+        case "x": return showsX
+        default: return false
+        }
     }
 
     private func toggleVisibility(_ appID: String) {
-        if appID == "instagram" {
+        switch appID {
+        case "instagram":
             showsInstagram.toggle()
-        } else {
+        case "tiktok":
             showsTikTok.toggle()
+        case "x":
+            showsX.toggle()
+        default:
+            break
+        }
+    }
+
+    private func displayName(for appID: String) -> String {
+        switch appID {
+        case "instagram": return "Instagram"
+        case "tiktok": return "TikTok"
+        case "x": return "X"
+        default: return appID.capitalized
         }
     }
 }
@@ -1123,6 +1436,7 @@ private struct EditBlockersSheet: View {
 #Preview {
     HomeScreen(onSelectApp: { _ in })
         .environment(TikTokProtectionStore())
+        .environment(XProtectionStore())
         .environment(AppStore())
         .environment(StreakStore(defaults: nil))
         .environment(TimeWindowStore())

@@ -165,10 +165,84 @@ final class BlockingRingStateTests: XCTestCase {
         XCTAssertTrue(state.hasBlockedApp)
         XCTAssertEqual(state.centerTitle, "UNBLOCK")
     }
+
+    func testXCanAppearAloneOrWithControlledClients() {
+        let xOnly = BlockingRingState(blockedAppIDs: ["x"])
+        XCTAssertEqual(xOnly, .xOnly)
+        XCTAssertTrue(xOnly.isXBlocked)
+        XCTAssertEqual(xOnly.centerTitle, "BLOCK")
+
+        let all = BlockingRingState(blockedAppIDs: ["instagram", "tiktok", "x"])
+        XCTAssertEqual(all, .all)
+        XCTAssertTrue(all.isInstagramBlocked)
+        XCTAssertTrue(all.isTikTokBlocked)
+        XCTAssertTrue(all.isXBlocked)
+        XCTAssertEqual(all.centerTitle, "UNBLOCK")
+    }
+
+    func testXModeBadgesDescribeCleanAndDMModes() {
+        let clean = BlockingDashboardApp(
+            id: "x",
+            name: "X",
+            platform: "x",
+            isBlocked: true,
+            xMode: .clean
+        )
+        XCTAssertEqual(clean.activeModeBadge, .clean)
+
+        let dmOnly = BlockingDashboardApp(
+            id: "x",
+            name: "X",
+            platform: "x",
+            isBlocked: true,
+            xMode: .dmOnly
+        )
+        XCTAssertEqual(dmOnly.activeModeBadge, .directMessages)
+    }
+}
+
+final class BlockingTileSlotTests: XCTestCase {
+    func testSingleVisibleAppUsesLeftSlot() {
+        for appID in ["instagram", "tiktok", "x"] {
+            XCTAssertEqual(
+                BlockingTileSlot.resolve(for: appID, visibleAppIDs: [appID]),
+                .left
+            )
+        }
+    }
+
+    func testInstagramAndXUseLeftAndRightSlots() {
+        let visibleAppIDs: Set<String> = ["instagram", "x"]
+
+        XCTAssertEqual(BlockingTileSlot.resolve(for: "instagram", visibleAppIDs: visibleAppIDs), .left)
+        XCTAssertEqual(BlockingTileSlot.resolve(for: "x", visibleAppIDs: visibleAppIDs), .right)
+    }
+
+    func testTikTokAndXUseRightAndLeftSlots() {
+        let visibleAppIDs: Set<String> = ["tiktok", "x"]
+
+        XCTAssertEqual(BlockingTileSlot.resolve(for: "x", visibleAppIDs: visibleAppIDs), .left)
+        XCTAssertEqual(BlockingTileSlot.resolve(for: "tiktok", visibleAppIDs: visibleAppIDs), .right)
+    }
+
+    func testInstagramAndTikTokKeepSideSlots() {
+        let visibleAppIDs: Set<String> = ["instagram", "tiktok"]
+
+        XCTAssertEqual(BlockingTileSlot.resolve(for: "instagram", visibleAppIDs: visibleAppIDs), .left)
+        XCTAssertEqual(BlockingTileSlot.resolve(for: "tiktok", visibleAppIDs: visibleAppIDs), .right)
+    }
+
+    func testThreeVisibleAppsKeepInstagramAndTikTokAtSideSlots() {
+        let visibleAppIDs: Set<String> = ["instagram", "tiktok", "x"]
+
+        XCTAssertEqual(BlockingTileSlot.resolve(for: "instagram", visibleAppIDs: visibleAppIDs), .left)
+        XCTAssertEqual(BlockingTileSlot.resolve(for: "tiktok", visibleAppIDs: visibleAppIDs), .right)
+        XCTAssertEqual(BlockingTileSlot.resolve(for: "x", visibleAppIDs: visibleAppIDs), .bottom)
+    }
 }
 
 final class BlockingDashboardAppStatusTests: XCTestCase {
-    func testActiveInstagramUsesCleanModeLabel() {
+    func testActiveInstagramUsesCleanModeBadge() {
         let app = BlockingDashboardApp(
             id: "instagram",
             name: "Instagram",
@@ -177,10 +251,10 @@ final class BlockingDashboardAppStatusTests: XCTestCase {
             instagramMode: .clean
         )
 
-        XCTAssertEqual(app.activeStatusLabel, "CLEAN MODE\nACTIVE")
+        XCTAssertEqual(app.activeModeBadge, .clean)
     }
 
-    func testActiveInstagramUsesDMOnlyModeLabel() {
+    func testActiveInstagramUsesDMOnlyModeBadge() {
         let app = BlockingDashboardApp(
             id: "instagram",
             name: "Instagram",
@@ -189,10 +263,10 @@ final class BlockingDashboardAppStatusTests: XCTestCase {
             instagramMode: .dmOnly
         )
 
-        XCTAssertEqual(app.activeStatusLabel, "DM ONLY\nMODE ACTIVE")
+        XCTAssertEqual(app.activeModeBadge, .directMessages)
     }
 
-    func testInactiveAppHasNoStatusLabel() {
+    func testInactiveAppHasNoModeBadge() {
         let app = BlockingDashboardApp(
             id: "instagram",
             name: "Instagram",
@@ -201,7 +275,7 @@ final class BlockingDashboardAppStatusTests: XCTestCase {
             instagramMode: .clean
         )
 
-        XCTAssertNil(app.activeStatusLabel)
+        XCTAssertNil(app.activeModeBadge)
     }
 }
 
