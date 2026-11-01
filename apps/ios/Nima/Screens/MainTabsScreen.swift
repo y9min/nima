@@ -15,6 +15,8 @@ struct MainTabsScreen: View {
     var guidedWindowsEditorStep: GuidedWindowsEditorStep?
     var onGuidedWindowsEditorAdvance: () -> Void = {}
     var onGuidedWindowsEditorFinished: () -> Void = {}
+    var authorizeFeatureAccess = FeatureAccessGate.unrestricted
+    var showsDock = true
 
     var body: some View {
         GeometryReader { proxy in
@@ -37,7 +39,8 @@ struct MainTabsScreen: View {
                             onShowGuidedOnboarding: onShowGuidedOnboarding,
                             guidedPracticeCardStep: guidedPracticeCardStep,
                             showsGuidedWindowsHomeCoachMark: showsGuidedWindowsHomeCoachMark,
-                            showsDock: false
+                            showsDock: false,
+                            authorizeFeatureAccess: authorizeFeatureAccess
                         )
                         .transition(.opacity)
                     case .windows:
@@ -51,7 +54,8 @@ struct MainTabsScreen: View {
                             guidedWindowsEditorStep: guidedWindowsEditorStep,
                             onGuidedWindowsEditorAdvance: onGuidedWindowsEditorAdvance,
                             onGuidedWindowsEditorFinished: onGuidedWindowsEditorFinished,
-                            showsDock: false
+                            showsDock: false,
+                            authorizeFeatureAccess: authorizeFeatureAccess
                         )
                         .transition(.opacity)
                     case .settings:
@@ -65,18 +69,21 @@ struct MainTabsScreen: View {
                 }
                 .animation(.easeInOut(duration: 0.16), value: selectedTab)
 
-                AppBottomDock(
-                    selected: selectedTab,
-                    scale: layout.scale,
-                    onHome: { selectedTab = .home },
-                    onWindows: { selectedTab = .windows },
-                    onSettings: openSettings
-                )
-                .frame(width: layout.contentWidth, height: layout.dockHeight)
-                .padding(.bottom, layout.dockBottomPadding)
+                if showsDock {
+                    AppBottomDock(
+                        selected: selectedTab,
+                        scale: layout.scale,
+                        onHome: { selectedTab = .home },
+                        onWindows: { selectedTab = .windows },
+                        onSettings: openSettings
+                    )
+                    .frame(width: layout.contentWidth, height: layout.dockHeight)
+                    .padding(.bottom, layout.dockBottomPadding)
+                }
             }
         }
         .onAppear {
+            resumeGuidedWindowsEditorIfNeeded()
             if timeWindowStore.homeFocusRequestID != nil {
                 selectedTab = .home
             }
@@ -89,14 +96,23 @@ struct MainTabsScreen: View {
     }
 
     private func openSettings() {
+        guard showsDock else { return }
         selectedTab = .settings
     }
 
     private func openAddTimeWindow() {
-        if showsGuidedWindowsHomeCoachMark {
-            onGuidedWindowsHomeAction()
+        authorizeFeatureAccess {
+            if showsGuidedWindowsHomeCoachMark {
+                onGuidedWindowsHomeAction()
+            }
+            pendingAddWindowRequestID = UUID()
+            selectedTab = .windows
         }
-        pendingAddWindowRequestID = UUID()
+    }
+
+    private func resumeGuidedWindowsEditorIfNeeded() {
+        guard guidedWindowsEditorStep != nil else { return }
         selectedTab = .windows
+        pendingAddWindowRequestID = UUID()
     }
 }

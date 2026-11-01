@@ -3,11 +3,28 @@ import UIKit
 
 struct GuidedOnboardingModal: View {
     var completionTitle: String = "Done"
+    var initialPage: Int = 0
+    var onPageChanged: (Int) -> Void = { _ in }
     var onDone: () -> Void
 
-    @State private var currentPage = 0
+    @State private var currentPage: Int
 
     private let slides = GuidedOnboardingSlide.slides
+
+    init(
+        completionTitle: String = "Done",
+        initialPage: Int = 0,
+        onPageChanged: @escaping (Int) -> Void = { _ in },
+        onDone: @escaping () -> Void
+    ) {
+        self.completionTitle = completionTitle
+        self.initialPage = initialPage
+        self.onPageChanged = onPageChanged
+        self.onDone = onDone
+        _currentPage = State(
+            initialValue: min(max(0, initialPage), GuidedOnboardingSlide.slides.count - 1)
+        )
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -31,6 +48,9 @@ struct GuidedOnboardingModal: View {
                 .accessibilityIdentifier("guided_onboarding.modal")
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .onChange(of: currentPage) { _, page in
+            onPageChanged(page)
         }
     }
 }
@@ -349,16 +369,16 @@ private struct GuidedOnboardingSlide: Identifiable {
     static let slides = [
         GuidedOnboardingSlide(
             index: 0,
-            subtitle: "Drag an app to block short form feeds",
+            subtitle: "Drag an app to block infinite feeds",
             imageName: "guided_onboarding_block_placeholder",
-            body: "Pick the apps where you want short form feeds blocked",
+            body: "Pick the apps where you want infinite feeds blocked",
             mediaScale: 0.87
         ),
         GuidedOnboardingSlide(
             index: 1,
             subtitle: "Open the app like normal",
             imageName: "guided_onboarding_feed_placeholder",
-            body: "Short form feeds are removed. Posts and stories are still viewable",
+            body: "Infinite feeds are removed. Posts and stories are still viewable",
             mediaScale: 1
         ),
         GuidedOnboardingSlide(

@@ -72,6 +72,111 @@ enum GuidedOnboardingPresentationMode: Equatable {
     }
 }
 
+enum GuidedPracticeStep: String, Codable, CaseIterable {
+    case introSlides = "intro_slides"
+    case readyCoachMark = "ready_coach_mark"
+    case appSelection = "app_selection"
+    case familyPickerVideo = "family_picker_video"
+    case appConnections = "app_connections"
+    case dragTikTokCoachMark = "drag_tiktok_coach_mark"
+    case openAppPrompt = "open_app_prompt"
+    case waitingForReturn = "waiting_for_return"
+    case success
+    case windowsHomeCoachMark = "windows_home_coach_mark"
+    case windowsEditorName = "windows_editor_name"
+    case windowsEditorTime = "windows_editor_time"
+    case windowsEditorApps = "windows_editor_apps"
+    case windowsEditorRepeatDays = "windows_editor_repeat_days"
+    case windowsEditorIcon = "windows_editor_icon"
+    case windowsEditorSaveOrCancel = "windows_editor_save_or_cancel"
+    case windowsReady = "windows_ready"
+    case reviewPrompt = "review_prompt"
+    case troubleshooting
+    case completed
+
+    var phase: GuidedPracticePhase {
+        switch self {
+        case .introSlides: return .introSlides
+        case .readyCoachMark: return .readyCoachMark
+        case .appSelection: return .appSelection
+        case .familyPickerVideo: return .familyPickerVideo
+        case .appConnections: return .appConnections
+        case .dragTikTokCoachMark: return .dragTikTokCoachMark
+        case .openAppPrompt: return .openAppPrompt
+        case .waitingForReturn: return .waitingForReturn
+        case .success: return .success
+        case .windowsHomeCoachMark: return .windowsHomeCoachMark
+        case .windowsEditorName: return .windowsEditor(.name)
+        case .windowsEditorTime: return .windowsEditor(.time)
+        case .windowsEditorApps: return .windowsEditor(.apps)
+        case .windowsEditorRepeatDays: return .windowsEditor(.repeatDays)
+        case .windowsEditorIcon: return .windowsEditor(.icon)
+        case .windowsEditorSaveOrCancel: return .windowsEditor(.saveOrCancel)
+        case .windowsReady: return .windowsReady
+        case .reviewPrompt: return .reviewPrompt
+        case .troubleshooting: return .troubleshooting
+        case .completed: return .completed
+        }
+    }
+
+    init?(phase: GuidedPracticePhase) {
+        switch phase {
+        case .hidden:
+            return nil
+        case .introSlides:
+            self = .introSlides
+        case .readyCoachMark:
+            self = .readyCoachMark
+        case .appSelection:
+            self = .appSelection
+        case .familyPickerVideo:
+            self = .familyPickerVideo
+        case .appConnections:
+            self = .appConnections
+        case .dragTikTokCoachMark:
+            self = .dragTikTokCoachMark
+        case .openAppPrompt:
+            self = .openAppPrompt
+        case .waitingForReturn:
+            self = .waitingForReturn
+        case .success:
+            self = .success
+        case .windowsHomeCoachMark:
+            self = .windowsHomeCoachMark
+        case .windowsEditor(.name):
+            self = .windowsEditorName
+        case .windowsEditor(.time):
+            self = .windowsEditorTime
+        case .windowsEditor(.apps):
+            self = .windowsEditorApps
+        case .windowsEditor(.repeatDays):
+            self = .windowsEditorRepeatDays
+        case .windowsEditor(.icon):
+            self = .windowsEditorIcon
+        case .windowsEditor(.saveOrCancel):
+            self = .windowsEditorSaveOrCancel
+        case .windowsReady:
+            self = .windowsReady
+        case .reviewPrompt:
+            self = .reviewPrompt
+        case .troubleshooting:
+            self = .troubleshooting
+        case .completed:
+            self = .completed
+        }
+    }
+
+    var isWindowsEditorStep: Bool {
+        switch self {
+        case .windowsEditorName, .windowsEditorTime, .windowsEditorApps,
+             .windowsEditorRepeatDays, .windowsEditorIcon, .windowsEditorSaveOrCancel:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 enum GuidedPracticePhase: Equatable {
     case hidden
     case introSlides
@@ -89,6 +194,40 @@ enum GuidedPracticePhase: Equatable {
     case reviewPrompt
     case troubleshooting
     case completed
+}
+
+struct GuidedWindowsDraft: Codable, Equatable {
+    var emoji: String
+    var name: String
+    var startTime: String
+    var endTime: String
+    var selectedApps: Set<String>
+    var selectedDays: Set<TimeWindowWeekday>
+
+    init(
+        emoji: String = "⏰",
+        name: String = "",
+        startTime: String = "09:00",
+        endTime: String = "17:00",
+        selectedApps: Set<String> = [],
+        selectedDays: Set<TimeWindowWeekday> = []
+    ) {
+        self.emoji = emoji
+        self.name = name
+        self.startTime = startTime
+        self.endTime = endTime
+        self.selectedApps = selectedApps
+        self.selectedDays = selectedDays
+    }
+
+    var repeatDays: [TimeWindowWeekday] {
+        TimeWindowWeekday.allCases.filter(selectedDays.contains)
+    }
+}
+
+struct GuidedPracticeAppConnection: Codable, Equatable {
+    let appID: String
+    let token: ApplicationToken
 }
 
 struct ScreenTimeAppConnections: Codable {

@@ -3,6 +3,7 @@ import UIKit
 import Combine
 import UserNotifications
 import FamilyControls
+import AppTrackingTransparency
 
 struct OnboardingFlowScreen: View {
     @Environment(OnboardingStore.self) private var onboardingStore
@@ -80,6 +81,8 @@ struct OnboardingFlowScreen: View {
             screenTimeEducationPage
         case .notifications:
             notificationsPage
+        case .tracking:
+            trackingPage
         }
     }
 
@@ -380,7 +383,7 @@ struct OnboardingFlowScreen: View {
                 OnboardingTitle("Stay on track with\nreminders")
                     .padding(.top, 22)
 
-                Text("Nima can remind you when a blocking\nwindow starts, ends, or needs\nyour attention")
+                Text("Nima can remind you about your streak\nand when paused window blocking\nneeds your attention")
                     .font(.system(size: 20, weight: .regular))
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
@@ -407,6 +410,46 @@ struct OnboardingFlowScreen: View {
                     requestNotificationPermissionAndContinue()
                 }
                 .accessibilityIdentifier("onboarding.notifications.continue")
+            }
+        }
+    }
+
+    private var trackingPage: some View {
+        OnboardingWhitePage(onBack: goBack) {
+            VStack(spacing: 14) {
+                OnboardingTitle("Help more people\nbreak the scroll")
+                    .padding(.top, 22)
+
+                Text("With your permission, we can find more\npeople who want to stop endless\nscrolling and take back their time")
+                    .font(.system(size: 18, weight: .regular))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.78)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(OnboardingPalette.secondaryText)
+
+                Spacer()
+                    .frame(height: 30)
+
+                TrackingPermissionIllustration()
+                    .frame(width: 272)
+                    .padding(.bottom, 54)
+                    .offset(y: -40)
+            }
+        } bottom: {
+            VStack(spacing: 16) {
+                Text("You can change this at any time")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(OnboardingPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                OnboardingPrimaryButton(title: "Continue") {
+                    requestTrackingPermissionAndContinue()
+                }
+                .accessibilityIdentifier("onboarding.tracking.continue")
             }
         }
     }
@@ -471,12 +514,52 @@ struct OnboardingFlowScreen: View {
                     AnalyticsEvent.permissionResolved,
                     properties: properties
                 )
-                AnalyticsService.shared.capture(
-                    AnalyticsEvent.onboardingStepCompleted,
-                    properties: ["step": OnboardingStep.notifications.analyticsName]
-                )
-                completeOnboarding()
+                move(to: .tracking)
             }
+        }
+    }
+
+    private func requestTrackingPermissionAndContinue() {
+        guard ATTrackingManager.trackingAuthorizationStatus == .notDetermined else {
+            AnalyticsService.shared.capture(
+                AnalyticsEvent.onboardingStepCompleted,
+                properties: ["step": OnboardingStep.tracking.analyticsName]
+            )
+            completeOnboarding()
+            return
+        }
+
+        AnalyticsService.shared.capture(
+            AnalyticsEvent.permissionRequested,
+            properties: ["permission": "app_tracking_transparency"]
+        )
+        Task { @MainActor in
+            let status = await ATTrackingManager.requestTrackingAuthorization()
+            MetaAdsService.shared.refreshConsent()
+            AnalyticsService.shared.capture(
+                AnalyticsEvent.permissionResolved,
+                properties: [
+                    "permission": "app_tracking_transparency",
+                    "status": trackingAuthorizationStatusName(status),
+                ]
+            )
+            AnalyticsService.shared.capture(
+                AnalyticsEvent.onboardingStepCompleted,
+                properties: ["step": OnboardingStep.tracking.analyticsName]
+            )
+            completeOnboarding()
+        }
+    }
+
+    private func trackingAuthorizationStatusName(
+        _ status: ATTrackingManager.AuthorizationStatus
+    ) -> String {
+        switch status {
+        case .notDetermined: return "not_determined"
+        case .restricted: return "restricted"
+        case .denied: return "denied"
+        case .authorized: return "authorized"
+        @unknown default: return "unknown"
         }
     }
 
@@ -528,6 +611,7 @@ private enum OnboardingStep {
     case habits
     case screenTime
     case notifications
+    case tracking
 
     var analyticsName: String {
         switch self {
@@ -543,6 +627,7 @@ private enum OnboardingStep {
         case .habits: return "habits"
         case .screenTime: return "screen_time_permission"
         case .notifications: return "notifications_permission"
+        case .tracking: return "tracking_permission"
         }
     }
 
@@ -572,6 +657,8 @@ private enum OnboardingStep {
             return .stayConnected
         case .notifications:
             return .screenTime
+        case .tracking:
+            return .notifications
         }
     }
 }
@@ -1867,6 +1954,136 @@ private struct NotificationPermissionIllustration: View {
                 .offset(x: -48, y: 34)
         }
         .accessibilityLabel("Example notification permission dialog")
+    }
+}
+
+private struct TrackingPermissionIllustration: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            TrackingPermissionAppIcon()
+
+            Text("Allow “Nima” to track your\nactivity across other\ncompanies’ apps and websites?")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
+
+            Text("Used to improve our ads and reach\nmore people who want to stop\nscrolling.")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(.white.opacity(0.62))
+                .lineSpacing(1)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
+
+            Spacer(minLength: 3)
+
+            VStack(spacing: 6) {
+                TrackingPermissionPromptButton(title: "Ask App Not to Track")
+                TrackingPermissionPromptButton(title: "Allow")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(red: 0.075, green: 0.08, blue: 0.09))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.black.opacity(0.72), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.16), radius: 12, y: 5)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            CurvedArrow()
+                .stroke(
+                    OnboardingPalette.green,
+                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                )
+                .frame(width: 52, height: 64)
+                .scaleEffect(x: -1, y: 1)
+                .offset(x: -48, y: 54)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "Example tracking permission dialog. Allow Nima to track your activity across other companies’ apps and websites to improve ads and reach more people who want to stop scrolling."
+        )
+    }
+}
+
+private struct TrackingPermissionPromptButton: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .frame(maxWidth: .infinity)
+            .frame(height: 38)
+            .background(Color.white.opacity(0.1))
+            .clipShape(Capsule())
+    }
+}
+
+private struct TrackingPermissionAppIcon: View {
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 1.0, green: 0.61, blue: 0.17),
+                            Color(red: 1.0, green: 0.5, blue: 0.0),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            TrackingPermissionMark()
+                .stroke(
+                    .white,
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
+                )
+                .padding(10)
+
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(red: 0.0, green: 0.48, blue: 1.0))
+                .frame(width: 30, height: 30)
+                .overlay {
+                    Image(systemName: "hand.raised.fill")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                }
+                .offset(x: 5, y: 5)
+        }
+        .frame(width: 48, height: 48)
+    }
+}
+
+private struct TrackingPermissionMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addRoundedRect(
+            in: CGRect(
+                x: rect.width * 0.24,
+                y: rect.height * 0.2,
+                width: rect.width * 0.2,
+                height: rect.height * 0.24
+            ),
+            cornerSize: CGSize(width: 4, height: 4)
+        )
+        path.move(to: CGPoint(x: rect.width * 0.34, y: rect.height * 0.44))
+        path.addLine(to: CGPoint(x: rect.width * 0.34, y: rect.height * 0.56))
+        path.addCurve(
+            to: CGPoint(x: rect.width * 0.67, y: rect.height * 0.81),
+            control1: CGPoint(x: rect.width * 0.34, y: rect.height * 0.7),
+            control2: CGPoint(x: rect.width * 0.51, y: rect.height * 0.81)
+        )
+        path.addLine(to: CGPoint(x: rect.width * 0.78, y: rect.height * 0.81))
+        return path
     }
 }
 

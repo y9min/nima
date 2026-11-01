@@ -111,6 +111,57 @@ final class OnboardingStoreTests: XCTestCase {
         XCTAssertTrue(reloaded.hasCompletedGuidedWindowsOnboarding)
     }
 
+    func testGuidedPracticeStepAndIntroSlidePersist() {
+        let defaults = testDefaults()
+        let store = OnboardingStore(defaults: defaults)
+
+        store.setGuidedPracticeStep(.windowsEditorIcon)
+        store.setGuidedPracticeIntroSlideIndex(2)
+
+        let reloaded = OnboardingStore(defaults: defaults)
+
+        XCTAssertEqual(reloaded.guidedPracticeStep, .windowsEditorIcon)
+        XCTAssertEqual(reloaded.guidedPracticeIntroSlideIndex, 2)
+        XCTAssertEqual(reloaded.guidedPracticeStep?.phase, .windowsEditor(.icon))
+    }
+
+    func testGuidedPracticeSelectedAppsPersistAndIgnoreUnsupportedValues() {
+        let defaults = testDefaults()
+        let store = OnboardingStore(defaults: defaults)
+
+        store.setGuidedPracticeSelectedAppIDs(["instagram", "tiktok", "unknown"])
+
+        let reloaded = OnboardingStore(defaults: defaults)
+
+        XCTAssertEqual(reloaded.guidedPracticeSelectedAppIDs, ["instagram", "tiktok"])
+    }
+
+    func testGuidedWindowsDraftPersistsUntilCleared() {
+        let defaults = testDefaults()
+        let store = OnboardingStore(defaults: defaults)
+        let draft = GuidedWindowsDraft(
+            emoji: "🌙",
+            name: "Evening",
+            startTime: "20:30",
+            endTime: "22:45",
+            selectedApps: ["instagram", "x"],
+            selectedDays: [.friday, .saturday]
+        )
+
+        store.saveGuidedWindowsDraft(draft)
+        XCTAssertEqual(OnboardingStore(defaults: defaults).guidedWindowsDraft, draft)
+
+        store.clearGuidedWindowsDraft()
+        XCTAssertNil(OnboardingStore(defaults: defaults).guidedWindowsDraft)
+    }
+
+    func testEveryGuidedPracticeStepRoundTripsThroughItsPhase() {
+        for step in GuidedPracticeStep.allCases {
+            XCTAssertEqual(GuidedPracticeStep(phase: step.phase), step)
+        }
+        XCTAssertNil(GuidedPracticeStep(phase: .hidden))
+    }
+
     func testExistingGuidedPracticeUsersDefaultToGuidedWindowsComplete() {
         let defaults = testDefaults()
         defaults.set(true, forKey: NimaConstants.guidedPracticeCompletedKey)
@@ -190,6 +241,10 @@ final class OnboardingStoreTests: XCTestCase {
         store.markGuidedOnboardingSeen()
         store.markGuidedPracticeCompleted()
         store.setGuidedPracticeReturnPending(true)
+        store.setGuidedPracticeStep(.windowsEditorRepeatDays)
+        store.setGuidedPracticeIntroSlideIndex(2)
+        store.setGuidedPracticeSelectedAppIDs(["instagram"])
+        store.saveGuidedWindowsDraft(GuidedWindowsDraft(name: "Focus"))
         store.markGuidedWindowsOnboardingCompleted()
 
         store.resetForOnboardingRestart()
@@ -200,6 +255,10 @@ final class OnboardingStoreTests: XCTestCase {
         XCTAssertFalse(reloaded.hasCompletedGuidedPractice)
         XCTAssertFalse(reloaded.hasGuidedPracticeReturnPending)
         XCTAssertFalse(reloaded.hasCompletedGuidedWindowsOnboarding)
+        XCTAssertNil(reloaded.guidedPracticeStep)
+        XCTAssertEqual(reloaded.guidedPracticeIntroSlideIndex, 0)
+        XCTAssertTrue(reloaded.guidedPracticeSelectedAppIDs.isEmpty)
+        XCTAssertNil(reloaded.guidedWindowsDraft)
         XCTAssertNil(reloaded.phoneHours)
         XCTAssertNil(reloaded.age)
         XCTAssertTrue(reloaded.selectedHabits.isEmpty)

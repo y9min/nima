@@ -1,4 +1,5 @@
 import Foundation
+import FamilyControls
 import Observation
 
 struct OnboardingStateV1: Codable, Equatable {
@@ -30,6 +31,12 @@ final class OnboardingStore {
     var hasCompletedGuidedPractice: Bool = false
     var hasGuidedPracticeReturnPending: Bool = false
     var hasCompletedGuidedWindowsOnboarding: Bool = false
+    var guidedPracticeStep: GuidedPracticeStep?
+    var guidedPracticeIntroSlideIndex: Int = 0
+    var guidedPracticeSelectedAppIDs: Set<String> = []
+    var guidedPracticeFamilySelection: FamilyActivitySelection?
+    var guidedPracticeAppConnections: [GuidedPracticeAppConnection] = []
+    var guidedWindowsDraft: GuidedWindowsDraft?
     var phoneHours: Int?
     var age: Int?
     var selectedHabits: Set<String> = []
@@ -98,6 +105,66 @@ final class OnboardingStore {
         defaults?.set(true, forKey: NimaConstants.guidedWindowsOnboardingCompletedKey)
     }
 
+    func setGuidedPracticeStep(_ step: GuidedPracticeStep) {
+        guidedPracticeStep = step
+        defaults?.set(step.rawValue, forKey: NimaConstants.guidedPracticeStepKey)
+    }
+
+    func setGuidedPracticeIntroSlideIndex(_ index: Int) {
+        let clampedIndex = max(0, index)
+        guidedPracticeIntroSlideIndex = clampedIndex
+        defaults?.set(clampedIndex, forKey: NimaConstants.guidedPracticeIntroSlideIndexKey)
+    }
+
+    func setGuidedPracticeSelectedAppIDs(_ appIDs: Set<String>) {
+        let supportedAppIDs = appIDs.intersection(
+            Self.supportedGuidedPracticeAppIDs
+        )
+        guidedPracticeSelectedAppIDs = supportedAppIDs
+        defaults?.set(
+            supportedAppIDs.sorted(),
+            forKey: NimaConstants.guidedPracticeSelectedAppIDsKey
+        )
+    }
+
+    func setGuidedPracticeFamilySelection(_ selection: FamilyActivitySelection) {
+        guidedPracticeFamilySelection = selection
+        guard let data = try? JSONEncoder().encode(selection) else { return }
+        defaults?.set(data, forKey: NimaConstants.guidedPracticeFamilySelectionKey)
+    }
+
+    func setGuidedPracticeAppConnections(_ connections: [GuidedPracticeAppConnection]) {
+        guidedPracticeAppConnections = connections
+        guard let data = try? JSONEncoder().encode(connections) else { return }
+        defaults?.set(data, forKey: NimaConstants.guidedPracticeAppConnectionsKey)
+    }
+
+    func saveGuidedWindowsDraft(_ draft: GuidedWindowsDraft) {
+        guidedWindowsDraft = draft
+        guard let data = try? JSONEncoder().encode(draft) else { return }
+        defaults?.set(data, forKey: NimaConstants.guidedWindowsDraftKey)
+    }
+
+    func clearGuidedWindowsDraft() {
+        guidedWindowsDraft = nil
+        defaults?.removeObject(forKey: NimaConstants.guidedWindowsDraftKey)
+    }
+
+    func resetGuidedPracticeProgress() {
+        guidedPracticeStep = nil
+        guidedPracticeIntroSlideIndex = 0
+        guidedPracticeSelectedAppIDs = []
+        guidedPracticeFamilySelection = nil
+        guidedPracticeAppConnections = []
+        guidedWindowsDraft = nil
+        defaults?.removeObject(forKey: NimaConstants.guidedPracticeStepKey)
+        defaults?.removeObject(forKey: NimaConstants.guidedPracticeIntroSlideIndexKey)
+        defaults?.removeObject(forKey: NimaConstants.guidedPracticeSelectedAppIDsKey)
+        defaults?.removeObject(forKey: NimaConstants.guidedPracticeFamilySelectionKey)
+        defaults?.removeObject(forKey: NimaConstants.guidedPracticeAppConnectionsKey)
+        defaults?.removeObject(forKey: NimaConstants.guidedWindowsDraftKey)
+    }
+
     func resetForOnboardingRestart() {
         isCompleted = false
         hasSeenGuidedOnboarding = false
@@ -109,6 +176,7 @@ final class OnboardingStore {
         selectedHabits = []
         selectedApps = []
         vpnPermissionRequested = false
+        resetGuidedPracticeProgress()
 
         defaults?.set(false, forKey: NimaConstants.onboardingCompletedKey)
         defaults?.set(false, forKey: NimaConstants.guidedOnboardingSeenKey)
@@ -129,6 +197,30 @@ final class OnboardingStore {
             defaults?.set(true, forKey: NimaConstants.guidedWindowsOnboardingCompletedKey)
         } else {
             hasCompletedGuidedWindowsOnboarding = defaults?.bool(forKey: NimaConstants.guidedWindowsOnboardingCompletedKey) ?? false
+        }
+        if let rawStep = defaults?.string(forKey: NimaConstants.guidedPracticeStepKey) {
+            guidedPracticeStep = GuidedPracticeStep(rawValue: rawStep)
+        }
+        guidedPracticeIntroSlideIndex = max(
+            0,
+            defaults?.integer(forKey: NimaConstants.guidedPracticeIntroSlideIndexKey) ?? 0
+        )
+        guidedPracticeSelectedAppIDs = Set(
+            defaults?.stringArray(forKey: NimaConstants.guidedPracticeSelectedAppIDsKey) ?? []
+        ).intersection(Self.supportedGuidedPracticeAppIDs)
+        if let data = defaults?.data(forKey: NimaConstants.guidedPracticeFamilySelectionKey) {
+            guidedPracticeFamilySelection = try? JSONDecoder().decode(
+                FamilyActivitySelection.self,
+                from: data
+            )
+        }
+        if let data = defaults?.data(forKey: NimaConstants.guidedPracticeAppConnectionsKey) {
+            guidedPracticeAppConnections = (
+                try? JSONDecoder().decode([GuidedPracticeAppConnection].self, from: data)
+            ) ?? []
+        }
+        if let data = defaults?.data(forKey: NimaConstants.guidedWindowsDraftKey) {
+            guidedWindowsDraft = try? JSONDecoder().decode(GuidedWindowsDraft.self, from: data)
         }
         guard let data = defaults?.data(forKey: NimaConstants.onboardingStateKey),
               let state = try? JSONDecoder().decode(OnboardingStateV1.self, from: data) else {
@@ -154,6 +246,10 @@ final class OnboardingStore {
         guard let data = try? JSONEncoder().encode(state) else { return }
         defaults?.set(data, forKey: NimaConstants.onboardingStateKey)
     }
+
+    private static let supportedGuidedPracticeAppIDs: Set<String> = [
+        "instagram", "tiktok", "x",
+    ]
 }
 
 final class GuidedPracticeReviewPromptStore {
