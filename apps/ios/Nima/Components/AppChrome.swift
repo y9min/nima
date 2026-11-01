@@ -16,6 +16,42 @@ enum AppChromePalette {
     static let dock = Color(red: 0.016, green: 0.141, blue: 0.082).opacity(0.78)
 }
 
+struct DarkInstructionModalSurface<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let metrics = AdaptiveScreenMetrics(
+                screenSize: proxy.size,
+                safeAreaInsets: proxy.safeAreaInsets
+            )
+            let cardSize = metrics.cardSize()
+
+            ZStack {
+                Color.black.opacity(0.58)
+                    .ignoresSafeArea()
+
+                content
+                    .frame(width: cardSize.width, height: cardSize.height)
+                    .background(
+                        RoundedRectangle(cornerRadius: 32, style: .continuous)
+                            .fill(Color(red: 0.125, green: 0.118, blue: 0.13))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 32, style: .continuous)
+                            .strokeBorder(.white.opacity(0.82), lineWidth: 1.2)
+                    )
+                    .shadow(color: .black.opacity(0.32), radius: 26, y: 12)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+    }
+}
+
 struct HomeLogo: View {
     var body: some View {
         Group {
