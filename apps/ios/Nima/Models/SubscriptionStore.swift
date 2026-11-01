@@ -16,6 +16,16 @@ enum OfferingsLoadState: Equatable {
     case failed(String)
 }
 
+typealias FeatureAccessAuthorizer = (@escaping @MainActor () -> Void) -> Void
+
+enum FeatureAccessGate {
+    static let unrestricted: FeatureAccessAuthorizer = { action in
+        MainActor.assumeIsolated {
+            action()
+        }
+    }
+}
+
 struct SubscriptionCustomerStatus: Equatable {
     let activeEntitlementIDs: [String]
     let activeSubscriptionIDs: [String]
@@ -120,7 +130,7 @@ final class SubscriptionStore {
     static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
     private static let cachedPremiumKeyPrefix = "subscription.hasPremium."
     private static let temporaryPremiumUntilKey = "subscription.temporaryPremiumUntil"
-    private static let temporaryPremiumDuration: TimeInterval = 72 * 60 * 60
+    static let offlineGraceDuration: TimeInterval = 72 * 60 * 60
 
     var hasPremium: Bool
     var verificationState: SubscriptionVerificationState = .idle
@@ -143,7 +153,7 @@ final class SubscriptionStore {
     }
 
     var hasAccessForRouting: Bool {
-        hasPremium || hasTemporaryPremiumAccess
+        hasPremium && hasTemporaryPremiumAccess
     }
 
     var isLoadingOfferings: Bool {
@@ -191,6 +201,7 @@ final class SubscriptionStore {
             self.intendedAppUserID = testAppUserID
             self.hasConfirmedIdentity = true
             self.hasPremium = defaults.bool(forKey: Self.cachedPremiumKey(for: testAppUserID))
+            expireCachedPremiumAccessIfNeeded()
         }
     }
 
@@ -225,6 +236,7 @@ final class SubscriptionStore {
         intendedAppUserID = appUserID
         hasConfirmedIdentity = true
         hasPremium = defaults.bool(forKey: Self.cachedPremiumKey(for: appUserID))
+        expireCachedPremiumAccessIfNeeded()
         verificationState = .loading
         refreshCustomerInfo()
         loadOfferings()
@@ -252,7 +264,25 @@ final class SubscriptionStore {
 
     func refreshAfterForeground() {
         guard isConfigured, intendedAppUserID != nil, hasConfirmedIdentity else { return }
-        refreshCustomerInfo(forceRefresh: true, updatesVerificationState: false)
+        let expiredCachedAccess = expireCachedPremiumAccessIfNeeded()
+        refreshCustomerInfo(
+            forceRefresh: true,
+            updatesVerificationState: expiredCachedAccess
+        )
+    }
+
+    @MainActor
+    func authorizeFeatureAction(_ action: @escaping @MainActor () -> Void) {
+        expireCachedPremiumAccessIfNeeded()
+        guard !hasAccessForRouting else {
+            action()
+            return
+        }
+
+        refreshCustomerInfo(forceRefresh: true) { access in
+            guard access == true else { return }
+            action()
+        }
     }
 
     func recoverExistingAppStorePurchase() {
@@ -590,7 +620,7 @@ final class SubscriptionStore {
         hasPremium = hasAccess
         if hasAccess {
             defaults.set(
-                Date().addingTimeInterval(Self.temporaryPremiumDuration),
+                Date().addingTimeInterval(Self.offlineGraceDuration),
                 forKey: Self.temporaryPremiumUntilKey
             )
         } else {
@@ -598,6 +628,14 @@ final class SubscriptionStore {
         }
         guard let appUserID = intendedAppUserID else { return }
         defaults.set(hasAccess, forKey: Self.cachedPremiumKey(for: appUserID))
+    }
+
+    @discardableResult
+    private func expireCachedPremiumAccessIfNeeded() -> Bool {
+        guard hasPremium, !hasTemporaryPremiumAccess else { return false }
+        setPremiumAccess(false)
+        verificationState = .loading
+        return true
     }
 
     private static func premiumAccess(from status: SubscriptionCustomerStatus?) -> Bool? {

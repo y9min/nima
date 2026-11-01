@@ -247,6 +247,10 @@ final class SubscriptionStoreTests: XCTestCase {
         let suiteName = "SubscriptionStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.set(true, forKey: "subscription.hasPremium.test-user")
+        defaults.set(
+            Date().addingTimeInterval(60 * 60),
+            forKey: "subscription.temporaryPremiumUntil"
+        )
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SubscriptionStore(defaults: defaults, client: mock.client)
 
@@ -258,7 +262,95 @@ final class SubscriptionStoreTests: XCTestCase {
             return XCTFail("Expected customer verification to fail")
         }
         XCTAssertTrue(store.hasPremium)
+        XCTAssertTrue(store.hasAccessForRouting)
         XCTAssertTrue(defaults.bool(forKey: "subscription.hasPremium.test-user"))
+    }
+
+    func testExpiredCachedPremiumNoLongerGrantsAccess() {
+        let mock = MockRevenueCatClient()
+        let suiteName = "SubscriptionStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(true, forKey: "subscription.hasPremium.test-user")
+        defaults.set(
+            Date().addingTimeInterval(-1),
+            forKey: "subscription.temporaryPremiumUntil"
+        )
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = SubscriptionStore(defaults: defaults, client: mock.client)
+
+        XCTAssertFalse(store.hasPremium)
+        XCTAssertFalse(store.hasAccessForRouting)
+        XCTAssertFalse(defaults.bool(forKey: "subscription.hasPremium.test-user"))
+    }
+
+    func testFeatureActionRechecksExpiredAccessBeforeRunning() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var didRunAction = false
+
+        store.authorizeFeatureAction {
+            didRunAction = true
+        }
+
+        XCTAssertEqual(mock.customerInfoForceRefreshes, [true])
+        XCTAssertFalse(didRunAction)
+
+        mock.customerInfoCompletions[0](
+            SubscriptionCustomerStatus(
+                activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
+                activeSubscriptionIDs: ["nima_monthly"]
+            ),
+            nil
+        )
+        await flushMainActorTasks()
+
+        XCTAssertTrue(didRunAction)
+        XCTAssertTrue(store.hasAccessForRouting)
+    }
+
+    func testFeatureActionDoesNotRunWhenRecheckConfirmsInactiveAccess() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var didRunAction = false
+
+        store.authorizeFeatureAction {
+            didRunAction = true
+        }
+        mock.customerInfoCompletions[0](
+            SubscriptionCustomerStatus(activeEntitlementIDs: [], activeSubscriptionIDs: []),
+            nil
+        )
+        await flushMainActorTasks()
+
+        XCTAssertFalse(didRunAction)
+        XCTAssertFalse(store.hasAccessForRouting)
+    }
+
+    func testFeatureActionUsesFreshGraceWithoutAnotherNetworkRequest() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var didRunAction = false
+
+        store.refreshCustomerInfo()
+        mock.customerInfoCompletions[0](
+            SubscriptionCustomerStatus(
+                activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
+                activeSubscriptionIDs: ["nima_monthly"]
+            ),
+            nil
+        )
+        await flushMainActorTasks()
+
+        store.authorizeFeatureAction {
+            didRunAction = true
+        }
+
+        XCTAssertTrue(didRunAction)
+        XCTAssertEqual(mock.customerInfoForceRefreshes, [false])
     }
 
     func testOfferingsErrorLeavesRetryAndRestoreAvailable() async {
