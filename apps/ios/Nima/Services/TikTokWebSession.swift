@@ -51,6 +51,7 @@ final class TikTokWebSession: NSObject {
     @ObservationIgnored private var shouldOpenInboxAfterSignIn = false
     @ObservationIgnored private var inboxLoadTask: Task<Void, Never>?
     @ObservationIgnored private var pendingNotificationVideoTap: (source: URL, date: Date)?
+    @ObservationIgnored private var navigationGuard = ControlledNavigationGuard()
 
     override init() {
         super.init()
@@ -107,9 +108,13 @@ final class TikTokWebSession: NSObject {
         guard mode != newMode else { return }
         mode = newMode
         webView.allowsBackForwardNavigationGestures = mode == .clean
-        guard webView.url != nil else { return }
         clearVideoGrant()
         syncFilterState()
+    }
+
+    func activateMode(_ newMode: TikTokMode) {
+        updateMode(newMode)
+        guard webView.url != nil else { return }
         openMessages()
     }
 
@@ -183,7 +188,6 @@ final class TikTokWebSession: NSObject {
     @discardableResult
     func openLink(_ rawValue: String) -> Bool {
         guard let url = TikTokNavigationPolicy.tiktokURL(from: rawValue) else { return false }
-        guard mode == .clean else { return false }
         clearInboxCover()
         setScrollableFeedActive(false)
         clearVideoGrant()
@@ -192,6 +196,10 @@ final class TikTokWebSession: NSObject {
             grantedVideoURL = url
             isVideoOverlayOpen = true
             updateScrollLock()
+            syncFilterState()
+        } else if mode == .dmOnly, TikTokNavigationPolicy.isProfileURL(url) {
+            returnURLAfterVideo = webView.url
+            grantedProfileURL = url
             syncFilterState()
         }
         load(url)
@@ -289,8 +297,17 @@ final class TikTokWebSession: NSObject {
 
     private func performBackNavigation(onRoot: @escaping @MainActor () -> Void) {
         if mode == .dmOnly {
-            if !TikTokNavigationPolicy.isMessagesURL(webView.url) { openMessages() }
-            else { onRoot() }
+            let isOpenLinkedDestination = isVideoOverlayOpen
+                || TikTokNavigationPolicy.isIndividualVideoURL(webView.url)
+                || TikTokNavigationPolicy.isProfileURL(webView.url)
+            if isOpenLinkedDestination, let destination = returnURLAfterVideo {
+                clearVideoGrant()
+                load(destination)
+            } else if !TikTokNavigationPolicy.isMessagesURL(webView.url) {
+                openMessages()
+            } else {
+                onRoot()
+            }
             return
         }
         if isVideoOverlayOpen || TikTokNavigationPolicy.isIndividualVideoURL(webView.url) {
@@ -377,8 +394,12 @@ final class TikTokWebSession: NSObject {
         )
     }
 
-    private func handleBlockedNavigation() {
+    private func handleBlockedNavigation(blockedURL: URL? = nil) {
         clearInboxCover()
+        if let blockedURL,
+           navigationGuard.recordBlockedNavigation(to: blockedURL) {
+            return
+        }
         if mode == .dmOnly {
             openMessages()
             AnalyticsService.shared.capture("tiktok_navigation_blocked")
@@ -453,9 +474,11 @@ final class TikTokWebSession: NSObject {
             protectionStore?.setFilteringHealth(.healthy)
             return
         }
+        let generation = navigationGuard.generation
         healthTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(8))
             guard !Task.isCancelled, let self, !self.receivedHealthPing else { return }
+            guard self.navigationGuard.isCurrent(generation) else { return }
             self.protectionStore?.setFilteringHealth(.limited)
             AnalyticsService.shared.capture("tiktok_filter_health_failed")
         }
@@ -515,7 +538,7 @@ extension TikTokWebSession: WKNavigationDelegate {
         case .block:
             decisionHandler(.cancel)
             if navigationAction.targetFrame?.isMainFrame != false {
-                handleBlockedNavigation()
+                handleBlockedNavigation(blockedURL: url)
             }
         case .openExternal:
             decisionHandler(.cancel)
@@ -529,6 +552,7 @@ extension TikTokWebSession: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         healthTask?.cancel()
         receivedHealthPing = false
+        navigationGuard.beginNavigation()
         if let url = webView.url, TikTokNavigationPolicy.isAuthenticationURL(url) {
             sessionStatus = .signingIn
             shouldOpenInboxAfterSignIn = true
@@ -539,6 +563,7 @@ extension TikTokWebSession: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         updateNavigationState()
+        navigationGuard.resetLoopHistory()
         if shouldOpenInboxAfterSignIn,
            let url = webView.url,
            TikTokNavigationPolicy.isTikTokHost(url.host),
@@ -661,7 +686,7 @@ extension TikTokWebSession: WKScriptMessageHandler {
                     grantedProfileURL: self.grantedProfileURL
                 )
                 if action == .block {
-                    self.handleBlockedNavigation()
+                    self.handleBlockedNavigation(blockedURL: url)
                 } else if action == .allow {
                     // pushState does not call didFinish, so keep SwiftUI's
                     // header and Back destination aligned with the web page.

@@ -5,6 +5,7 @@ import UIKit
 struct TikTokClientScreen: View {
     @Environment(TikTokProtectionStore.self) private var protectionStore
     @Environment(\.dismiss) private var dismiss
+    let launchContext: ControlledClientLaunchContext
 
     @State private var session = TikTokWebSession()
     @State private var deviceStyle = UIScreen.main.traitCollection.userInterfaceStyle
@@ -12,17 +13,32 @@ struct TikTokClientScreen: View {
     @State private var authorizationError: String?
     @State private var isNavigationMenuPresented = false
     @State private var isControlMenuPresented = false
-    @State private var isOpenLinkPresented = false
+    @State private var isOpenLinkPresented: Bool
     @State private var linkPasteError: String?
     @State private var controlPosition: CGPoint?
     @State private var controlGrabOffset: CGSize?
     @State private var isDraggingControl = false
     @State private var isControlIdle = false
     @State private var controlIdleTask: Task<Void, Never>?
-    @State private var isLoginIntroPresented = !TikTokLoginIntroduction.hasBeenSeen()
-    @State private var initialURL: URL? = TikTokLoginIntroduction.hasBeenSeen()
-        ? TikTokNavigationPolicy.messagesURL
-        : TikTokNavigationPolicy.loginURL
+    @State private var isLoginIntroPresented: Bool
+    @State private var initialURL: URL?
+    @State private var shouldOpenLinkAfterLoginIntro: Bool
+
+    init(launchContext: ControlledClientLaunchContext = .standard) {
+        self.launchContext = launchContext
+        let initiallyShowsOpenLink = launchContext == .openLink
+        let shouldPresentLoginIntro = !TikTokLoginIntroduction.hasBeenSeen()
+        _isOpenLinkPresented = State(
+            initialValue: initiallyShowsOpenLink && !shouldPresentLoginIntro
+        )
+        _isLoginIntroPresented = State(initialValue: shouldPresentLoginIntro)
+        _initialURL = State(
+            initialValue: shouldPresentLoginIntro ? TikTokNavigationPolicy.loginURL : nil
+        )
+        _shouldOpenLinkAfterLoginIntro = State(
+            initialValue: initiallyShowsOpenLink && shouldPresentLoginIntro
+        )
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -337,11 +353,7 @@ struct TikTokClientScreen: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 12)
 
-            Button {
-                TikTokLoginIntroduction.markSeen()
-                initialURL = TikTokNavigationPolicy.loginURL
-                isLoginIntroPresented = false
-            } label: {
+            Button(action: continueToTikTokLogin) {
                 Text("Continue")
                     .font(.system(size: 17, weight: .bold))
                     .frame(maxWidth: .infinity)
@@ -361,6 +373,21 @@ struct TikTokClientScreen: View {
         .overlay {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        }
+    }
+
+    private func continueToTikTokLogin() {
+        TikTokLoginIntroduction.markSeen()
+        initialURL = TikTokNavigationPolicy.loginURL
+        withAnimation(.easeInOut(duration: 0.22)) {
+            isLoginIntroPresented = false
+        }
+
+        guard shouldOpenLinkAfterLoginIntro else { return }
+        shouldOpenLinkAfterLoginIntro = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            isOpenLinkPresented = true
         }
     }
 
@@ -506,6 +533,7 @@ struct TikTokClientScreen: View {
                 controlHaptic()
                 let next: TikTokMode = protectionStore.manualMode == .clean ? .dmOnly : .clean
                 protectionStore.setManualMode(next, source: "tiktok_assistive_menu")
+                session.activateMode(next)
                 closeControlMenu()
             }
             .position(x: 82, y: 70)

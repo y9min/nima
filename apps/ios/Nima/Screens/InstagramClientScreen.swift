@@ -675,6 +675,7 @@ struct InstagramClientScreen: View {
             ) {
                 controlHaptic()
                 protectionStore.setManualMode(destinationMode, source: "instagram_assistive_menu")
+                session.activateMode(destinationMode)
                 closeControlMenu()
             }
             .position(x: 82, y: 70)

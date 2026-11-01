@@ -105,13 +105,13 @@ struct SettingsScreen: View {
             ) {
                 AdvancedSettingsPage()
             }
-        case .instagram?:
+        case .data?:
             SettingsPageScaffold(
-                title: "Instagram",
+                title: "Data",
                 layout: layout,
                 onBack: { destination = nil }
             ) {
-                InstagramDataSettingsPage()
+                DataSettingsPage()
             }
         case .help?:
             SettingsPageScaffold(
@@ -188,7 +188,7 @@ struct SettingsScreen: View {
                         destination = .advanced
                     }
                     SettingsNavigationRow(icon: "externaldrive", title: "Data") {
-                        destination = .instagram
+                        destination = .data
                     }
                 }
 
@@ -245,79 +245,152 @@ private enum SettingsDestination: Equatable {
     case windows
     case subscription
     case advanced
-    case instagram
+    case data
     case help
     case privacy
     case terms
     case logs
 }
 
-private struct InstagramDataSettingsPage: View {
-    @Environment(InstagramProtectionStore.self) private var protectionStore
-    @State private var confirmation: InstagramDataAction?
-    @State private var isWorking = false
+private struct DataSettingsPage: View {
+    @Environment(InstagramProtectionStore.self) private var instagramProtectionStore
+    @Environment(TikTokProtectionStore.self) private var tiktokProtectionStore
+    @Environment(XProtectionStore.self) private var xProtectionStore
+    @State private var confirmation: SocialDataControlRequest?
+    @State private var workingProvider: SocialDataProvider?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Instagram login information is stored by WebKit on this device. Nima does not read your password, messages, or viewed content.")
+        VStack(alignment: .leading, spacing: 24) {
+            Text("Instagram, TikTok, and X website data is stored on this device by WebKit. Nima does not read your passwords, messages, or viewed content.")
                 .font(.system(size: 14, weight: .regular, design: .rounded))
                 .foregroundStyle(AppChromePalette.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
-            SettingsFormPanel {
-                Button("Log Out of Instagram") { confirmation = .logOut }
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 14)
-
-                SettingsInlineDivider()
-
-                Button("Clear Instagram Website Data", role: .destructive) { confirmation = .clearData }
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 14)
-            }
-
-            if isWorking {
-                ProgressView("Updating Instagram data…")
-                    .tint(AppChromePalette.accent)
-            }
+            dataSection(for: .instagram)
+            dataSection(for: .tiktok)
+            dataSection(for: .x)
         }
         .alert(item: $confirmation) { action in
             Alert(
                 title: Text(action.title),
                 message: Text(action.message),
-                primaryButton: .destructive(Text(action.buttonTitle)) { perform(action) },
+                primaryButton: .destructive(Text(action.buttonTitle)) {
+                    perform(action)
+                },
                 secondaryButton: .cancel()
             )
         }
     }
 
-    private func perform(_ action: InstagramDataAction) {
-        isWorking = true
-        Task {
-            switch action {
-            case .logOut: await protectionStore.logOutInstagram()
-            case .clearData: await protectionStore.clearInstagramData()
+    private func dataSection(for provider: SocialDataProvider) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 9) {
+                Image(systemName: provider.icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(AppChromePalette.accent)
+                    .frame(width: 22)
+
+                Text(provider.title)
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
             }
-            isWorking = false
+
+            SettingsFormPanel {
+                Button("Log Out of \(provider.title)") {
+                    confirmation = SocialDataControlRequest(provider: provider, action: .logOut)
+                }
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 14)
+
+                SettingsInlineDivider()
+
+                Button("Clear \(provider.title) Website Data", role: .destructive) {
+                    confirmation = SocialDataControlRequest(provider: provider, action: .clearData)
+                }
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 14)
+            }
+            .disabled(workingProvider != nil)
+
+            if workingProvider == provider {
+                ProgressView("Updating \(provider.title) data…")
+                    .tint(AppChromePalette.accent)
+            }
+        }
+    }
+
+    private func perform(_ request: SocialDataControlRequest) {
+        let provider = request.provider
+        workingProvider = provider
+        Task {
+            switch provider {
+            case .instagram:
+                switch request.action {
+                case .logOut: await instagramProtectionStore.logOutInstagram()
+                case .clearData: await instagramProtectionStore.clearInstagramData()
+                }
+            case .tiktok:
+                switch request.action {
+                case .logOut: await tiktokProtectionStore.logOutTikTok()
+                case .clearData: await tiktokProtectionStore.clearTikTokData()
+                }
+            case .x:
+                switch request.action {
+                case .logOut: await xProtectionStore.logOutX()
+                case .clearData: await xProtectionStore.clearXData()
+                }
+            }
+            workingProvider = nil
         }
     }
 }
 
-private enum InstagramDataAction: String, Identifiable {
+private enum SocialDataProvider: String {
+    case instagram
+    case tiktok
+    case x
+
+    var title: String {
+        switch self {
+        case .instagram: return "Instagram"
+        case .tiktok: return "TikTok"
+        case .x: return "X"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .instagram: return "camera"
+        case .tiktok: return "music.note"
+        case .x: return "xmark"
+        }
+    }
+}
+
+private enum SocialDataAction: String {
     case logOut
     case clearData
+}
 
-    var id: String { rawValue }
-    var title: String { self == .logOut ? "Log out of Instagram?" : "Clear Instagram data?" }
-    var message: String {
-        self == .logOut
-            ? "You will need to sign in again inside Nima."
-            : "This removes Instagram cookies, cache, and local website storage from Nima."
+private struct SocialDataControlRequest: Identifiable {
+    let provider: SocialDataProvider
+    let action: SocialDataAction
+
+    var id: String { "\(provider.rawValue).\(action.rawValue)" }
+    var title: String {
+        action == .logOut
+            ? "Log out of \(provider.title)?"
+            : "Clear \(provider.title) data?"
     }
-    var buttonTitle: String { self == .logOut ? "Log Out" : "Clear Data" }
+    var message: String {
+        action == .logOut
+            ? "You will need to sign in again inside Nima."
+            : "This removes \(provider.title) sign-in details, cache, local storage, and other \(provider.title) website data from Nima."
+    }
+    var buttonTitle: String { action == .logOut ? "Log Out" : "Clear Data" }
 }
 
 private extension HomeDashboardLayout {
@@ -611,8 +684,8 @@ private struct NotificationSettingsPage: View {
             SettingsInlineDivider()
 
             SettingsToggleRow(
-                title: "Windows notifications",
-                subtitle: "Window starts and pause reminders.",
+                title: "Pause reminders",
+                subtitle: "Reminds you when paused window blocking should return.",
                 isOn: windowsNotificationsBinding
             )
         }
@@ -723,7 +796,7 @@ private struct SubscriptionSettingsPage: View {
             SettingsFormPanel {
                 SettingsInfoRow(
                     title: "Status",
-                    value: subscriptionStore.hasPremium ? "Active" : "No active subscription"
+                    value: subscriptionStore.hasAccessForRouting ? "Active" : "No active subscription"
                 )
 
                 SettingsInlineDivider()
@@ -774,7 +847,7 @@ private struct SubscriptionSettingsPage: View {
                 }
             }
 
-            if !subscriptionStore.hasPremium {
+            if !subscriptionStore.hasAccessForRouting {
                 Button("View plans") {
                     isShowingPlans = true
                 }

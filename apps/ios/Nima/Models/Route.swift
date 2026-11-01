@@ -14,12 +14,18 @@ enum InstagramLaunchContext: Hashable {
     }
 }
 
+enum ControlledClientLaunchContext: Hashable {
+    case standard
+    case openLink
+}
+
 enum Route: Hashable {
     case home
     case timeWindows
     case blockingOptions(appId: String)
     case instagramClient(context: InstagramLaunchContext = .standard)
-    case tiktokClient
+    case tiktokClient(context: ControlledClientLaunchContext = .standard)
+    case xClient(context: ControlledClientLaunchContext = .standard)
     // Chungus VPN routes
     case settings
     case trafficDashboard

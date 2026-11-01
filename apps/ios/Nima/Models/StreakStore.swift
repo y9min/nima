@@ -26,13 +26,19 @@ enum StreakEligibility {
         instagramPaused: Bool,
         tiktokManual: Bool,
         tiktokScheduled: Bool,
-        tiktokPaused: Bool
+        tiktokPaused: Bool,
+        xManual: Bool = false,
+        xScheduled: Bool = false,
+        xPaused: Bool = true
     ) -> String? {
         if (instagramManual || instagramScheduled) && !instagramPaused {
             return instagramScheduled ? "instagram_scheduled" : "instagram_manual"
         }
         if (tiktokManual || tiktokScheduled) && !tiktokPaused {
             return tiktokScheduled ? "tiktok_scheduled" : "tiktok_manual"
+        }
+        if (xManual || xScheduled) && !xPaused {
+            return xScheduled ? "x_scheduled" : "x_manual"
         }
         return nil
     }

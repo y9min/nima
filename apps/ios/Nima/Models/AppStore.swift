@@ -22,6 +22,16 @@ final class AppStore {
             options: [
                 BlockingOption(id: "video_block", label: "video_block", isEnabled: false)
             ]
+        ),
+        BlockedApp(
+            id: "x",
+            name: "X",
+            iconName: "xmark",
+            platform: "x",
+            options: [
+                BlockingOption(id: "feed_block", label: "feed", isEnabled: false),
+                BlockingOption(id: "strict_feed_block", label: "strict", isEnabled: false)
+            ]
         )
     ]
 
@@ -48,10 +58,10 @@ final class AppStore {
     }
 
     func setScheduledBlockedAppIDs(_ appIDs: Set<String>, source: String = "time_windows") {
-        // Instagram and TikTok schedules are enforced by in-app clients and Screen Time.
+        // Instagram, TikTok, and X schedules are enforced by in-app clients and Screen Time.
         // Only tunnel-backed platforms should reach the VPN policy.
         let didChange = optionsService.setScheduledBlockedAppIDs(
-            appIDs.intersection(["x"]),
+            [],
             source: source
         )
         refreshFromOptionsService()
@@ -150,7 +160,7 @@ final class AppStore {
 
     var hasAnyManuallyEnabledBlockingOption: Bool {
         apps.contains { app in
-            !["instagram", "tiktok"].contains(app.id) && app.options.contains {
+            !Self.controlledClientAppIDs.contains(app.id) && app.options.contains {
                 optionsService.isOptionManuallySelected(appId: app.id, optionId: $0.id)
             }
         }
@@ -158,7 +168,7 @@ final class AppStore {
 
     var manuallyBlockedAppIDs: Set<String> {
         Set(apps.compactMap { app in
-            guard !["instagram", "tiktok"].contains(app.id) else { return nil }
+            guard !Self.controlledClientAppIDs.contains(app.id) else { return nil }
             return app.options.contains {
                 optionsService.isOptionManuallySelected(appId: app.id, optionId: $0.id)
             } ? app.id : nil
@@ -172,7 +182,9 @@ final class AppStore {
     private func shouldVPNBeOnFromPolicy(now: Date = Date()) -> Bool {
         let scheduled = ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults)
         let hasTunnelBackedSchedule = scheduled.isDesiredProtectionActive(now: now)
-            && scheduled.activeAppIDs.contains("x")
+            && !scheduled.activeAppIDs.isSubset(of: Self.controlledClientAppIDs)
         return hasAnyManuallyEnabledBlockingOption || hasTunnelBackedSchedule
     }
+
+    private static let controlledClientAppIDs: Set<String> = ["instagram", "tiktok", "x"]
 }

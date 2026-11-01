@@ -33,35 +33,45 @@ struct InstagramIcon: View {
     let size: CGFloat
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.36, green: 0.2, blue: 0.98),
-                            Color(red: 0.86, green: 0.08, blue: 0.74),
-                            Color(red: 1.0, green: 0.25, blue: 0.26),
-                            Color(red: 1.0, green: 0.76, blue: 0.18)
-                        ],
-                        startPoint: .topTrailing,
-                        endPoint: .bottomLeading
-                    )
-                )
+        Group {
+            if let asset = UIImage.nimaResource(named: "home_instagram_blocking_icon", fileExtension: "png") {
+                Image(uiImage: asset)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: size, height: size)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.36, green: 0.2, blue: 0.98),
+                                    Color(red: 0.86, green: 0.08, blue: 0.74),
+                                    Color(red: 1.0, green: 0.25, blue: 0.26),
+                                    Color(red: 1.0, green: 0.76, blue: 0.18)
+                                ],
+                                startPoint: .topTrailing,
+                                endPoint: .bottomLeading
+                            )
+                        )
 
-            RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
-                .strokeBorder(.white, lineWidth: size * 0.075)
-                .padding(size * 0.18)
+                    RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
+                        .strokeBorder(.white, lineWidth: size * 0.075)
+                        .padding(size * 0.18)
 
-            Circle()
-                .strokeBorder(.white, lineWidth: size * 0.07)
-                .frame(width: size * 0.34, height: size * 0.34)
+                    Circle()
+                        .strokeBorder(.white, lineWidth: size * 0.07)
+                        .frame(width: size * 0.34, height: size * 0.34)
 
-            Circle()
-                .fill(.white)
-                .frame(width: size * 0.085, height: size * 0.085)
-                .offset(x: size * 0.19, y: -size * 0.19)
+                    Circle()
+                        .fill(.white)
+                        .frame(width: size * 0.085, height: size * 0.085)
+                        .offset(x: size * 0.19, y: -size * 0.19)
+                }
+                .frame(width: size, height: size)
+            }
         }
-        .frame(width: size, height: size)
     }
 }
 

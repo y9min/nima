@@ -1706,12 +1706,12 @@ final class VPNManager: ObservableObject {
             return false
         }
         policy.mergeDefaults()
-        let instagramOn = policy.appToggles["instagram"]?["strict_reels"] == true ||
-            policy.appToggles["instagram"]?["reels"] == true
-        let tiktokOn = policy.appToggles["tiktok"]?["video_block"] == true
-        let xOn = policy.appToggles["x"]?["feed_block"] == true ||
-            policy.appToggles["x"]?["strict_feed_block"] == true
-        return instagramOn || tiktokOn || xOn
+        // Instagram, TikTok, and X are protected by controlled clients and
+        // Screen Time. Legacy toggles remain on disk for migration only.
+        return policy.appToggles.contains { appID, toggles in
+            !["instagram", "tiktok", "x"].contains(appID)
+                && toggles.values.contains(true)
+        }
     }
 
     private func manualRecoveryRequiredFromPolicy() -> Bool {
@@ -1720,8 +1720,9 @@ final class VPNManager: ObservableObject {
             return false
         }
         policy.mergeDefaults()
-        return policy.appToggles.values.contains { toggles in
-            toggles.values.contains(true)
+        return policy.appToggles.contains { appID, toggles in
+            !["instagram", "tiktok", "x"].contains(appID)
+                && toggles.values.contains(true)
         }
     }
 

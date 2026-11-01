@@ -30,6 +30,7 @@ final class InstagramWebSession: NSObject {
     @ObservationIgnored private var returnURLAfterSharedContent: URL?
     @ObservationIgnored private var healthCheckTask: Task<Void, Never>?
     @ObservationIgnored private var receivedHealthPing = false
+    @ObservationIgnored private var navigationGuard = ControlledNavigationGuard()
     @ObservationIgnored private var downloadDestinations: [ObjectIdentifier: URL] = [:]
 
     override init() {
@@ -101,17 +102,20 @@ final class InstagramWebSession: NSObject {
         )
     }
 
-    func updateMode(_ newMode: InstagramMode, forceNavigation: Bool = false) {
-        let changed = mode != newMode
+    func updateMode(_ newMode: InstagramMode) {
+        guard mode != newMode else { return }
         mode = newMode
         syncFilterState()
         updateNativeScrollLock()
-
-        guard changed || forceNavigation else { return }
         grantedSharedURL = nil
         isSharedReelOverlayOpen = false
         returnURLAfterSharedContent = nil
         updateNativeScrollLock()
+    }
+
+    func activateMode(_ newMode: InstagramMode) {
+        updateMode(newMode)
+        guard webView.url != nil else { return }
         if newMode == .dmOnly {
             load(InstagramNavigationPolicy.inboxURL)
         } else {
@@ -179,11 +183,15 @@ final class InstagramWebSession: NSObject {
         webView.load(URLRequest(url: url))
     }
 
-    private func handleBlockedNavigation() {
+    private func handleBlockedNavigation(blockedURL: URL? = nil) {
         AnalyticsService.shared.capture(
             "instagram_navigation_blocked",
             properties: ["mode": mode.rawValue]
         )
+        if let blockedURL,
+           navigationGuard.recordBlockedNavigation(to: blockedURL) {
+            return
+        }
 
         // A pasted/shared post is a one-destination grant. If Instagram tries to
         // advance to a neighbouring Reel, keep the approved post open instead of
@@ -312,12 +320,13 @@ final class InstagramWebSession: NSObject {
             return
         }
 
+        let generation = navigationGuard.generation
         healthCheckTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(8))
             guard !Task.isCancelled, let self, !self.receivedHealthPing else { return }
+            guard self.navigationGuard.isCurrent(generation) else { return }
             self.protectionStore?.setFilteringHealth(.limited)
             AnalyticsService.shared.capture("instagram_filter_health_failed")
-            self.updateMode(.dmOnly, forceNavigation: true)
         }
     }
 }
@@ -354,7 +363,7 @@ extension InstagramWebSession: WKNavigationDelegate {
             decisionHandler(.allow)
         case .block:
             decisionHandler(.cancel)
-            handleBlockedNavigation()
+            handleBlockedNavigation(blockedURL: url)
         case .openExternal:
             decisionHandler(.cancel)
             if shouldOpenExternal(navigationAction) {
@@ -390,6 +399,7 @@ extension InstagramWebSession: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         healthCheckTask?.cancel()
         receivedHealthPing = false
+        navigationGuard.beginNavigation()
         isCommentComposerVisible = false
         if let url = webView.url,
            InstagramNavigationPolicy.isAuthenticationURL(url) {
@@ -401,6 +411,7 @@ extension InstagramWebSession: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         updateNavigationState()
+        navigationGuard.resetLoopHistory()
         clearSharedContentStateIfReturned(to: webView.url)
         syncFilterState()
         scheduleHealthCheck(for: webView.url)
@@ -551,12 +562,12 @@ extension InstagramWebSession: WKScriptMessageHandler {
                               sourceURL: self.currentURL,
                               grantedSharedURL: self.grantedSharedURL
                     ) == .block {
-                        self.handleBlockedNavigation()
+                        self.handleBlockedNavigation(blockedURL: url)
                     } else {
                         self.clearSharedContentStateIfReturned(to: url)
                     }
                 } else if event == "blockedClientNavigation" {
-                    self.handleBlockedNavigation()
+                    self.handleBlockedNavigation(blockedURL: self.webView.url)
                 } else if event == "dmBack" {
                     let returnURL = self.isSharedReelOverlayOpen
                         ? (self.returnURLAfterSharedContent ?? InstagramNavigationPolicy.inboxURL)
