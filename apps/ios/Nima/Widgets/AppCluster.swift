@@ -522,6 +522,7 @@ struct AppCluster: View {
     var showAddButton: Bool = true
 
     @Environment(AppStore.self) private var store
+    @Environment(HardModeCoordinator.self) private var hardModeCoordinator
     @Environment(GridPositionStore.self) private var positionStore
     @State private var engine = ClusterPhysicsEngine()
     @State private var selectedApp: BlockedApp? = nil
@@ -741,7 +742,7 @@ struct AppCluster: View {
         guard !isEditMode, engine.longPressIndex == nil else { return }
 
         if app.options.count == 1, let option = app.options.first {
-            store.toggleOption(appId: app.id, optionId: option.id, source: "app_cluster.icon_tap")
+            requestOptionToggle(appID: app.id, optionID: option.id, source: "app_cluster.icon_tap")
             return
         }
 
@@ -942,6 +943,20 @@ struct AppCluster: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private func requestOptionToggle(appID: String, optionID: String, source: String) {
+        let isEnabled = store.app(for: appID)?.options
+            .first(where: { $0.id == optionID })?
+            .isEnabled == true
+        if isEnabled,
+           hardModeCoordinator.requestOff(
+                .disableBlockingOption(appID: appID, optionID: optionID),
+                source: source
+           ) {
+            return
+        }
+        store.toggleOption(appId: appID, optionId: optionID, source: source)
+    }
+
     private func handleCenterIconDrag(dragOffset: CGSize, center: CGPoint, options: [AppOption], appId: String) {
         guard !options.isEmpty else { return }
         
@@ -992,7 +1007,7 @@ struct AppCluster: View {
                     let generator = UIImpactFeedbackGenerator(style: .medium)
                     generator.impactOccurred()
                     
-                    store.toggleOption(appId: appId, optionId: option.id, source: "app_cluster.center_drag")
+                    requestOptionToggle(appID: appId, optionID: option.id, source: "app_cluster.center_drag")
                     lastToggledOptionId = option.id
                 }
                 break
@@ -1016,7 +1031,7 @@ struct AppCluster: View {
                         let generator = UIImpactFeedbackGenerator(style: .medium)
                         generator.impactOccurred()
                         
-                        store.toggleOption(appId: app.id, optionId: optionId, source: "app_cluster.arc_tap")
+                        requestOptionToggle(appID: app.id, optionID: optionId, source: "app_cluster.arc_tap")
                     }
                 )
                 .frame(width: 300, height: 300)

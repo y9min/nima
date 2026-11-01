@@ -14,7 +14,7 @@ enum TikTokShieldStatus: Equatable {
 @MainActor
 @Observable
 final class TikTokProtectionStore {
-    static let protectionEnabledKey = "tiktok.client.protection_enabled"
+    static let protectionEnabledKey = NimaConstants.tiktokProtectionEnabledKey
     static let manualModeKey = "tiktok.client.manual_mode"
     static let familySelectionKey = NimaConstants.tiktokFamilySelectionKey
 
@@ -55,7 +55,13 @@ final class TikTokProtectionStore {
         applyShield()
     }
 
-    var isActive: Bool { protectionEnabled || isScheduled }
+    var isActive: Bool {
+        protectionEnabled || HardModeProtectionState.effectivelyScheduled(
+            "tiktok",
+            scheduled: isScheduled,
+            defaults: defaults
+        )
+    }
 
     var effectiveMode: TikTokMode {
         filteringHealth == .limited ? .dmOnly : manualMode
@@ -68,7 +74,10 @@ final class TikTokProtectionStore {
     }
 
     func setProtectionEnabled(_ enabled: Bool, source: String) {
-        if enabled { PauseModeState.exclude("tiktok", defaults: defaults) }
+        if enabled {
+            PauseModeState.exclude("tiktok", defaults: defaults)
+            HardModeProtectionState.markProtectionOn("tiktok", defaults: defaults)
+        }
         protectionEnabled = enabled
         defaults?.set(enabled, forKey: Self.protectionEnabledKey)
         applyShield()
@@ -103,7 +112,16 @@ final class TikTokProtectionStore {
     }
 
     func clearTikTokData() async {
-        let types = WKWebsiteDataStore.allWebsiteDataTypes()
+        await removeTikTokData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes())
+        filteringHealth = .checking
+    }
+
+    func logOutTikTok() async {
+        await removeTikTokData(ofTypes: [WKWebsiteDataTypeCookies])
+        filteringHealth = .checking
+    }
+
+    private func removeTikTokData(ofTypes types: Set<String>) async {
         let store = WKWebsiteDataStore.default()
         let records: [WKWebsiteDataRecord] = await withCheckedContinuation { continuation in
             store.fetchDataRecords(ofTypes: types) { continuation.resume(returning: $0) }
@@ -115,7 +133,6 @@ final class TikTokProtectionStore {
         await withCheckedContinuation { continuation in
             store.removeData(ofTypes: types, for: tiktokRecords) { continuation.resume() }
         }
-        filteringHealth = .checking
     }
 
     func resetForAccountDeletion() {
@@ -135,13 +152,11 @@ final class TikTokProtectionStore {
     }
 
     private func applyShield() {
-        guard authorizationStatus == .approved, isActive,
-              !PauseModeState.isPaused("tiktok", defaults: defaults),
-              !familySelection.applicationTokens.isEmpty else {
-            managedSettings.shield.applications = nil
-            return
-        }
-        managedSettings.shield.applications = familySelection.applicationTokens
+        ClientShieldPolicy.reconcile(
+            for: ClientShieldAppID.tiktok.rawValue,
+            defaults: defaults,
+            selection: familySelection
+        )
     }
 
     func refreshPauseMode() { applyShield() }

@@ -21,6 +21,16 @@ struct AppControlRule: Codable, Equatable, Identifiable {
     }
 }
 
+enum ShieldActionAvailability {
+    // iOS 26.5 introduced ShieldActionResponse.openParentalControlsApp.
+    // Earlier releases cannot launch the containing app from a shield action.
+    static var canOpenParentApp: Bool {
+        ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 26, minorVersion: 5, patchVersion: 0)
+        )
+    }
+}
+
 enum AppControlRuleState {
     static let appGroupID = "group.so.nima.app"
     static let rulesKey = "app_controls.rules_v1"

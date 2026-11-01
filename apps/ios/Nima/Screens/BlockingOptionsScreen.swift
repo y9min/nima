@@ -2,8 +2,10 @@ import SwiftUI
 
 struct BlockingOptionsScreen: View {
     @Environment(AppStore.self) private var store
+    @Environment(HardModeCoordinator.self) private var hardModeCoordinator
     @Environment(\.dismiss) private var dismiss
     let appId: String
+    var authorizeFeatureAccess = FeatureAccessGate.unrestricted
 
     private var app: BlockedApp? {
         store.app(for: appId)
@@ -22,7 +24,29 @@ struct BlockingOptionsScreen: View {
                     DialSelector(
                         app: app,
                         onToggleOption: { optionId in
-                            store.toggleOption(appId: appId, optionId: optionId, source: "blocking_options_screen.tap")
+                            let isEnabled = app.options.first(where: { $0.id == optionId })?.isEnabled == true
+                            if isEnabled,
+                               hardModeCoordinator.requestOff(
+                                    .disableBlockingOption(appID: appId, optionID: optionId),
+                                    source: "blocking_options_screen.tap"
+                               ) {
+                                return
+                            }
+                            if isEnabled {
+                                store.toggleOption(
+                                    appId: appId,
+                                    optionId: optionId,
+                                    source: "blocking_options_screen.tap"
+                                )
+                            } else {
+                                authorizeFeatureAccess {
+                                    store.toggleOption(
+                                        appId: appId,
+                                        optionId: optionId,
+                                        source: "blocking_options_screen.tap"
+                                    )
+                                }
+                            }
                         }
                     )
 

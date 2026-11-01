@@ -6,7 +6,11 @@ enum NimaConstants {
     static let tunnelBundleID = "so.nima.app.NimaTunnel"
     static let instagramFamilySelectionKey = "instagram.client.family_selection"
     static let instagramShieldPendingDestinationKey = "instagram.shield.pending_destination"
+    static let instagramProtectionEnabledKey = "instagram.client.protection_enabled"
     static let tiktokFamilySelectionKey = "tiktok.client.family_selection"
+    static let tiktokProtectionEnabledKey = "tiktok.client.protection_enabled"
+    static let xFamilySelectionKey = "x.client.family_selection"
+    static let xProtectionEnabledKey = "x.client.protection_enabled"
     static let shieldPendingDestinationKey = "shield.pending_destination"
     static let screenTimeAppConnectionsKey = "screen_time.app_connections"
 
@@ -88,20 +92,30 @@ enum NimaConstants {
     static let pauseModeAppIDsKey = "pause_mode.app_ids"
     static let pauseModeExpiresAtKey = "pause_mode.expires_at"
     static let pauseModeWindowIDsKey = "pause_mode.window_ids"
-    static let clientScheduleEndDatesKey = "timeWindows.client_schedule_end_dates"
+    static let hardModeEnabledKey = "hard_mode.enabled"
+    static let hardModeOffAppIDsKey = "hard_mode.off_app_ids"
+    static let hardModePauseExpiriesKey = "hard_mode.pause_expiries"
+    static let hardModePauseRuleExpiriesKey = "hard_mode.pause_rule_expiries"
     static let onboardingStateKey = "onboardingStateV1"
     static let onboardingCompletedKey = "onboardingCompletedV1"
     static let guidedOnboardingSeenKey = "guidedOnboardingSeenV1"
     static let guidedPracticeCompletedKey = "guidedPracticeCompletedV1"
     static let guidedPracticeReturnPendingKey = "guidedPracticeReturnPendingV1"
+    static let guidedPracticeStepKey = "guidedPracticeStepV1"
+    static let guidedPracticeIntroSlideIndexKey = "guidedPracticeIntroSlideIndexV1"
+    static let guidedPracticeSelectedAppIDsKey = "guidedPracticeSelectedAppIDsV1"
+    static let guidedPracticeFamilySelectionKey = "guidedPracticeFamilySelectionV1"
+    static let guidedPracticeAppConnectionsKey = "guidedPracticeAppConnectionsV1"
+    static let guidedWindowsDraftKey = "guidedWindowsDraftV1"
     static let guidedWindowsOnboardingCompletedKey = "guidedWindowsOnboardingCompletedV1"
     static let guidedPracticeReviewPromptedUserIDsKey = "guidedPracticeReviewPromptedUserIDsV1"
     static let instagramLoginIntroSeenKey = "instagramLoginIntroSeenV1"
+    static let xLoginIntroSeenKey = "xLoginIntroSeenV1"
     static let timeWindowsKey = "timeWindowsV1"
     static let timeWindowsPauseAllKey = "timeWindows.pause_all"
     static let timeWindowsPauseExpiresAtKey = "timeWindows.pause_expires_at"
     static let timeWindowsEndedUntilKey = "timeWindows.ended_until"
-    static let timeWindowOccurrenceDecisionsKey = "timeWindows.occurrence_decisions_v1"
+    static let legacyTimeWindowOccurrenceDecisionsKey = "timeWindows.occurrence_decisions_v1"
     static let scheduleDesiredVPNOnKey = "schedule.desired_vpn_on"
     static let scheduleDesiredReasonKey = "schedule.desired_reason"
     static let scheduleDesiredSourceKey = "schedule.desired_source"
@@ -337,5 +351,188 @@ enum PauseModeState {
         defaults?.removeObject(forKey: NimaConstants.pauseModeAppIDsKey)
         defaults?.removeObject(forKey: NimaConstants.pauseModeWindowIDsKey)
         defaults?.removeObject(forKey: NimaConstants.pauseModeExpiresAtKey)
+    }
+}
+
+enum HardModeProtectionState {
+    static func isEnabled(defaults: UserDefaults?) -> Bool {
+        defaults?.bool(forKey: NimaConstants.hardModeEnabledKey) ?? false
+    }
+
+    static func setEnabled(_ enabled: Bool, defaults: UserDefaults?) {
+        defaults?.set(enabled, forKey: NimaConstants.hardModeEnabledKey)
+    }
+
+    static func isScheduleSuppressed(_ appID: String, defaults: UserDefaults?) -> Bool {
+        Set(defaults?.stringArray(forKey: NimaConstants.hardModeOffAppIDsKey) ?? []).contains(appID)
+    }
+
+    static func markProtectionOn(_ appID: String, defaults: UserDefaults?, now: Date = Date()) {
+        var offAppIDs = offOverrideAppIDs(defaults: defaults)
+        offAppIDs.remove(appID)
+        persistOffOverrideAppIDs(offAppIDs, defaults: defaults)
+        clearPause(for: appID, defaults: defaults, now: now)
+    }
+
+    static func markProtectionOff(_ appID: String, defaults: UserDefaults?) {
+        var offAppIDs = offOverrideAppIDs(defaults: defaults)
+        offAppIDs.insert(appID)
+        persistOffOverrideAppIDs(offAppIDs, defaults: defaults)
+    }
+
+    static func effectivelyScheduled(
+        _ appID: String,
+        scheduled: Bool,
+        defaults: UserDefaults?
+    ) -> Bool {
+        scheduled && !isScheduleSuppressed(appID, defaults: defaults)
+    }
+
+    @discardableResult
+    static func pause(
+        appIDs: Set<String>,
+        ruleIDs: Set<String> = [],
+        minutes: Int,
+        defaults: UserDefaults?,
+        now: Date = Date()
+    ) -> Date? {
+        guard !appIDs.isEmpty || !ruleIDs.isEmpty,
+              [5, 10, 15].contains(minutes),
+              let defaults else { return nil }
+        let expiry = now.addingTimeInterval(TimeInterval(minutes * 60))
+        var appExpiries = pauseExpiries(defaults: defaults, now: now)
+        var ruleExpiries = pauseRuleExpiries(defaults: defaults, now: now)
+        for appID in appIDs {
+            appExpiries[appID] = expiry
+        }
+        for ruleID in ruleIDs {
+            ruleExpiries[ruleID] = expiry
+        }
+        persistPauseExpiries(appExpiries, ruleExpiries: ruleExpiries, defaults: defaults)
+        return expiry
+    }
+
+    static func isPaused(_ appID: String, defaults: UserDefaults?, now: Date = Date()) -> Bool {
+        pauseExpiries(defaults: defaults, now: now)[appID] != nil
+    }
+
+    static func isRulePaused(_ ruleID: String, defaults: UserDefaults?, now: Date = Date()) -> Bool {
+        pauseRuleExpiries(defaults: defaults, now: now)[ruleID] != nil
+    }
+
+    static func pausedUntil(_ appID: String, defaults: UserDefaults?, now: Date = Date()) -> Date? {
+        pauseExpiries(defaults: defaults, now: now)[appID]
+    }
+
+    static func nextPauseExpiry(defaults: UserDefaults?, now: Date = Date()) -> Date? {
+        let appDates = pauseExpiries(defaults: defaults, now: now).values
+        let ruleDates = pauseRuleExpiries(defaults: defaults, now: now).values
+        return (Array(appDates) + Array(ruleDates)).min()
+    }
+
+    static func purgeExpiredPauses(defaults: UserDefaults?, now: Date = Date()) {
+        guard let defaults else { return }
+        let currentApps = pauseExpiries(defaults: defaults, now: now)
+        let currentRules = pauseRuleExpiries(defaults: defaults, now: now)
+        let storedApps = appPauseTimestamps(defaults: defaults)
+        let storedRules = rulePauseTimestamps(defaults: defaults)
+        if storedApps.count != currentApps.count || storedRules.count != currentRules.count {
+            persistPauseExpiries(currentApps, ruleExpiries: currentRules, defaults: defaults)
+        }
+    }
+
+    static func clearPause(for appID: String, defaults: UserDefaults?, now: Date = Date()) {
+        var appExpiries = pauseExpiries(defaults: defaults, now: now)
+        guard appExpiries.removeValue(forKey: appID) != nil else { return }
+        persistPauseExpiries(
+            appExpiries,
+            ruleExpiries: pauseRuleExpiries(defaults: defaults, now: now),
+            defaults: defaults
+        )
+    }
+
+    static func removePauses(
+        appIDs: Set<String>,
+        ruleIDs: Set<String>,
+        defaults: UserDefaults?,
+        now: Date = Date()
+    ) {
+        var appExpiries = pauseExpiries(defaults: defaults, now: now)
+        var ruleExpiries = pauseRuleExpiries(defaults: defaults, now: now)
+        for appID in appIDs {
+            appExpiries.removeValue(forKey: appID)
+        }
+        for ruleID in ruleIDs {
+            ruleExpiries.removeValue(forKey: ruleID)
+        }
+        persistPauseExpiries(appExpiries, ruleExpiries: ruleExpiries, defaults: defaults)
+    }
+
+    static func reset(defaults: UserDefaults?) {
+        defaults?.removeObject(forKey: NimaConstants.hardModeEnabledKey)
+        defaults?.removeObject(forKey: NimaConstants.hardModeOffAppIDsKey)
+        defaults?.removeObject(forKey: NimaConstants.hardModePauseExpiriesKey)
+        defaults?.removeObject(forKey: NimaConstants.hardModePauseRuleExpiriesKey)
+    }
+
+    private static func offOverrideAppIDs(defaults: UserDefaults?) -> Set<String> {
+        Set(defaults?.stringArray(forKey: NimaConstants.hardModeOffAppIDsKey) ?? [])
+    }
+
+    private static func persistOffOverrideAppIDs(_ appIDs: Set<String>, defaults: UserDefaults?) {
+        if appIDs.isEmpty {
+            defaults?.removeObject(forKey: NimaConstants.hardModeOffAppIDsKey)
+        } else {
+            defaults?.set(appIDs.sorted(), forKey: NimaConstants.hardModeOffAppIDsKey)
+        }
+    }
+
+    private static func appPauseTimestamps(defaults: UserDefaults?) -> [String: TimeInterval] {
+        defaults?.dictionary(forKey: NimaConstants.hardModePauseExpiriesKey) as? [String: TimeInterval] ?? [:]
+    }
+
+    private static func rulePauseTimestamps(defaults: UserDefaults?) -> [String: TimeInterval] {
+        defaults?.dictionary(forKey: NimaConstants.hardModePauseRuleExpiriesKey) as? [String: TimeInterval] ?? [:]
+    }
+
+    private static func pauseExpiries(defaults: UserDefaults?, now: Date) -> [String: Date] {
+        appPauseTimestamps(defaults: defaults).reduce(into: [:]) { result, item in
+            let date = Date(timeIntervalSince1970: item.value)
+            if date > now {
+                result[item.key] = date
+            }
+        }
+    }
+
+    private static func pauseRuleExpiries(defaults: UserDefaults?, now: Date) -> [String: Date] {
+        rulePauseTimestamps(defaults: defaults).reduce(into: [:]) { result, item in
+            let date = Date(timeIntervalSince1970: item.value)
+            if date > now {
+                result[item.key] = date
+            }
+        }
+    }
+
+    private static func persistPauseExpiries(
+        _ appExpiries: [String: Date],
+        ruleExpiries: [String: Date],
+        defaults: UserDefaults?
+    ) {
+        let appTimestamps = appExpiries.reduce(into: [String: TimeInterval]()) {
+            $0[$1.key] = $1.value.timeIntervalSince1970
+        }
+        let ruleTimestamps = ruleExpiries.reduce(into: [String: TimeInterval]()) {
+            $0[$1.key] = $1.value.timeIntervalSince1970
+        }
+        if appTimestamps.isEmpty {
+            defaults?.removeObject(forKey: NimaConstants.hardModePauseExpiriesKey)
+        } else {
+            defaults?.set(appTimestamps, forKey: NimaConstants.hardModePauseExpiriesKey)
+        }
+        if ruleTimestamps.isEmpty {
+            defaults?.removeObject(forKey: NimaConstants.hardModePauseRuleExpiriesKey)
+        } else {
+            defaults?.set(ruleTimestamps, forKey: NimaConstants.hardModePauseRuleExpiriesKey)
+        }
     }
 }

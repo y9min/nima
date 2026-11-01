@@ -25,7 +25,7 @@ enum InstagramShieldStatus: Equatable {
 @MainActor
 @Observable
 final class InstagramProtectionStore {
-    static let protectionEnabledKey = "instagram.client.protection_enabled"
+    static let protectionEnabledKey = NimaConstants.instagramProtectionEnabledKey
     static let manualModeKey = "instagram.client.manual_mode"
     static let familySelectionKey = NimaConstants.instagramFamilySelectionKey
 
@@ -76,16 +76,27 @@ final class InstagramProtectionStore {
         return manualMode
     }
 
+    var isActive: Bool {
+        protectionEnabled || HardModeProtectionState.effectivelyScheduled(
+            "instagram",
+            scheduled: isScheduled,
+            defaults: defaults
+        )
+    }
+
     var shieldStatus: InstagramShieldStatus {
         guard authorizationStatus == .approved else {
             return authorizationStatus == .denied ? .unavailable : .permissionRequired
         }
         guard !familySelection.applicationTokens.isEmpty else { return .selectionRequired }
-        return (protectionEnabled || isScheduled) ? .protected : .unprotected
+        return isActive ? .protected : .unprotected
     }
 
     func setProtectionEnabled(_ enabled: Bool, source: String) {
-        if enabled { PauseModeState.exclude("instagram", defaults: defaults) }
+        if enabled {
+            PauseModeState.exclude("instagram", defaults: defaults)
+            HardModeProtectionState.markProtectionOn("instagram", defaults: defaults)
+        }
         protectionEnabled = enabled
         defaults?.set(enabled, forKey: Self.protectionEnabledKey)
         applyShield()
@@ -160,14 +171,11 @@ final class InstagramProtectionStore {
     }
 
     private func applyShield() {
-        guard authorizationStatus == .approved,
-              protectionEnabled || isScheduled,
-              !PauseModeState.isPaused("instagram", defaults: defaults),
-              !familySelection.applicationTokens.isEmpty else {
-            managedSettings.shield.applications = nil
-            return
-        }
-        managedSettings.shield.applications = familySelection.applicationTokens
+        ClientShieldPolicy.reconcile(
+            for: ClientShieldAppID.instagram.rawValue,
+            defaults: defaults,
+            selection: familySelection
+        )
     }
 
     func refreshPauseMode() { applyShield() }

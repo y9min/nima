@@ -98,6 +98,7 @@ final class AppControlRulesStore {
         // callback was delayed until the next device use.
         let reached = AppControlRuleState.reachedLimitIDs(defaults: defaults)
         AppControlRuleState.saveReachedLimitIDs(reached, defaults: defaults)
+        HardModeProtectionState.purgeExpiredPauses(defaults: defaults)
         applyShields()
         if !limits.isEmpty && !activityCenter.activities.contains(DeviceActivityName(AppControlRuleState.limitActivityName)) {
             _ = syncMonitoring()
@@ -115,10 +116,15 @@ final class AppControlRulesStore {
     }
 
     private func applyShields() {
-        let blockedTokens = Set(blocked.map(\.applicationToken))
+        let blockedTokens = Set(blocked.filter {
+            !HardModeProtectionState.isRulePaused($0.id, defaults: defaults)
+        }.map(\.applicationToken))
         blockedStore.shield.applications = blockedTokens.isEmpty ? nil : blockedTokens
         let reached = AppControlRuleState.reachedLimitIDs(defaults: defaults)
-        let limitedTokens = Set(limits.filter { reached.contains($0.id) }.map(\.applicationToken))
+        let limitedTokens = Set(limits.filter {
+            reached.contains($0.id)
+                && !HardModeProtectionState.isRulePaused($0.id, defaults: defaults)
+        }.map(\.applicationToken))
         limitsStore.shield.applications = limitedTokens.isEmpty ? nil : limitedTokens
     }
 
