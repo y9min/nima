@@ -79,7 +79,7 @@ targets:
         CFBundleDisplayName: Nima
         CFBundleName: Nima
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "30"
+        CFBundleVersion: "31"
         UIAppFonts:
           - SK Pupok Solid 400.ttf
           - Coolvetica Rg.otf
@@ -145,7 +145,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Tunnel
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "30"
+        CFBundleVersion: "31"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
@@ -182,7 +182,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Device Activity
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "30"
+        CFBundleVersion: "31"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.deviceactivity.monitor-extension
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).DeviceActivityMonitorExtension
@@ -216,7 +216,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Shield Configuration
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "30"
+        CFBundleVersion: "31"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.ManagedSettingsUI.shield-configuration-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldConfigurationExtension
@@ -247,7 +247,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Shield Action
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "30"
+        CFBundleVersion: "31"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.ManagedSettings.shield-action-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldActionExtension

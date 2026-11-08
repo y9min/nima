@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   description: "How Nima collects, uses, shares, and protects data.",
 };
 
-const lastUpdated = "November 4, 2026";
+const lastUpdated = "November 8, 2026";
 const contactEmail = "help@nima.so";
 
 const sections = [
@@ -20,6 +20,7 @@ const sections = [
   {
     title: "Data We Collect",
     body: [
+      "Account data from earlier iOS versions: optional account linking could collect an email address, Supabase user ID, authentication and session data, and Apple or Google sign-in identifiers. Version 1.4 does not offer account creation or linking; existing records are retained temporarily for support, security, deletion requests, or legal obligations.",
       "Purchase data: subscription status, purchase history, entitlement state, RevenueCat app user ID, purchase, restore, and offering information.",
       "Product analytics: randomly generated device/user identifier, onboarding screen reached, paywall, purchase, and restore outcomes, foreground sessions, retention, practice completion, app version, device type, operating-system version, and event timestamps. Nima does not send your onboarding answers, display name, email address, or VPN/network activity to PostHog.",
       "Android waitlist data: email address and signup timestamp.",
@@ -31,7 +32,7 @@ const sections = [
   {
     title: "How We Use Data",
     body: [
-      "Provide subscriptions, restore purchases, and customer support without requiring an iOS account.",
+      "Provide subscriptions, restore purchases, and customer support without requiring an iOS account in version 1.4; maintain and delete account records created by earlier versions where needed.",
       "Operate the VPN and content blocking features, including processing network signals to decide whether a connection should be allowed or blocked.",
       "Show local blocking status and local diagnostics on your device.",
       "Send Android waitlist updates and service communications.",
@@ -84,7 +85,7 @@ const sections = [
     title: "Your Rights and Choices",
     body: [
       `You can request access, correction, deletion, or Android waitlist removal by emailing ${contactEmail}.`,
-      "The iOS app no longer requires or offers customer accounts. If you previously created one, email us to request deletion of the legacy account and linked backend data.",
+      "Version 1.4 no longer requires or offers customer accounts. If you created one in an earlier version, email us to request deletion of the account and linked backend data.",
       "You can also disable local notifications in iOS settings or in Nima settings where supported.",
       `You can ask us to delete analytics associated with your device identifier by emailing ${contactEmail}.`,
     ],
