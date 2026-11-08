@@ -155,6 +155,51 @@ final class HardModeCoordinatorTests: XCTestCase {
         XCTAssertNil(coordinator.authorizeFinalChoice(.pause(minutes: 10)))
     }
 
+    func testBatchSelectionRequiresCompletedChallengeAndIsOneUse() {
+        let coordinator = makeEnabledCoordinator()
+        _ = coordinator.requestOff(.disableClientProtection(appID: "x"), source: "test")
+        let selection = HardModeBatchSelection(
+            appChoices: [
+                "x": .pause(minutes: 10),
+                "instagram": .keep,
+                "tiktok": .off
+            ],
+            turnOffHardMode: true
+        )
+        XCTAssertNil(coordinator.authorizeFinalChoice(.batch(selection)))
+        coordinator.advanceStep()
+        coordinator.advanceStep()
+        coordinator.advanceStep()
+        now = now.addingTimeInterval(60)
+
+        let commit = coordinator.authorizeFinalChoice(.batch(selection))
+        XCTAssertNotNil(commit)
+        XCTAssertNil(coordinator.authorizeFinalChoice(.batch(selection)))
+
+        coordinator.finishCommit(commit!, result: .success)
+        XCTAssertFalse(coordinator.isEnabled)
+        XCTAssertNil(coordinator.activeAttempt)
+    }
+
+    func testBatchRejectsEmptyOrInvalidChoices() {
+        let coordinator = makeEnabledCoordinator()
+        _ = coordinator.requestOff(.disableClientProtection(appID: "x"), source: "test")
+        coordinator.advanceStep()
+        coordinator.advanceStep()
+        coordinator.advanceStep()
+        now = now.addingTimeInterval(60)
+
+        XCTAssertNil(coordinator.authorizeFinalChoice(.batch(.init(
+            appChoices: ["x": .keep], turnOffHardMode: false
+        ))))
+        XCTAssertNil(coordinator.authorizeFinalChoice(.batch(.init(
+            appChoices: ["x": .pause(minutes: 30)], turnOffHardMode: false
+        ))))
+        XCTAssertNil(coordinator.authorizeFinalChoice(.batch(.init(
+            appChoices: ["unknown": .off], turnOffHardMode: false
+        ))))
+    }
+
     func testPauseAndScheduleSuppressionExpireIndependently() {
         let start = now!
         HardModeProtectionState.pause(

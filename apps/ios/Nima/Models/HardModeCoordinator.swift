@@ -56,6 +56,22 @@ enum HardModeCommitChoice: Equatable {
     case direct
     case pause(minutes: Int)
     case off
+    case batch(HardModeBatchSelection)
+}
+
+enum HardModeAppChoice: Equatable {
+    case keep
+    case pause(minutes: Int)
+    case off
+}
+
+struct HardModeBatchSelection: Equatable {
+    let appChoices: [String: HardModeAppChoice]
+    let turnOffHardMode: Bool
+
+    var hasChanges: Bool {
+        turnOffHardMode || appChoices.values.contains { $0 != .keep }
+    }
 }
 
 struct HardModeCommit: Identifiable, Equatable {
@@ -82,24 +98,6 @@ enum HardModeDrawTarget: String, CaseIterable, Equatable, Sendable {
         case .rocket: "Draw a rocket"
         case .fish: "Draw a fish"
         case .palmTree: "Draw a palm tree"
-        }
-    }
-
-    var objectName: String {
-        switch self {
-        case .umbrella: "umbrella"
-        case .rocket: "rocket"
-        case .fish: "fish"
-        case .palmTree: "palm tree"
-        }
-    }
-
-    var systemImageName: String {
-        switch self {
-        case .umbrella: "umbrella.fill"
-        case .rocket: "paperplane.fill"
-        case .fish: "fish.fill"
-        case .palmTree: "tree.palm"
         }
     }
 
@@ -264,9 +262,13 @@ final class HardModeCoordinator {
         }
         switch attempt.change.mutation {
         case .turnOffHardMode:
-            guard choice == .off else { return nil }
+            guard choice == .off || isValidBatch(choice) else { return nil }
+        case .disableClientProtection:
+            guard choice != .direct else { return nil }
+            if case .batch = choice, !isValidBatch(choice) { return nil }
         default:
             guard choice != .direct else { return nil }
+            if case .batch = choice { return nil }
         }
         let commit = HardModeCommit(id: UUID(), change: attempt.change, choice: choice)
         authorizedCommit = commit
@@ -277,7 +279,13 @@ final class HardModeCoordinator {
         guard authorizedCommit?.id == commit.id else { return }
         switch result {
         case .success:
-            if commit.change.mutation == .turnOffHardMode {
+            let turnsOffHardMode: Bool
+            if case .batch(let selection) = commit.choice {
+                turnsOffHardMode = selection.turnOffHardMode
+            } else {
+                turnsOffHardMode = commit.change.mutation == .turnOffHardMode
+            }
+            if turnsOffHardMode {
                 isEnabled = false
                 HardModeProtectionState.setEnabled(false, defaults: defaults)
             }
@@ -313,6 +321,16 @@ final class HardModeCoordinator {
         authorizedCommit = nil
         stepHint = nil
         errorMessage = nil
+    }
+
+    private func isValidBatch(_ choice: HardModeCommitChoice) -> Bool {
+        guard case .batch(let selection) = choice, selection.hasChanges else { return false }
+        let supportedIDs: Set<String> = ["instagram", "tiktok", "x"]
+        guard Set(selection.appChoices.keys).isSubset(of: supportedIDs) else { return false }
+        return selection.appChoices.values.allSatisfy {
+            if case .pause(let minutes) = $0 { return [5, 10, 15].contains(minutes) }
+            return true
+        }
     }
 }
 

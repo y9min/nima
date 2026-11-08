@@ -465,7 +465,8 @@ Expected:
 8. Enter the paint-drying timer.
 9. Attempt Continue before 60 seconds and confirm it stays unavailable.
 10. Keep Nima foregrounded and wait for the full timer.
-11. Confirm exactly one set of final choices appears.
+11. Confirm the timer page is replaced by a separate “Choose what changes” page. The paint-drying title and instructions must be gone.
+12. Close the final page and confirm no protection changes; start again and confirm the challenge resets.
 
 Record the random drawing target and capture each stage. Across repeated attempts, cover multiple drawing targets where practical; unit coverage remains responsible for every possible target.
 
@@ -486,15 +487,17 @@ Expected:
 
 Run repeated full challenges to cover:
 
-1. Pause one blocked app for 5 minutes.
-2. Confirm only that app is unpaused.
-3. Use the app while paused, then close Nima and wait for expiry.
-4. Confirm protection returns automatically.
-5. Verify the 10- and 15-minute choices are present and selectable; complete a full timer for each if time permits.
-6. Choose Turn off until I turn it back on for the scheduled app.
-7. Confirm the current schedule no longer unblocks that app and a future occurrence remains suppressed.
-8. Turn the app back on deliberately and verify scheduled protection resumes.
-9. Repeat for a manual blocker.
+1. With Instagram, TikTok and X blocked, complete one challenge and choose a different action for each app. Confirm the summary names every change before tapping Confirm changes.
+2. Confirm all selected changes apply after one confirmation, while apps set to Keep blocked remain protected.
+3. Pause one blocked app for 5 minutes.
+4. Confirm only that app is unblocked during the pause.
+5. Use the app while paused, then close Nima and wait for expiry.
+6. Confirm protection returns automatically, including when two apps have different pause durations.
+7. Verify the 10- and 15-minute choices are present and selectable.
+8. Choose Turn off until I turn it back on for the scheduled app.
+9. Confirm the current and future scheduled occurrences remain suppressed.
+10. Turn the app back on deliberately and verify scheduled protection resumes.
+11. Repeat for a manual blocker.
 
 For every choice confirm:
 
@@ -506,8 +509,8 @@ For every choice confirm:
 ### C7. Turning Hard Mode itself off
 
 1. Start the Hard Mode-off request.
-2. Verify all four stages and the standalone Turn off Hard Mode choice.
-3. Complete the challenge.
+2. Verify all four stages and the separate final page with Hard Mode set to Turn off.
+3. Confirm the change on that page.
 4. Confirm only Hard Mode is disabled; existing blockers and windows remain unchanged.
 5. Relaunch and confirm Hard Mode stays off.
 

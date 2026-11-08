@@ -2,7 +2,7 @@
 
 ## Plain-English contract
 
-When Hard Mode is on, trying to turn off a selected social app blocker opens a four-step challenge. The app remains blocked until all four steps are complete and the user chooses either a 5-, 10-, or 15-minute pause for that app, or to leave that app off until they turn it back on. Turning Hard Mode itself off requires the same challenge. The existing Home Pause Mode remains available without the challenge. Closing or leaving the challenge discards progress.
+When Hard Mode is on, trying to turn off a selected social app blocker opens a four-step challenge. After the timer, a separate page lets the user choose what happens to each currently blocked social app: keep blocking, pause for 5, 10 or 15 minutes, or turn off until manually re-enabled. The same page can turn Hard Mode off. Nothing changes until the user confirms the summary. Turning Hard Mode itself off also requires the challenge. The existing Home Pause Mode remains available without the challenge. Closing or leaving the challenge discards progress.
 
 There is no extra waiting in steps 1–3. Step 4 is the existing 60-second paint-drying animation. Because the challenge can finish in less than five minutes, replace the introduction's “5–10 minute process” claim with accurate copy before release.
 
@@ -14,7 +14,7 @@ There is no extra waiting in steps 1–3. Step 4 is the existing 60-second paint
 | Disable request | Capture the selected app and the pending off action; keep protection active throughout the challenge. Show a full-screen card rising from the current card position. |
 | Existing Home Pause Mode | Keep its current direct 5/10/15-minute flow and behavior. Hard Mode's post-challenge pause is scoped to the selected app. |
 | Scheduled blocker | Include it. A successful indefinite-off choice must suppress the selected app across current and future scheduled occurrences until the user explicitly turns that app back on. Do not delete or silently rewrite the user's window. |
-| Turning Hard Mode off | Run the same four steps; completion disables only Hard Mode and does not change any blocker. |
+| Turning Hard Mode off | Run the same four steps; the final page defaults to turning off Hard Mode while keeping app blockers as they are. App changes require separate explicit selections. |
 | Exit/restart | X, dismiss, backgrounding, navigation away, or app termination cancels the attempt; all step progress and timer progress reset. The enabled flag and any committed pause/off choice remain stored. |
 | Sorting | Use 15 items in both shade and size variants. Size is the only alternate challenge shown. |
 
@@ -67,8 +67,8 @@ There is no extra waiting in steps 1–3. Step 4 is the existing 60-second paint
 
 ## Completion and protection changes
 
-- For a blocker attempt, show a final choice after step 4: “Pause 5 min”, “Pause 10 min”, “Pause 15 min”, and “Turn off until I turn it back on”. State the selected app or affected apps by name. Commit only on explicit selection, then dismiss and update the Home tile, shield/VPN state, and any active schedule indicator together. A failed commit leaves protection on and shows a retryable error.
-- For a Hard Mode-off attempt, show “Turn off Hard Mode”; do not show blocker pause choices. Once confirmed, clear the enabled flag and update the Home rail. Blockers remain as they were.
+- After step 4, replace the timer page with a separate “Choose what changes” page. Show each currently blocked social app with its own Keep blocked, Pause 5/10/15 min, or Off until I turn it back on choice. Show Hard Mode as a separate Keep on/Turn off choice. Summarize every selected change and commit only when Confirm changes is tapped. A failed commit leaves protection on and shows a retryable error.
+- When the request originated from turning off Hard Mode, default that row to Turn off and leave every app at Keep blocked. Once confirmed, clear the enabled flag and update the Home rail.
 - If the target app becomes unblocked, a window expires, or the underlying state changes during the attempt, revalidate before commit. Never apply a stale off action to another app or to a new window. For a scheduled app with both manual and scheduled sources, remove both sources for that app only when the user picks indefinite off.
 
 ## Verification gates

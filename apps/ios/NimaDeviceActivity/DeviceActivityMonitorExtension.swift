@@ -8,7 +8,7 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
-        guard !PaywallBlockingState.isActive(defaults: defaults) else {
+        guard !PaywallBlockingState.isActive(defaults: defaults), !ExperienceModeState.isLegacy(defaults: defaults) else {
             clearAppControlShields()
             return
         }
@@ -35,7 +35,7 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
-        guard !PaywallBlockingState.isActive(defaults: defaults) else {
+        guard !PaywallBlockingState.isActive(defaults: defaults), !ExperienceModeState.isLegacy(defaults: defaults) else {
             clearAppControlShields()
             return
         }
@@ -56,7 +56,7 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
         super.eventDidReachThreshold(event, activity: activity)
-        guard !PaywallBlockingState.isActive(defaults: defaults) else {
+        guard !PaywallBlockingState.isActive(defaults: defaults), !ExperienceModeState.isLegacy(defaults: defaults) else {
             clearAppControlShields()
             return
         }
@@ -114,6 +114,26 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         }.map(\.applicationToken))
         ManagedSettingsStore(named: .init("nima.controls.limits")).shield.applications =
             limitedTokens.isEmpty ? nil : limitedTokens
+
+        if let nextExpiry = HardModeProtectionState.nextPauseExpiry(defaults: defaults, now: now) {
+            let center = DeviceActivityCenter()
+            let activity = DeviceActivityName("nima.hard_mode_pause")
+            center.stopMonitoring([activity])
+            let start = min(now, nextExpiry.addingTimeInterval(-15 * 60))
+            let calendar = Calendar.current
+            let schedule = DeviceActivitySchedule(
+                intervalStart: calendar.dateComponents([.hour, .minute, .second], from: start),
+                intervalEnd: calendar.dateComponents([.hour, .minute, .second], from: nextExpiry),
+                repeats: false
+            )
+            if schedule.nextInterval != nil {
+                do {
+                    try center.startMonitoring(activity, during: schedule)
+                } catch {
+                    // Foreground reconciliation will still restore the shield.
+                }
+            }
+        }
     }
 
     private func scheduledFeedAppID(for activity: DeviceActivityName) -> String? {

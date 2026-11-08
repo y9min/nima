@@ -70,6 +70,7 @@ struct HardModeActivationWarningCard: View {
 
 struct HardModeChallengeOverlay: View {
     @Bindable var coordinator: HardModeCoordinator
+    let availableClientAppIDs: Set<String>
     let onCommit: (HardModeCommit) -> HardModeCommitResult
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -85,6 +86,9 @@ struct HardModeChallengeOverlay: View {
     @State private var activeDrawingStroke: [CGPoint] = []
     @State private var commitError: String?
     @State private var timerTick = 0
+    @State private var appChoices: [String: HardModeAppChoice] = [:]
+    @State private var turnOffHardMode = false
+    @State private var genericChoice: HardModeCommitChoice?
 
     var body: some View {
         ZStack {
@@ -94,12 +98,18 @@ struct HardModeChallengeOverlay: View {
                 .onTapGesture {}
 
             VStack(spacing: 0) {
-                header
-                progress
+                if timerIsComplete {
+                    completionHeader
+                } else {
+                    header
+                    progress
+                }
 
                 ScrollView(.vertical, showsIndicators: false) {
                     Group {
-                        if let attempt = coordinator.activeAttempt {
+                        if timerIsComplete {
+                            completionContent
+                        } else if let attempt = coordinator.activeAttempt {
                             switch attempt.step {
                             case .trace:
                                 traceStep
@@ -117,7 +127,11 @@ struct HardModeChallengeOverlay: View {
                     .padding(.bottom, 26)
                 }
 
-                footer
+                if timerIsComplete {
+                    completionFooter
+                } else {
+                    footer
+                }
             }
             .background(HardModePalette.background)
             .clipShape(
@@ -156,6 +170,9 @@ struct HardModeChallengeOverlay: View {
                 traceStrokes = []
                 activeTraceStroke = []
             }
+        }
+        .onAppear {
+            turnOffHardMode = coordinator.activeAttempt?.change.mutation == .turnOffHardMode
         }
         .task(id: coordinator.activeAttempt?.step) {
             guard coordinator.activeAttempt?.step == .wait else { return }
@@ -387,13 +404,11 @@ struct HardModeChallengeOverlay: View {
         VStack(alignment: .leading, spacing: 18) {
             challengeIntro(
                 activeDrawTarget.drawTitle,
-                detail: "Trace the dotted reference at a comfortable size. Cover the full outline."
+                detail: "Trace the dotted reference. Cover the full outline",
+                centered: true
             )
 
             HStack {
-                Label("\(activeDrawTarget.objectName) reference", systemImage: activeDrawTarget.systemImageName)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(HardModePalette.muted)
                 Spacer()
                 Button("Clear") {
                     drawingStrokes = []
@@ -472,76 +487,300 @@ struct HardModeChallengeOverlay: View {
         VStack(spacing: 16) {
             challengeIntro(
                 "Let the paint dry",
-                detail: "Keep Nima open for the full 60 seconds. Leaving or backgrounding the app resets this step."
+                detail: "Keep Nima open for the full 60 seconds. Leaving or backgrounding the app resets this step.",
+                centered: true
             )
 
-            if timerIsComplete {
-                finalChoices
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            } else {
-                TimelineView(.periodic(from: .now, by: 0.2)) { _ in
-                    VStack(spacing: 10) {
-                        LottieView(animation: .named(
-                            "nima_paint_drying",
-                            subdirectory: "PaintDrying"
+            TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                VStack(spacing: 10) {
+                    LottieView(animation: .named(
+                        "nima_paint_drying",
+                        subdirectory: "PaintDrying"
+                    ))
+                        .imageProvider(BundleImageProvider(
+                            bundle: .main,
+                            searchPath: "PaintDrying"
                         ))
-                            .imageProvider(BundleImageProvider(
-                                bundle: .main,
-                                searchPath: "PaintDrying"
-                            ))
-                            .currentProgress(coordinator.stepFourProgress)
-                            .configure { view in
-                                view.loopMode = .playOnce
-                                view.backgroundBehavior = .pauseAndRestore
-                            }
-                            .aspectRatio(1, contentMode: .fit)
-                            .frame(maxWidth: 350)
-                            .frame(height: 330)
-                            .accessibilityLabel("Paint drying progress")
-                            .accessibilityValue("\(Int(coordinator.stepFourProgress * 100)) percent")
+                        .currentProgress(coordinator.stepFourProgress)
+                        .configure { view in
+                            view.loopMode = .playOnce
+                            view.backgroundBehavior = .pauseAndRestore
+                        }
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: 350)
+                        .frame(height: 330)
+                        .accessibilityLabel("Paint drying progress")
+                        .accessibilityValue("\(Int(coordinator.stepFourProgress * 100)) percent")
 
-                        Text(timeString(seconds: coordinator.stepFourSecondsRemaining))
-                            .font(.system(size: 34, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .contentTransition(.numericText())
-                    }
+                    Text(timeString(seconds: coordinator.stepFourSecondsRemaining))
+                        .font(.system(size: 34, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .contentTransition(.numericText())
                 }
             }
         }
     }
 
-    private var finalChoices: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(coordinator.activeAttempt?.change.mutation == .turnOffHardMode
-                ? "Turn off Hard Mode?"
-                : "Choose what happens next")
-                .font(.system(size: 21, weight: .bold, design: .rounded))
+    private var completionHeader: some View {
+        HStack(spacing: 12) {
+            Button {
+                coordinator.cancelChallenge()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(HardModePalette.muted)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().stroke(HardModePalette.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close without changing protection")
+
+            Spacer()
+            VStack(spacing: 2) {
+                Text("hard mode")
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text("challenge complete")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(HardModePalette.muted)
+            }
+            Spacer()
+            Color.clear.frame(width: 44, height: 44)
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 20)
+    }
+
+    private var completionContent: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(HardModePalette.accent)
+                .accessibilityHidden(true)
+
+            Text("Choose what changes")
+                .font(.system(size: 27, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
 
-            Text(affectedAppsDescription)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
+            Text("Nothing changes until you confirm.")
+                .font(.system(size: 15, weight: .medium, design: .rounded))
                 .foregroundStyle(HardModePalette.muted)
+                .multilineTextAlignment(.center)
 
-            if coordinator.activeAttempt?.change.mutation == .turnOffHardMode {
-                choiceButton("Turn off Hard Mode", icon: "power") {
-                    choose(.off)
-                }
-            } else {
-                ForEach([5, 10, 15], id: \.self) { minutes in
-                    choiceButton("Pause \(minutes) min", icon: "pause.fill") {
-                        choose(.pause(minutes: minutes))
+            if isClientBatchAttempt {
+                VStack(spacing: 11) {
+                    ForEach(displayedClientIDs, id: \.self) { appID in
+                        appChoiceRow(appID)
                     }
+                    hardModeChoiceRow
+                        .padding(.top, 10)
                 }
-                choiceButton("Turn off until I turn it back on", icon: "xmark.circle") {
-                    choose(.off)
-                }
+                .padding(.top, 12)
+            } else {
+                genericChoiceRows
+                    .padding(.top, 12)
             }
 
             if let error = coordinator.errorMessage {
                 hintLabel(error, isError: true)
             }
         }
-        .padding(.top, 8)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var isClientBatchAttempt: Bool {
+        guard let mutation = coordinator.activeAttempt?.change.mutation else { return false }
+        switch mutation {
+        case .disableClientProtection, .turnOffHardMode: return true
+        default: return false
+        }
+    }
+
+    private var displayedClientIDs: [String] {
+        var ids = availableClientAppIDs
+        if case .disableClientProtection(let appID)? = coordinator.activeAttempt?.change.mutation {
+            ids.insert(appID)
+        }
+        return ["x", "instagram", "tiktok"].filter { ids.contains($0) }
+    }
+
+    private func appChoiceRow(_ appID: String) -> some View {
+        let choice = appChoices[appID] ?? .keep
+        return Menu {
+            Button("Keep blocked") { appChoices[appID] = .keep }
+            ForEach([5, 10, 15], id: \.self) { minutes in
+                Button("Pause for \(minutes) min") {
+                    appChoices[appID] = .pause(minutes: minutes)
+                }
+            }
+            Button("Off until I turn it back on") { appChoices[appID] = .off }
+        } label: {
+            choiceRow(
+                title: appName(appID),
+                detail: appChoiceTitle(choice),
+                platform: appID,
+                changed: choice != .keep
+            )
+        }
+        .accessibilityIdentifier("hard_mode.final.\(appID)")
+    }
+
+    private var hardModeChoiceRow: some View {
+        Menu {
+            Button("Keep Hard Mode on") { turnOffHardMode = false }
+            Button("Turn off Hard Mode") { turnOffHardMode = true }
+        } label: {
+            choiceRow(
+                title: "Hard Mode",
+                detail: turnOffHardMode ? "Turn off" : "Keep on",
+                platform: nil,
+                changed: turnOffHardMode
+            )
+        }
+        .accessibilityIdentifier("hard_mode.final.mode")
+    }
+
+    private func choiceRow(title: String, detail: String, platform: String?, changed: Bool) -> some View {
+        HStack(spacing: 14) {
+            Group {
+                if let platform {
+                    SocialMediaIcon(platform: platform, size: 42)
+                } else {
+                    Image(systemName: "power")
+                        .font(.system(size: 23, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: 42, height: 42)
+            .background(HardModePalette.background, in: RoundedRectangle(cornerRadius: 11))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(detail)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(changed ? HardModePalette.accent : HardModePalette.muted)
+            }
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 15)
+        .frame(minHeight: 76)
+        .background(HardModePalette.card, in: RoundedRectangle(cornerRadius: 19))
+        .overlay(
+            RoundedRectangle(cornerRadius: 19)
+                .strokeBorder(changed ? HardModePalette.accent : HardModePalette.border, lineWidth: 1)
+        )
+    }
+
+    private var genericChoiceRows: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(affectedAppsDescription)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(HardModePalette.muted)
+            ForEach([5, 10, 15], id: \.self) { minutes in
+                selectableChoice("Pause \(minutes) min", choice: .pause(minutes: minutes))
+            }
+            selectableChoice("Turn off until I turn it back on", choice: .off)
+        }
+    }
+
+    private func selectableChoice(_ title: String, choice: HardModeCommitChoice) -> some View {
+        Button {
+            genericChoice = choice
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: genericChoice == choice ? "checkmark.circle.fill" : "circle")
+            }
+            .font(.system(size: 16, weight: .semibold, design: .rounded))
+            .foregroundStyle(genericChoice == choice ? HardModePalette.accent : .white)
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .background(HardModePalette.card, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(genericChoice == choice ? HardModePalette.accent : HardModePalette.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var completionFooter: some View {
+        VStack(spacing: 12) {
+            Text(completionSummary)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(HardModePalette.muted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Confirm changes") {
+                if isClientBatchAttempt {
+                    choose(.batch(HardModeBatchSelection(
+                        appChoices: appChoices,
+                        turnOffHardMode: turnOffHardMode
+                    )))
+                } else if let genericChoice {
+                    choose(genericChoice)
+                }
+            }
+            .font(.system(size: 18, weight: .bold, design: .rounded))
+            .foregroundStyle(HardModePalette.background)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(HardModePalette.accent, in: Capsule())
+            .disabled(!hasFinalChanges)
+            .opacity(hasFinalChanges ? 1 : 0.45)
+            .accessibilityIdentifier("hard_mode.final.confirm")
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 12)
+        .padding(.bottom, 20)
+        .background(HardModePalette.background.opacity(0.98))
+    }
+
+    private var hasFinalChanges: Bool {
+        if isClientBatchAttempt {
+            return turnOffHardMode || appChoices.values.contains { $0 != .keep }
+        }
+        return genericChoice != nil
+    }
+
+    private var completionSummary: String {
+        if !isClientBatchAttempt {
+            guard let genericChoice else { return "Choose what happens next." }
+            return genericChoice == .off ? "Protection turns off until you turn it back on." : "Protection pauses temporarily."
+        }
+        var changes = displayedClientIDs.compactMap { appID -> String? in
+            switch appChoices[appID] ?? .keep {
+            case .keep: return nil
+            case .pause(let minutes): return "\(appName(appID)) pauses for \(minutes) min"
+            case .off: return "\(appName(appID)) turns off"
+            }
+        }
+        if turnOffHardMode { changes.append("Hard Mode turns off") }
+        return changes.isEmpty ? "Choose an action for an app or Hard Mode." : changes.joined(separator: " · ")
+    }
+
+    private func appName(_ appID: String) -> String {
+        switch appID {
+        case "x": "X"
+        case "instagram": "Instagram"
+        case "tiktok": "TikTok"
+        default: appID.capitalized
+        }
+    }
+
+    private func appChoiceTitle(_ choice: HardModeAppChoice) -> String {
+        switch choice {
+        case .keep: "Keep blocked"
+        case .pause(let minutes): "Pause for \(minutes) min"
+        case .off: "Off until I turn it back on"
+        }
     }
 
     private var footer: some View {
@@ -596,7 +835,8 @@ struct HardModeChallengeOverlay: View {
 
     private var timerIsComplete: Bool {
         _ = timerTick
-        return coordinator.isAwaitingFinalChoice
+        return coordinator.activeAttempt?.step == .wait
+            && coordinator.stepFourSecondsRemaining == 0
     }
 
     private func continueTapped() {
@@ -731,33 +971,6 @@ struct HardModeChallengeOverlay: View {
                     .opacity(0.09),
                 in: RoundedRectangle(cornerRadius: 14, style: .continuous)
             )
-    }
-
-    private func choiceButton(
-        _ title: String,
-        icon: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .frame(width: 24)
-                Text(title)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .bold))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16)
-            .frame(height: 52)
-            .background(HardModePalette.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(HardModePalette.border, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     private var affectedAppsDescription: String {
