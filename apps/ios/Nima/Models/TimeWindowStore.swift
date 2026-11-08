@@ -11,6 +11,16 @@ final class TimeWindowStore {
     private(set) var activeWindowIDs: Set<String> = []
     private(set) var scheduledAppIDs: Set<String> = []
     private(set) var endedWindowUntilByID: [String: Date] = [:]
+    private var legacyProtectionEnabled = false
+    private var evaluationSuspended = false
+
+    func setLegacyProtectionEnabled(_ enabled: Bool) {
+        legacyProtectionEnabled = enabled
+    }
+
+    func setEvaluationSuspended(_ suspended: Bool) {
+        evaluationSuspended = suspended
+    }
 
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private let notificationScheduler: any TimeWindowNotificationScheduling
@@ -28,10 +38,12 @@ final class TimeWindowStore {
         defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID),
         notificationScheduler: any TimeWindowNotificationScheduling = TimeWindowNotificationScheduler(),
         shouldRegisterLifecycleObservers: Bool = true,
-        startForegroundTimer: Bool = true
+        startForegroundTimer: Bool = true,
+        evaluationSuspended: Bool = false
     ) {
         self.defaults = defaults
         self.notificationScheduler = notificationScheduler
+        self.evaluationSuspended = evaluationSuspended
         load()
         if shouldRegisterLifecycleObservers {
             registerLifecycleObservers()
@@ -63,7 +75,7 @@ final class TimeWindowStore {
         TimeWindowNotificationCoordinator.shared.setActionHandler { [weak self] _ in
             self?.handlePauseReminderActivation()
         }
-        InstagramScheduleMonitor.sync(windows: windows)
+        InstagramScheduleMonitor.sync(windows: legacyProtectionEnabled ? [] : windows)
         evaluateSchedules(source: "time_windows.configure", forceApply: true)
         if pauseAll {
             schedulePauseReminders(requestAuthorizationIfNeeded: false)
@@ -217,6 +229,7 @@ final class TimeWindowStore {
         now: Date = Date(),
         calendar: Calendar = .current
     ) {
+        guard !evaluationSuspended else { return }
         purgeEndedWindows(now: now)
         let active = eligibleWindows(now: now, calendar: calendar)
         activeWindowIDs = Set(active.map(\.id))
@@ -228,10 +241,8 @@ final class TimeWindowStore {
             TimeWindowScheduleEvaluator.activeEndDate(for: $0, now: now, calendar: calendar)
         }
         ScheduledProtectionStateStore.persistScheduleEvaluation(
-            // The shared snapshot drives VPN recovery. Instagram, TikTok, and X
-            // are enforced by controlled clients and Screen Time, so they must
-            // not make the tunnel desired.
-            appIDs: [],
+            // Only the legacy route uses the tunnel for these scheduled apps.
+            appIDs: legacyProtectionEnabled ? nextScheduledApps.intersection(["instagram", "tiktok"]) : [],
             windowIDs: activeWindowIDs,
             desiredUntil: activeEndDates.max(),
             source: source,
@@ -240,9 +251,11 @@ final class TimeWindowStore {
         )
         let didChange = nextScheduledApps != scheduledAppIDs
         scheduledAppIDs = nextScheduledApps
-        applyInstagramProtection?(nextScheduledApps.contains("instagram"), source)
-        applyTikTokProtection?(nextScheduledApps.contains("tiktok"), source)
-        applyXProtection?(nextScheduledApps.contains("x"), source)
+        if !legacyProtectionEnabled {
+            applyInstagramProtection?(nextScheduledApps.contains("instagram"), source)
+            applyTikTokProtection?(nextScheduledApps.contains("tiktok"), source)
+            applyXProtection?(nextScheduledApps.contains("x"), source)
+        }
         guard didChange || forceApply || lastAppliedScheduledAppIDs != nextScheduledApps else { return }
         guard let applyScheduledApps else { return }
         applyScheduledApps(nextScheduledApps, source)
@@ -255,7 +268,7 @@ final class TimeWindowStore {
 
     private func persistAndRefresh(source: String, requestNotificationAuthorization: Bool) {
         save()
-        InstagramScheduleMonitor.sync(windows: windows)
+        InstagramScheduleMonitor.sync(windows: legacyProtectionEnabled ? [] : windows)
         evaluateSchedules(source: source)
         if pauseAll {
             schedulePauseReminders(requestAuthorizationIfNeeded: requestNotificationAuthorization)
@@ -407,7 +420,7 @@ final class TimeWindowStore {
     }
 
     private var hasTunnelBackedScheduledApps: Bool {
-        false
+        legacyProtectionEnabled && !scheduledAppIDs.isDisjoint(with: ["instagram", "tiktok"])
     }
 
     private func eligibleWindows(now: Date, calendar: Calendar) -> [TimeWindow] {

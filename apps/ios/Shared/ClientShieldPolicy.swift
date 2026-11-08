@@ -40,6 +40,7 @@ enum ClientShieldDecision: Equatable {
         case pauseAllWindows = "pause_all_windows"
         case paywall = "paywall"
         case unsupportedApp = "unsupported_app"
+        case legacyExperience = "legacy_experience"
     }
 
     case shield(Reason)
@@ -67,6 +68,10 @@ enum ClientShieldPolicy {
     ) -> ClientShieldDecision {
         guard let app = ClientShieldAppID(rawValue: appID) else {
             return .unshield(.unsupportedApp)
+        }
+
+        if ExperienceModeState.isLegacy(defaults: defaults) {
+            return .unshield(.legacyExperience)
         }
 
         if PaywallBlockingState.isActive(defaults: defaults) {

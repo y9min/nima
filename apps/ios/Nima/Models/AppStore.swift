@@ -36,6 +36,7 @@ final class AppStore {
     ]
 
     private let optionsService = AppOptionsService.shared
+    private var legacyProtectionEnabled = false
     @ObservationIgnored private var vpnReconcileHandler: ((ProtectionIntent) async -> Void)?
     @ObservationIgnored private var vpnStatusProvider: (() -> NEVPNStatus)?
     @ObservationIgnored private var streakEligibilityHandler: ((String) -> Void)?
@@ -51,6 +52,12 @@ final class AppStore {
         apps.first { $0.id == id }
     }
 
+    func setLegacyProtectionEnabled(_ enabled: Bool) {
+        legacyProtectionEnabled = enabled
+        optionsService.setLegacyProtectionEnabled(enabled)
+        refreshFromOptionsService()
+    }
+
     func toggleOption(appId: String, optionId: String, source: String = "unknown") {
         optionsService.toggleOption(appId: appId, optionId: optionId, source: source)
         refreshFromOptionsService()
@@ -61,7 +68,7 @@ final class AppStore {
         // Instagram, TikTok, and X schedules are enforced by in-app clients and Screen Time.
         // Only tunnel-backed platforms should reach the VPN policy.
         let didChange = optionsService.setScheduledBlockedAppIDs(
-            [],
+            legacyProtectionEnabled ? appIDs.intersection(["instagram", "tiktok"]) : [],
             source: source
         )
         refreshFromOptionsService()
@@ -160,7 +167,7 @@ final class AppStore {
 
     var hasAnyManuallyEnabledBlockingOption: Bool {
         apps.contains { app in
-            !Self.controlledClientAppIDs.contains(app.id) && app.options.contains {
+            ((legacyProtectionEnabled && ["instagram", "tiktok"].contains(app.id)) || !Self.controlledClientAppIDs.contains(app.id)) && app.options.contains {
                 optionsService.isOptionManuallySelected(appId: app.id, optionId: $0.id)
             }
         }
@@ -168,7 +175,7 @@ final class AppStore {
 
     var manuallyBlockedAppIDs: Set<String> {
         Set(apps.compactMap { app in
-            guard !Self.controlledClientAppIDs.contains(app.id) else { return nil }
+            guard (legacyProtectionEnabled && ["instagram", "tiktok"].contains(app.id)) || !Self.controlledClientAppIDs.contains(app.id) else { return nil }
             return app.options.contains {
                 optionsService.isOptionManuallySelected(appId: app.id, optionId: $0.id)
             } ? app.id : nil
@@ -183,7 +190,7 @@ final class AppStore {
         guard !PaywallBlockingState.isActive(defaults: sharedDefaults) else { return false }
         let scheduled = ScheduledProtectionStateStore.snapshot(defaults: sharedDefaults)
         let hasTunnelBackedSchedule = scheduled.isDesiredProtectionActive(now: now)
-            && !scheduled.activeAppIDs.isSubset(of: Self.controlledClientAppIDs)
+            && (legacyProtectionEnabled || !scheduled.activeAppIDs.isSubset(of: Self.controlledClientAppIDs))
         return hasAnyManuallyEnabledBlockingOption || hasTunnelBackedSchedule
     }
 

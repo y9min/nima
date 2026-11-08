@@ -49,6 +49,13 @@ enum PaywallBlockingState {
     }
 }
 
+enum ExperienceModeState {
+    static let legacyKey = "experience.legacy_vpn"
+    static func isLegacy(defaults: UserDefaults?) -> Bool {
+        defaults?.bool(forKey: legacyKey) ?? false
+    }
+}
+
 enum AppControlRuleState {
     static let appGroupID = "group.so.nima.app"
     static let rulesKey = "app_controls.rules_v1"

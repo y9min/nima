@@ -45,6 +45,23 @@ final class TimeWindowInstagramModeCompatibilityTests: XCTestCase {
 }
 
 final class FeaturePolicyBlockerResetTests: XCTestCase {
+    func testLegacyTunnelUsesSavedManualAndScheduledBlocks() {
+        var manual = FeaturePolicyV1.defaultPolicy()
+        manual.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+        let effective = AppOptionsService.effectivePolicy(manual, scheduledAppIDs: ["tiktok"], legacy: true)
+        XCTAssertEqual(effective.appToggles["instagram"]?["strict_reels"], true)
+        XCTAssertEqual(effective.appToggles["tiktok"]?["video_block"], true)
+    }
+
+    func testNewRouteDoesNotSendControlledClientBlocksToTunnel() {
+        var manual = FeaturePolicyV1.defaultPolicy()
+        manual.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
+        manual.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        let effective = AppOptionsService.effectivePolicy(manual, scheduledAppIDs: ["instagram", "tiktok"], legacy: false)
+        XCTAssertEqual(effective.appToggles["instagram"]?["strict_reels"], false)
+        XCTAssertEqual(effective.appToggles["tiktok"]?["video_block"], false)
+        XCTAssertEqual(manual.appToggles["instagram"]?["strict_reels"], true)
+    }
     func testDisablingManualTogglesPreservesPolicySettingsAndUnknownOptions() {
         var policy = FeaturePolicyV1(
             profile: "custom-profile",
@@ -312,6 +329,15 @@ final class TimeWindowNotificationRoutingTests: XCTestCase {
 }
 
 final class ClientShieldPolicyTests: XCTestCase {
+    func testLegacyExperienceDoesNotApplyControlledClientShield() {
+        let suite = "ClientShieldPolicyTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: ExperienceModeState.legacyKey)
+        defaults.set(true, forKey: ClientShieldAppID.instagram.manualProtectionKey)
+        XCTAssertEqual(ClientShieldPolicy.decision(for: "instagram", defaults: defaults), .unshield(.legacyExperience))
+        XCTAssertTrue(defaults.bool(forKey: ClientShieldAppID.instagram.manualProtectionKey))
+    }
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -581,6 +607,29 @@ final class ClientShieldPolicyTests: XCTestCase {
 }
 
 final class TimeWindowStorePauseTests: XCTestCase {
+    func testLegacySchedulePersistsTunnelAppsAndNewScheduleDoesNot() {
+        let defaults = testDefaults()
+        let store = makeStore(defaults: defaults)
+        store.windows = [activeWindow(apps: ["instagram", "tiktok"])]
+        store.setLegacyProtectionEnabled(true)
+        store.evaluateSchedules(source: "test.legacy")
+        XCTAssertEqual(ScheduledProtectionStateStore.snapshot(defaults: defaults).activeAppIDs, ["instagram", "tiktok"])
+        store.setLegacyProtectionEnabled(false)
+        store.evaluateSchedules(source: "test.new", forceApply: true)
+        XCTAssertTrue(ScheduledProtectionStateStore.snapshot(defaults: defaults).activeAppIDs.isEmpty)
+    }
+
+    func testSuspendedScheduleCheckPreservesSavedTunnelState() {
+        let defaults = testDefaults()
+        let store = makeStore(defaults: defaults)
+        store.windows = [activeWindow(apps: ["instagram"])]
+        store.setLegacyProtectionEnabled(true)
+        store.evaluateSchedules(source: "test.before")
+        store.setEvaluationSuspended(true)
+        store.windows = []
+        store.evaluateSchedules(source: "test.checking")
+        XCTAssertEqual(ScheduledProtectionStateStore.snapshot(defaults: defaults).activeAppIDs, ["instagram"])
+    }
     func testEligibleWindowStartsBlockingImmediately() {
         let store = makeStore()
         let window = activeWindow(apps: ["instagram"])

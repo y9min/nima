@@ -9,6 +9,12 @@ final class VPNManager: ObservableObject {
     @Published var vpnStatus: NEVPNStatus = .disconnected
     @Published private(set) var statusLog: [String] = []
     @Published var tunnelLog: String = "(no diagnostic report yet)"
+    var legacyProtectionEnabled = false
+    var reconciliationSuspended = false
+
+    init(reconciliationSuspended: Bool = false) {
+        self.reconciliationSuspended = reconciliationSuspended
+    }
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
@@ -383,6 +389,7 @@ final class VPNManager: ObservableObject {
     }
 
     func reconcileProtection(_ intent: ProtectionIntent) async {
+        guard !reconciliationSuspended else { return }
         if let lastProtectionIntent, intent.revision < lastProtectionIntent.revision {
             appendLog(
                 "PROTECTION_INTENT stale_ignored revision=\(intent.revision) latest=\(lastProtectionIntent.revision) source=\(intent.source)"
@@ -427,6 +434,7 @@ final class VPNManager: ObservableObject {
     }
 
     private func applyProtectionIntent(_ intent: ProtectionIntent) async {
+        guard !reconciliationSuspended else { return }
         let desired = VPNProfileDesiredState.resolve(
             intent: intent,
             rolloutEligible: onDemandRollout.isEligible
@@ -745,6 +753,7 @@ final class VPNManager: ObservableObject {
     }
 
     func startVPN(source: String = "unknown") {
+        guard !reconciliationSuspended else { return }
         if isManualStartSource(source) {
             bypassExternalKillReconnectCapOnce(source: source)
             clearReconnectBreakerForManualStart(source: source)
@@ -907,6 +916,7 @@ final class VPNManager: ObservableObject {
     }
 
     func stopVPN(source: String = "unknown") {
+        guard !reconciliationSuspended else { return }
         if source == "settings.toggle_button" {
             ScheduledProtectionStateStore.suppressCurrentScheduleWindow(defaults: sharedDefaults, source: source)
         }
@@ -1712,7 +1722,8 @@ final class VPNManager: ObservableObject {
         // Instagram, TikTok, and X are protected by controlled clients and
         // Screen Time. Legacy toggles remain on disk for migration only.
         return policy.appToggles.contains { appID, toggles in
-            !["instagram", "tiktok", "x"].contains(appID)
+            ((legacyProtectionEnabled && ["instagram", "tiktok"].contains(appID))
+                || !["instagram", "tiktok", "x"].contains(appID))
                 && toggles.values.contains(true)
         }
     }
@@ -1727,7 +1738,8 @@ final class VPNManager: ObservableObject {
         }
         policy.mergeDefaults()
         return policy.appToggles.contains { appID, toggles in
-            !["instagram", "tiktok", "x"].contains(appID)
+            ((legacyProtectionEnabled && ["instagram", "tiktok"].contains(appID))
+                || !["instagram", "tiktok", "x"].contains(appID))
                 && toggles.values.contains(true)
         }
     }

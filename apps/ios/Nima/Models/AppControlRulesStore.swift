@@ -95,6 +95,11 @@ final class AppControlRulesStore {
     }
 
     func reconcile() {
+        if ExperienceModeState.isLegacy(defaults: defaults) {
+            applyShields()
+            activityCenter.stopMonitoring([DeviceActivityName(AppControlRuleState.limitActivityName)])
+            return
+        }
         // A shield from yesterday must not linger if the extension's midnight
         // callback was delayed until the next device use.
         let reached = AppControlRuleState.reachedLimitIDs(defaults: defaults)
@@ -117,7 +122,8 @@ final class AppControlRulesStore {
     }
 
     private func applyShields() {
-        guard !PaywallBlockingState.isActive(defaults: defaults) else {
+        guard !PaywallBlockingState.isActive(defaults: defaults),
+              !ExperienceModeState.isLegacy(defaults: defaults) else {
             blockedStore.shield.applications = nil
             limitsStore.shield.applications = nil
             return

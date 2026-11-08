@@ -178,12 +178,13 @@ final class AppOptionsService {
     private var optionStates: [String: [String: Bool]] = [:] // effective appId -> optionId -> isSelected
     private var manualPolicy: FeaturePolicyV1 = .defaultPolicy()
     private var scheduledAppIDs: Set<String> = []
+    private var legacyProtectionEnabled = false
     private let defaults = UserDefaults(suiteName: NimaConstants.appGroupID)
 
     private init() {
         loadData()
         loadSavedStates()
-        persistEffectivePolicy(updatedBy: "app.options.init")
+        refreshOptionStates(from: loadPersistedPolicy(forKey: NimaConstants.featurePolicyKey) ?? manualPolicy)
     }
 
     func loadData() {
@@ -216,7 +217,6 @@ final class AppOptionsService {
         }
 
         manualPolicy = loadedPolicy
-        persistManualPolicy()
     }
 
     private func loadPersistedPolicy(forKey key: String) -> FeaturePolicyV1? {
@@ -231,6 +231,12 @@ final class AppOptionsService {
 
     func getOptions(for appId: String) -> AppOptionsData? {
         return cachedData[appId]
+    }
+
+    func setLegacyProtectionEnabled(_ enabled: Bool) {
+        legacyProtectionEnabled = enabled
+        persistManualPolicy()
+        persistEffectivePolicy(updatedBy: "app.options.experience_changed")
     }
 
     func getSelectedOptions(for appId: String) -> [AppOption] {
@@ -312,21 +318,9 @@ final class AppOptionsService {
 
     @discardableResult
     private func persistEffectivePolicy(updatedBy: String) -> FeaturePolicyV1 {
-        var effectivePolicy = manualPolicy
-        applyScheduledApps(to: &effectivePolicy)
-        // Instagram is enforced by the Clean Client. Keep the legacy preference in
-        // manualPolicy for one-release rollback, but never send it to the tunnel.
-        effectivePolicy.set(appId: "instagram", optionId: "strict_reels", isEnabled: false)
-        effectivePolicy.set(appId: "instagram", optionId: "reels", isEnabled: false)
-        // TikTok is also enforced by its controlled client. Its legacy tunnel
-        // preference is retained in manualPolicy for rollback but never reaches the tunnel.
-        effectivePolicy.set(appId: "tiktok", optionId: "video_block", isEnabled: false)
-        // X is enforced by the controlled client and Screen Time as well. Keep
-        // the legacy manual toggles for migration, but never apply X domain blocks
-        // to the tunnel because they can also interrupt direct messages.
-        effectivePolicy.set(appId: "x", optionId: "feed_block", isEnabled: false)
-        effectivePolicy.set(appId: "x", optionId: "strict_feed_block", isEnabled: false)
-        effectivePolicy.mergeDefaults()
+        var effectivePolicy = Self.effectivePolicy(
+            manualPolicy, scheduledAppIDs: scheduledAppIDs, legacy: legacyProtectionEnabled
+        )
         let currentRevision = loadPersistedPolicy(forKey: NimaConstants.featurePolicyKey)?.revision ?? 0
         effectivePolicy.revision = max(currentRevision, manualPolicy.revision) + 1
         effectivePolicy.updatedAt = Date().timeIntervalSince1970
@@ -399,11 +393,24 @@ final class AppOptionsService {
         }
     }
 
-    private func applyScheduledApps(to policy: inout FeaturePolicyV1) {
-        if scheduledAppIDs.contains("instagram") {
+    static func effectivePolicy(_ manual: FeaturePolicyV1, scheduledAppIDs: Set<String>, legacy: Bool) -> FeaturePolicyV1 {
+        var policy = manual
+        if legacy && scheduledAppIDs.contains("instagram") {
             policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: true)
             policy.set(appId: "instagram", optionId: "reels", isEnabled: false)
         }
+        if legacy && scheduledAppIDs.contains("tiktok") {
+            policy.set(appId: "tiktok", optionId: "video_block", isEnabled: true)
+        }
+        if !legacy {
+            policy.set(appId: "instagram", optionId: "strict_reels", isEnabled: false)
+            policy.set(appId: "instagram", optionId: "reels", isEnabled: false)
+            policy.set(appId: "tiktok", optionId: "video_block", isEnabled: false)
+        }
+        policy.set(appId: "x", optionId: "feed_block", isEnabled: false)
+        policy.set(appId: "x", optionId: "strict_feed_block", isEnabled: false)
+        policy.mergeDefaults()
+        return policy
     }
 }
 
