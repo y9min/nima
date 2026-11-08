@@ -29,10 +29,12 @@ enum FeatureAccessGate {
 struct SubscriptionCustomerStatus: Equatable {
     let activeEntitlementIDs: [String]
     let activeSubscriptionIDs: [String]
+    let premiumExpirationDate: Date?
 
-    init(activeEntitlementIDs: some Sequence<String>, activeSubscriptionIDs: some Sequence<String>) {
+    init(activeEntitlementIDs: some Sequence<String>, activeSubscriptionIDs: some Sequence<String>, premiumExpirationDate: Date? = nil) {
         self.activeEntitlementIDs = Array(activeEntitlementIDs)
         self.activeSubscriptionIDs = Array(activeSubscriptionIDs)
+        self.premiumExpirationDate = premiumExpirationDate
     }
 }
 
@@ -73,6 +75,9 @@ struct RevenueCatClient {
         getCustomerInfo: { forceRefresh, completion in
             let fetchPolicy: CacheFetchPolicy = forceRefresh ? .fetchCurrent : .default
             Purchases.shared.getCustomerInfo(fetchPolicy: fetchPolicy) { customerInfo, error in
+                if error == nil, let customerInfo {
+                    Task { @MainActor in AcquisitionTrackingService.shared.subscriptionUpdated(customerInfo) }
+                }
                 completion(customerInfo.map(SubscriptionCustomerStatus.init), error)
             }
         },
@@ -82,6 +87,9 @@ struct RevenueCatClient {
         purchase: { package, completion in
             MainActor.assumeIsolated { MetaAdsService.shared.updateRevenueCatAttribution() }
             Purchases.shared.purchase(package: package) { _, customerInfo, error, userCancelled in
+                if error == nil, !userCancelled, let customerInfo {
+                    Task { @MainActor in AcquisitionTrackingService.shared.purchaseCompleted(customerInfo) }
+                }
                 completion(customerInfo.map(SubscriptionCustomerStatus.init), error, userCancelled)
             }
         },
@@ -107,6 +115,7 @@ private final class RevenueCatCustomerInfoDelegate: NSObject, PurchasesDelegate 
     var onUpdate: RevenueCatClient.CustomerStatusUpdate?
 
     func purchases(_ purchases: Purchases, receivedUpdated customerInfo: CustomerInfo) {
+        Task { @MainActor in AcquisitionTrackingService.shared.subscriptionUpdated(customerInfo) }
         onUpdate?(SubscriptionCustomerStatus(customerInfo))
     }
 }
@@ -119,7 +128,10 @@ private extension SubscriptionCustomerStatus {
     init(_ customerInfo: CustomerInfo) {
         self.init(
             activeEntitlementIDs: customerInfo.entitlements.active.keys,
-            activeSubscriptionIDs: customerInfo.activeSubscriptions
+            activeSubscriptionIDs: customerInfo.activeSubscriptions,
+            premiumExpirationDate: customerInfo.entitlements.active.first {
+                $0.key.lowercased().filter(\.isLetter) == "nimapro"
+            }?.value.expirationDate
         )
     }
 }
@@ -129,6 +141,7 @@ final class SubscriptionStore {
     static let premiumEntitlementID = "nima Pro"
     static let requestTimeoutNanoseconds: UInt64 = 10_000_000_000
     private static let cachedPremiumKeyPrefix = "subscription.hasPremium."
+    private static let entitlementExpiryKeyPrefix = "subscription.entitlementExpiry."
     private static let temporaryPremiumUntilKey = "subscription.temporaryPremiumUntil"
     static let offlineGraceDuration: TimeInterval = 72 * 60 * 60
 
@@ -142,6 +155,13 @@ final class SubscriptionStore {
     var yearlyPackage: RevenueCat.Package?
     var purchaseErrorMessage: String?
     var restoreErrorMessage: String?
+    private(set) var cohortCheckRevision = 0
+
+    var cohortIdentity: String? {
+        guard isConfigured, hasConfirmedIdentity,
+              let intendedAppUserID, client.currentAppUserID() == intendedAppUserID else { return nil }
+        return intendedAppUserID
+    }
 
     var hasPendingPurchase: Bool {
         purchaseRequestID != nil
@@ -153,7 +173,7 @@ final class SubscriptionStore {
     }
 
     var hasAccessForRouting: Bool {
-        hasPremium && hasTemporaryPremiumAccess
+        hasPremium && hasTemporaryPremiumAccess && cohortIdentity != nil
     }
 
     var isLoadingOfferings: Bool {
@@ -177,6 +197,7 @@ final class SubscriptionStore {
     private var restoreTimedOutRequestID: UUID?
 
     private var customerInfoTimeoutTask: Task<Void, Never>?
+    private var premiumExpiryTask: Task<Void, Never>?
     private var offeringsTimeoutTask: Task<Void, Never>?
     private var restoreTimeoutTask: Task<Void, Never>?
     private var customerInfoCompletion: ((Bool?) -> Void)?
@@ -207,6 +228,7 @@ final class SubscriptionStore {
 
     deinit {
         customerInfoTimeoutTask?.cancel()
+        premiumExpiryTask?.cancel()
         offeringsTimeoutTask?.cancel()
         restoreTimeoutTask?.cancel()
     }
@@ -235,10 +257,13 @@ final class SubscriptionStore {
         }
         intendedAppUserID = appUserID
         hasConfirmedIdentity = true
+        cohortCheckRevision += 1
         hasPremium = defaults.bool(forKey: Self.cachedPremiumKey(for: appUserID))
-        expireCachedPremiumAccessIfNeeded()
-        verificationState = .loading
-        refreshCustomerInfo()
+        let expiredCachedAccess = expireCachedPremiumAccessIfNeeded()
+        schedulePremiumExpiry()
+        let knownExpired = expiredCachedAccess && verificationState == .verified
+        if !knownExpired { verificationState = .loading }
+        refreshCustomerInfo(updatesVerificationState: !knownExpired)
         loadOfferings()
         if let postHogUserID = AnalyticsService.shared.distinctID {
             client.setAttributes(["$posthogUserId": postHogUserID])
@@ -264,10 +289,29 @@ final class SubscriptionStore {
 
     func refreshAfterForeground() {
         guard isConfigured, intendedAppUserID != nil, hasConfirmedIdentity else { return }
+        guard let currentIdentity = client.currentAppUserID(), !currentIdentity.isEmpty else {
+            verificationState = .failed("Subscriptions are unavailable right now.")
+            cohortCheckRevision += 1
+            return
+        }
+        if currentIdentity != intendedAppUserID {
+            intendedAppUserID = currentIdentity
+            // The older grace deadline was shared across identities. Require a
+            // fresh check rather than applying another identity's deadline here.
+            hasPremium = false
+            defaults.removeObject(forKey: Self.temporaryPremiumUntilKey)
+            premiumExpiryTask?.cancel()
+            verificationState = .loading
+            cohortCheckRevision += 1
+            expireCachedPremiumAccessIfNeeded()
+            schedulePremiumExpiry()
+            refreshCustomerInfo(forceRefresh: true)
+            return
+        }
         let expiredCachedAccess = expireCachedPremiumAccessIfNeeded()
         refreshCustomerInfo(
             forceRefresh: true,
-            updatesVerificationState: expiredCachedAccess
+            updatesVerificationState: expiredCachedAccess && verificationState != .verified
         )
     }
 
@@ -578,14 +622,21 @@ final class SubscriptionStore {
 
     @discardableResult
     private func apply(_ status: SubscriptionCustomerStatus?) -> Bool? {
+        guard cohortIdentity != nil else {
+            verificationState = .failed("Subscriptions are unavailable right now.")
+            return nil
+        }
         guard let resolvedAccess = Self.premiumAccess(from: status) else {
             verificationState = .failed("We couldn’t check your subscription. Please try again.")
             return nil
         }
 
+        cohortCheckRevision += 1
         verificationState = .verified
-        setPremiumAccess(resolvedAccess)
-        return resolvedAccess
+        let unexpired = status?.premiumExpirationDate.map { $0 > Date() } ?? true
+        let access = resolvedAccess && unexpired
+        setPremiumAccess(access, expiresAt: status?.premiumExpirationDate)
+        return access
     }
 
     private func reconcilePendingPurchase() {
@@ -616,11 +667,11 @@ final class SubscriptionStore {
         }
     }
 
-    private func setPremiumAccess(_ hasAccess: Bool) {
+    private func setPremiumAccess(_ hasAccess: Bool, expiresAt: Date? = nil) {
         hasPremium = hasAccess
         if hasAccess {
             defaults.set(
-                Date().addingTimeInterval(Self.offlineGraceDuration),
+                min(Date().addingTimeInterval(Self.offlineGraceDuration), expiresAt ?? .distantFuture),
                 forKey: Self.temporaryPremiumUntilKey
             )
         } else {
@@ -628,18 +679,49 @@ final class SubscriptionStore {
         }
         guard let appUserID = intendedAppUserID else { return }
         defaults.set(hasAccess, forKey: Self.cachedPremiumKey(for: appUserID))
+        let expiryKey = Self.entitlementExpiryKeyPrefix + appUserID
+        if hasAccess, let expiresAt {
+            defaults.set(expiresAt, forKey: expiryKey)
+        } else {
+            defaults.removeObject(forKey: expiryKey)
+        }
+        schedulePremiumExpiry()
+    }
+
+    private func schedulePremiumExpiry() {
+        premiumExpiryTask?.cancel()
+        guard hasPremium, let expiry = defaults.object(forKey: Self.temporaryPremiumUntilKey) as? Date else { return }
+        premiumExpiryTask = Task { @MainActor [weak self] in
+            let delay = max(0, expiry.timeIntervalSinceNow)
+            do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+            catch { return }
+            guard let self else { return }
+            let entitlementExpiry = self.intendedAppUserID.flatMap {
+                self.defaults.object(forKey: Self.entitlementExpiryKeyPrefix + $0) as? Date
+            }
+            let entitlementExpired = entitlementExpiry.map { $0 <= Date() } ?? false
+            if self.expireCachedPremiumAccessIfNeeded() {
+                if entitlementExpired { self.verificationState = .verified }
+                self.cohortCheckRevision += 1
+                self.refreshCustomerInfo(forceRefresh: true, updatesVerificationState: !entitlementExpired)
+            }
+        }
     }
 
     @discardableResult
     private func expireCachedPremiumAccessIfNeeded() -> Bool {
         guard hasPremium, !hasTemporaryPremiumAccess else { return false }
+        let entitlementExpired = intendedAppUserID.flatMap {
+            defaults.object(forKey: Self.entitlementExpiryKeyPrefix + $0) as? Date
+        }.map { $0 <= Date() } ?? false
         setPremiumAccess(false)
-        verificationState = .loading
+        verificationState = entitlementExpired ? .verified : .loading
         return true
     }
 
     private static func premiumAccess(from status: SubscriptionCustomerStatus?) -> Bool? {
         guard let status else { return nil }
+        if let expirationDate = status.premiumExpirationDate, expirationDate <= Date() { return false }
         return resolvesPremiumAccess(
             activeEntitlementIDs: status.activeEntitlementIDs,
             activeSubscriptionIDs: status.activeSubscriptionIDs

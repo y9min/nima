@@ -118,6 +118,78 @@ final class SubscriptionStoreTests: XCTestCase {
         XCTAssertTrue(store.hasPremium)
     }
 
+    func testExpiredEntitlementCannotGrantPremium() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        store.refreshCustomerInfo()
+        mock.customerInfoCompletions[0](
+            SubscriptionCustomerStatus(
+                activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
+                activeSubscriptionIDs: [],
+                premiumExpirationDate: Date().addingTimeInterval(-1)
+            ), nil
+        )
+        await flushMainActorTasks()
+        XCTAssertFalse(store.hasAccessForRouting)
+        XCTAssertEqual(store.verificationState, .verified)
+    }
+
+    func testOfflineGraceNeverExtendsPastEntitlementExpiry() async throws {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let expiry = Date().addingTimeInterval(600)
+        store.refreshCustomerInfo()
+        mock.customerInfoCompletions[0](
+            SubscriptionCustomerStatus(
+                activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
+                activeSubscriptionIDs: [], premiumExpirationDate: expiry
+            ), nil
+        )
+        await flushMainActorTasks()
+        XCTAssertEqual(try XCTUnwrap(defaults.object(forKey: "subscription.temporaryPremiumUntil") as? Date), expiry)
+    }
+
+    func testKnownEntitlementExpiryRemovesAccessWithoutWaitingForNetwork() async throws {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        store.refreshCustomerInfo()
+        mock.customerInfoCompletions[0](
+            SubscriptionCustomerStatus(
+                activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID],
+                activeSubscriptionIDs: [], premiumExpirationDate: Date().addingTimeInterval(0.2)
+            ), nil
+        )
+        await flushMainActorTasks()
+        XCTAssertTrue(store.hasAccessForRouting)
+        try await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertFalse(store.hasAccessForRouting)
+        XCTAssertEqual(store.verificationState, .verified)
+    }
+
+    func testIdentityChangeCannotInheritPreviousPremiumAccess() async {
+        let mock = MockRevenueCatClient()
+        let (store, defaults, suiteName) = makeStore(client: mock.client)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        store.refreshCustomerInfo()
+        mock.customerInfoCompletions[0](
+            SubscriptionCustomerStatus(activeEntitlementIDs: [SubscriptionStore.premiumEntitlementID], activeSubscriptionIDs: []), nil
+        )
+        await flushMainActorTasks()
+        XCTAssertTrue(store.hasAccessForRouting)
+        mock.currentUserID = "different-user"
+        XCTAssertFalse(store.hasAccessForRouting)
+        store.refreshAfterForeground()
+        XCTAssertFalse(store.hasAccessForRouting)
+        mock.customerInfoCompletions[1](
+            SubscriptionCustomerStatus(activeEntitlementIDs: [], activeSubscriptionIDs: []), nil
+        )
+        await flushMainActorTasks()
+        XCTAssertFalse(store.hasAccessForRouting)
+    }
+
     func testForegroundRefreshBypassesRevenueCatCache() {
         let mock = MockRevenueCatClient()
         let (store, defaults, suiteName) = makeStore(client: mock.client)
