@@ -49,6 +49,8 @@ final class MetaAdsService {
     func leaveForeground() { consentState.leaveForeground() }
 
     func refreshConsent() {
+        guard NSClassFromString("XCTestCase") == nil else { return }
+        AcquisitionTrackingService.shared.refreshConsent()
         let authorized = configuration.isValid && ATTrackingManager.trackingAuthorizationStatus == .authorized
         guard authorized || initialized else {
             updateRevenueCatAttribution()
@@ -77,16 +79,26 @@ final class MetaAdsService {
     /// Called after RevenueCat configuration and immediately before purchase/restore.
     func updateRevenueCatAttribution() {
         guard Purchases.isConfigured else { return }
+        AcquisitionTrackingService.shared.syncRevenueCatIdentity()
         let status = ATTrackingManager.trackingAuthorizationStatus
-        let authorized = configuration.isValid && status == .authorized
+        let authorized = (configuration.isValid || AcquisitionTrackingService.shared.isConfigured) && status == .authorized
         attributionCoordinator.update(
             identity: Purchases.shared.appUserID,
             consent: status.rawValue,
             authorized: authorized,
             collect: { Purchases.shared.attribution.collectDeviceIdentifiers() },
-            attach: { Purchases.shared.attribution.setFBAnonymousID(AppEvents.shared.anonymousID) },
+            attach: {
+                if configuration.isValid {
+                    Purchases.shared.attribution.setFBAnonymousID(AppEvents.shared.anonymousID)
+                } else {
+                    Purchases.shared.attribution.setAttributes(["$fbAnonId": ""])
+                }
+            },
             clear: {
-                Purchases.shared.attribution.setAttributes(["$idfa": "", "$idfv": "", "$ip": "", "$fbAnonId": ""])
+                Purchases.shared.attribution.setAttributes([
+                    "$idfa": "", "$idfv": "", "$ip": "", "$fbAnonId": "", "$tenjinId": "",
+                    "$mediaSource": "", "$campaign": "", "$creative": "",
+                ])
             },
             sync: { completion in
                 // RC itself refreshes $attConsentStatus on attribute sync/receipt posts.
@@ -98,12 +110,13 @@ final class MetaAdsService {
     /// Paywall stays in its loading state while the native prompt is open.
     /// Refusal and restricted status always allow purchases to continue.
     func requestPermissionBeforePaywall() async {
+        guard NSClassFromString("XCTestCase") == nil else { return }
         if let permissionTask {
             await permissionTask.value
             refreshConsent()
             return
         }
-        guard configuration.isValid,
+        guard (configuration.isValid || AcquisitionTrackingService.shared.isConfigured),
               ATTrackingManager.trackingAuthorizationStatus == .notDetermined,
               UIApplication.shared.applicationState == .active else {
             refreshConsent()

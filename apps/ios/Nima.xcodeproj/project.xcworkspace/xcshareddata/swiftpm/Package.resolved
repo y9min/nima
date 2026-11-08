@@ -1,5 +1,5 @@
 {
-  "originHash" : "4e2e9cd1eb5d3430b9542aae21f6e19cd2cda3de4ff055aa2d1034871915fede",
+  "originHash" : "8eca4eeb1fb50871eb101b111bf46fc9e81b3ff81afdd499add9f931e55e296a",
   "pins" : [
     {
       "identity" : "facebook-ios-sdk",
@@ -89,6 +89,15 @@
       "state" : {
         "revision" : "45eb0224913ea070ec4fba17291b9e7ecf4749ca",
         "version" : "1.5.1"
+      }
+    },
+    {
+      "identity" : "tenjin-ios-spm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tenjin/tenjin-ios-spm.git",
+      "state" : {
+        "revision" : "01b7e4b4805cdd5cc13100fc849c02861877fb71",
+        "version" : "1.20.1"
       }
     },
     {

@@ -1,7 +1,13 @@
+import AppTrackingTransparency
 import Foundation
 import PostHog
 
 enum AnalyticsEvent {
+    static let appFirstObserved = "app_first_observed"
+    static let sessionStarted = "app_session_started"
+    static let appForegrounded = "app_foregrounded"
+    static let appBackgrounded = "app_backgrounded"
+    static let activationCompleted = "activation_completed"
     static let onboardingStarted = "onboarding_started"
     static let onboardingStepViewed = "onboarding_step_viewed"
     static let onboardingStepCompleted = "onboarding_step_completed"
@@ -143,14 +149,18 @@ enum PurchaseAnalytics {
 
 final class AnalyticsService {
     static let shared = AnalyticsService()
-    static let flowVersion = "anonymous_restore_v2"
+    static let flowVersion = "acquisition_v3"
 
     private(set) var isConfigured = false
+    private var lifecycle = AnalyticsLifecycleState(defaults: .standard)
+    private var sessionProperties: [String: Any] = [:]
+    private var acquisitionProperties: [String: String] = [:]
 
     private init() {}
 
     func configure() {
         guard !isConfigured,
+              NSClassFromString("XCTestCase") == nil,
               let token = Self.bundleValue(for: "POSTHOG_PROJECT_TOKEN"),
               let host = Self.bundleValue(for: "POSTHOG_HOST") else { return }
 
@@ -169,11 +179,51 @@ final class AnalyticsService {
         isConfigured = true
     }
 
-    func capture(_ event: String, properties: [String: Any] = [:]) {
+    func enterForeground(existingInstallation: Bool) {
         guard isConfigured else { return }
-        var safeProperties = properties
+        let update = lifecycle.enterForeground(now: Date(), existingInstallation: existingInstallation)
+        guard let update else { return }
+        sessionProperties = update.properties
+        if update.isFirstObservation { capture(AnalyticsEvent.appFirstObserved) }
+        if update.isNewSession { capture(AnalyticsEvent.sessionStarted) }
+        capture(AnalyticsEvent.appForegrounded)
+    }
+
+    func leaveForeground() {
+        guard isConfigured, let duration = lifecycle.leaveForeground(now: Date()) else { return }
+        capture(AnalyticsEvent.appBackgrounded, properties: ["foreground_duration_ms": duration])
+        PostHogSDK.shared.flush()
+    }
+
+    func capture(_ event: String, properties: [String: Any] = [:]) {
+        // Acquisition must not depend on the product-analytics SDK being configured.
+        Task { @MainActor in
+            AcquisitionTrackingService.shared.captureProductEvent(event)
+        }
+        guard isConfigured else { return }
+        var safeProperties = sessionProperties.merging(properties) { _, event in event }
         safeProperties["flow_version"] = Self.flowVersion
+        safeProperties["event_id"] = UUID().uuidString.lowercased()
+        safeProperties["app_version"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        safeProperties["app_build"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        safeProperties["platform"] = "ios"
+        safeProperties["event_schema_version"] = 1
+        safeProperties["att_status"] = ATTrackingManager.trackingAuthorizationStatus.rawValue
+        if ATTrackingManager.trackingAuthorizationStatus == .authorized {
+            for (key, value) in acquisitionProperties { safeProperties[key] = value }
+        }
+        #if DEBUG
+        safeProperties["environment"] = "development"
+        #else
+        safeProperties["environment"] = Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+            ? "sandbox" : "production"
+        #endif
         PostHogSDK.shared.capture(event, properties: safeProperties)
+        // A single completed practice is a product activation, not a purchase.
+        if event == AnalyticsEvent.guidedPracticeCompleted,
+           lifecycle.markActivation() {
+            capture(AnalyticsEvent.activationCompleted)
+        }
     }
 
     var distinctID: String? {
@@ -181,10 +231,64 @@ final class AnalyticsService {
         return PostHogSDK.shared.getDistinctId()
     }
 
+    func setAcquisitionContext(_ properties: [String: String]) {
+        acquisitionProperties = properties
+    }
+
     private static func bundleValue(for key: String) -> String? {
         guard let rawValue = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, !value.contains("$(") else { return nil }
         return value
+    }
+}
+
+/// Explicit foreground sessions avoid recording taps, screen content or browsing activity.
+struct AnalyticsLifecycleState {
+    let defaults: UserDefaults
+    private(set) var activeSince: Date?
+    private var sessionID: String?
+    private var lastBackground: Date?
+    private let prefix = "analytics.lifecycle.v1."
+
+    struct ForegroundUpdate {
+        let isFirstObservation: Bool
+        let isNewSession: Bool
+        let properties: [String: Any]
+    }
+
+    init(defaults: UserDefaults) { self.defaults = defaults }
+
+    mutating func enterForeground(now: Date, existingInstallation: Bool) -> ForegroundUpdate? {
+        guard activeSince == nil else { return nil }
+        let first = defaults.object(forKey: prefix + "firstObserved") as? Date
+        let firstObserved = first ?? now
+        if first == nil {
+            defaults.set(now, forKey: prefix + "firstObserved")
+            defaults.set(existingInstallation ? "existing" : "new_or_incomplete", forKey: prefix + "cohort")
+        }
+        let newSession = sessionID == nil || lastBackground.map { now.timeIntervalSince($0) >= 1_800 } == true
+        if newSession { sessionID = UUID().uuidString.lowercased() }
+        activeSince = now
+        return ForegroundUpdate(isFirstObservation: first == nil, isNewSession: newSession, properties: [
+            "session_id": sessionID!,
+            "days_since_first_observed": max(0, Int(now.timeIntervalSince(firstObserved) / 86_400)),
+            "measurement_cohort": defaults.string(forKey: prefix + "cohort") ?? "unknown",
+            "retention_basis": "first_observed_with_acquisition_v3",
+        ])
+    }
+
+    mutating func leaveForeground(now: Date) -> Int? {
+        guard let activeSince else { return nil }
+        self.activeSince = nil
+        lastBackground = now
+        return max(0, Int(now.timeIntervalSince(activeSince) * 1_000))
+    }
+
+    func markActivation() -> Bool {
+        let key = prefix + "activated"
+        guard !defaults.bool(forKey: key) else { return false }
+        defaults.set(true, forKey: key)
+        return true
     }
 }

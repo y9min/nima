@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   description: "How Nima collects, uses, shares, and protects data.",
 };
 
-const lastUpdated = "October 23, 2026";
+const lastUpdated = "November 4, 2026";
 const contactEmail = "help@nima.so";
 
 const sections = [
@@ -21,7 +21,7 @@ const sections = [
     title: "Data We Collect",
     body: [
       "Purchase data: subscription status, purchase history, entitlement state, RevenueCat app user ID, purchase, restore, and offering information.",
-      "Product analytics: randomly generated device/user identifier, onboarding screen reached, paywall, purchase, and restore outcomes, app version, device type, operating-system version, and event timestamps. Nima does not send your onboarding answers, display name, email address, or VPN/network activity to PostHog.",
+      "Product analytics: randomly generated device/user identifier, onboarding screen reached, paywall, purchase, and restore outcomes, foreground sessions, retention, practice completion, app version, device type, operating-system version, and event timestamps. Nima does not send your onboarding answers, display name, email address, or VPN/network activity to PostHog.",
       "Android waitlist data: email address and signup timestamp.",
       "Support and diagnostics you choose to share: app/tunnel logs, VPN lifecycle state, connection errors, performance counters, crash-like or stop diagnostics, local traffic diagnostic files, and related troubleshooting details.",
       "Local-only app data: onboarding answers, age, phone-hours answer, selected habits/apps, display name, streaks, reminder settings, time windows, notification preferences, and CoreMotion data used for visual motion effects.",
@@ -45,8 +45,9 @@ const sections = [
       "Supabase provides remote feature configuration and Android waitlist storage. Existing legacy account records may be retained while Nima completes the account-system retirement described below.",
       "RevenueCat processes subscription status, purchase history, entitlements, offerings, purchases, and restores.",
       "PostHog provides product analytics for the limited app events described above. Nima uses PostHog's EU service endpoint, disables session replay and automatic screen/tap capture, and disables IP-based location enrichment.",
-      "Apple processes App Store purchase information.",
-      "Meta receives consented app activation, device identifiers, and RevenueCat subscription events for advertising measurement. No VPN traffic, blocking rules, onboarding answers, or diagnostic reports are sent to Meta for advertising. The SDK also declares crash data for app functionality and other data for analytics.",
+      "Tenjin measures advertising attribution when you allow tracking, using device identifiers, installation and session signals, selected onboarding and checkout milestones, and subscription data from RevenueCat. When available and permitted by the ad network, campaign and creative information is linked to product analytics and subscription records. Tenjin does not receive VPN traffic, browsing content, blocking rules, or onboarding answers.",
+      "Apple processes App Store purchase information. Apple’s SKAdNetwork provides aggregate advertising measurement independently of tracking permission. Nima updates coarse and fine conversion values for installation, onboarding, paywall, checkout, trial, and paid subscription milestones; Apple can send privacy-preserving attribution postbacks to the ad network and a copy to Tenjin.",
+      "Meta receives consented app activation, device identifiers, selected onboarding/paywall/checkout milestones through Tenjin, and RevenueCat subscription events for advertising measurement. No VPN traffic, blocking rules, onboarding answers, or diagnostic reports are sent to Meta for advertising. The SDK also declares crash data for app functionality and other data for analytics.",
       "Hosting and infrastructure providers process the limited server, web app, database, and filtering traffic needed to operate Nima. Nima does not use those providers to retain ordinary browsing metadata for analytics.",
     ],
   },
@@ -65,7 +66,7 @@ const sections = [
     title: "Sharing, Sale, and Tracking",
     body: [
       "Nima does not sell personal data.",
-      "When ad measurement is enabled and you allow Apple’s App Tracking Transparency request, Nima shares advertising and device identifiers, Meta’s app identifier for your device, app activation signals, and subscription events (including trial starts, payments, renewals, revenue, and currency) with Meta to measure Nima ads and improve their delivery. RevenueCat supplies subscription events. We do not provide optional email or phone matching for advertising.",
+      "When ad measurement is enabled and you allow Apple’s App Tracking Transparency request, Nima shares advertising and device identifiers, Meta’s app identifier for your device, app activation signals, and subscription events (including trial starts, payments, renewals, revenue, and currency) with Meta and Tenjin to measure Nima ads and improve their delivery. Selected onboarding, paywall, and checkout milestones are also shared after tracking permission. RevenueCat supplies subscription events. We do not provide optional email or phone matching for advertising.",
       "Nima does not sell, use, or disclose data derived from VPN use to third parties for any purpose.",
       "Network signals processed to provide blocking are not retained for server analytics, advertising, profiling, or AI processing.",
       "You can refuse tracking and still use Nima, subscribe, and restore purchases. You can change permission in iOS Settings > Privacy & Security > Tracking. Nima checks permission when it becomes active and stops new matching-based event collection on refusal or revocation. Data already delivered cannot be recalled; RevenueCat learns permission changes when the app next connects, so server-side events already sent or queued may not be recalled immediately.",
@@ -119,7 +120,7 @@ export default function PrivacyPolicyPage() {
         signals are processed for blocking and local diagnostics; ordinary
         browsing metadata is not stored for server analytics or sent to OpenAI.
         Nima does not sell personal data. If ad measurement is enabled, Apple asks
-        your permission before sharing app and subscription activity with Meta
+        your permission before sharing app and subscription activity with Meta and Tenjin
         to measure Nima ads. Refusing does not prevent subscribing or using Nima.
       </section>
 

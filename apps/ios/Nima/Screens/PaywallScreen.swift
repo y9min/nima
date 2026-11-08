@@ -10,6 +10,7 @@ struct PaywallScreen: View {
     @Environment(InstagramProtectionStore.self) private var instagramProtectionStore
     @Environment(TikTokProtectionStore.self) private var tiktokProtectionStore
     @Environment(XProtectionStore.self) private var xProtectionStore
+    @Environment(ExperienceRouter.self) private var experienceRouter
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var didPrepareMeasurement = false
@@ -86,7 +87,7 @@ struct PaywallScreen: View {
             if !didPrepareMeasurement {
                 didPrepareMeasurement = true
                 AnalyticsService.shared.capture(
-                    AnalyticsEvent.paywallViewed,
+                    "paywall_screen_entered",
                     properties: ["context": context]
                 )
             }
@@ -117,6 +118,7 @@ struct PaywallScreen: View {
 
     @MainActor
     private func resumeBlockingAfterPaywall() {
+        guard experienceRouter.route != .checking else { return }
         PaywallBlockingState.setActive(false)
         reconcileBlockingPolicies(source: "paywall.blocking_resumed")
     }
@@ -184,9 +186,21 @@ private struct RevenueCatPaywallView: View {
     let offering: RevenueCat.Offering
     let context: String
     @State private var purchaseAttempt: PurchaseAnalyticsAttempt?
+    @State private var didTrackImpression = false
 
     var body: some View {
         PaywallView(offering: offering, displayCloseButton: false)
+            .onAppear {
+                guard !didTrackImpression else { return }
+                didTrackImpression = true
+                AnalyticsService.shared.capture(AnalyticsEvent.paywallViewed, properties: [
+                    "context": context,
+                    "offering_id": offering.identifier,
+                    "product_ids": offering.availablePackages.map { $0.storeProduct.productIdentifier },
+                    "package_ids": offering.availablePackages.map(\.identifier),
+                    "paywall_implementation": "revenuecat_ui",
+                ])
+            }
             .onPurchaseStarted { package in
                 let attempt = PurchaseAnalyticsAttempt(
                     offeringID: offering.identifier,
@@ -203,6 +217,7 @@ private struct RevenueCatPaywallView: View {
                 )
             }
             .onPurchaseCompleted { _, customerInfo in
+                AcquisitionTrackingService.shared.purchaseCompleted(customerInfo)
                 subscriptionStore.handlePaywallCustomerInfo(customerInfo)
                 let entitlementActive = customerInfo.entitlements.active[SubscriptionStore.premiumEntitlementID] != nil
                 let properties = purchaseProperties().merging([

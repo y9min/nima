@@ -8,6 +8,7 @@
 	<array>
 		<string>graph.facebook.com</string>
 		<string>ep1.facebook.com</string>
+		<string>track.tenjin.com</string>
 	</array>
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>

@@ -1,0 +1,11 @@
+postback_sequence_index,conversion_value_type,conversion_value,custom_event_name,google_event_name,meta_event_name,tiktok_event_name,min_range,max_range,currency
+0,fine,1,onboarding_completed,,onboarding_completed,,,,
+0,fine,2,paywall_viewed,,fb_mobile_content_view,,,,
+0,fine,3,checkout_started,,fb_mobile_initiated_checkout,,,,
+0,fine,5,paid_subscription,,Subscribe,,,,
+0,coarse,low,session,,fb_mobile_activate_app,,,,
+0,coarse,high,paid_subscription,,Subscribe,,,,
+1,coarse,low,session,,fb_mobile_activate_app,,,,
+1,coarse,high,paid_subscription,,Subscribe,,,,
+2,coarse,low,session,,fb_mobile_activate_app,,,,
+2,coarse,high,paid_subscription,,Subscribe,,,,
