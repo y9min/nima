@@ -10,11 +10,11 @@ struct NimaApp: App {
     @UIApplicationDelegateAdaptor(NimaApplicationDelegate.self) private var applicationDelegate
     @Environment(\.scenePhase) private var scenePhase
 
-    @StateObject private var vpnManager = VPNManager()
+    @StateObject private var vpnManager = VPNManager(reconciliationSuspended: true)
     @State private var path = NavigationPath()
     @State private var store = AppStore()
     @State private var streakStore = StreakStore()
-    @State private var timeWindowStore = TimeWindowStore()
+    @State private var timeWindowStore = TimeWindowStore(evaluationSuspended: true)
     @State private var appControlRulesStore = AppControlRulesStore()
     @State private var hardModeCoordinator = HardModeCoordinator()
     @State private var gridPositionStore = GridPositionStore()
@@ -23,7 +23,10 @@ struct NimaApp: App {
     @State private var tiktokProtectionStore = TikTokProtectionStore()
     @State private var xProtectionStore = XProtectionStore()
     @State private var onboardingStore = OnboardingStore()
-    @State private var subscriptionStore = SubscriptionStore()
+    @State private var subscriptionStore: SubscriptionStore
+    @State private var experienceRouter: ExperienceRouter
+    @State private var didStartVPNManager = false
+    @State private var appliedExperience: ExperienceRoute?
     @State private var didConfigureProtection = false
     @State private var didConfigureHardMode = false
     @State private var guidedOnboardingPresentationMode: GuidedOnboardingPresentationMode?
@@ -44,8 +47,13 @@ struct NimaApp: App {
     private let guidedPracticeReviewPromptStore = GuidedPracticeReviewPromptStore()
 
     init() {
-        PaywallBlockingState.setActive(false)
         let onboardingStore = OnboardingStore()
+        AnalyticsService.shared.configure()
+        AnalyticsService.shared.enterForeground(existingInstallation: onboardingStore.isCompleted)
+        let subscriptionStore = SubscriptionStore()
+        subscriptionStore.configureAnonymousUser()
+        let experienceRouter = ExperienceRouter()
+        experienceRouter.resolveCachedIdentity(subscriptionStore.cohortIdentity)
         let restoredStep = onboardingStore.hasGuidedPracticeReturnPending
             ? GuidedPracticeStep.success
             : onboardingStore.guidedPracticeStep
@@ -76,6 +84,8 @@ struct NimaApp: App {
         }
 
         _onboardingStore = State(initialValue: onboardingStore)
+        _subscriptionStore = State(initialValue: subscriptionStore)
+        _experienceRouter = State(initialValue: experienceRouter)
         _guidedPracticePhase = State(initialValue: restoredPhase)
         _guidedOnboardingPresentationMode = State(
             initialValue: restoredStep == .introSlides ? .firstRunPractice : nil
@@ -92,7 +102,6 @@ struct NimaApp: App {
         _guidedPracticeApplicationTokens = State(initialValue: restoredTokens)
         _guidedPracticeAppAssignments = State(initialValue: restoredAssignments)
 
-        AnalyticsService.shared.configure()
         TimeWindowNotificationCoordinator.shared.install()
         let sharedDefaults = UserDefaults(suiteName: NimaConstants.appGroupID)
         Self.migrateUDPSelectiveSafeModeDefault(sharedDefaults)
@@ -154,6 +163,13 @@ struct NimaApp: App {
                         case .home:
                             mainTabsScreen
                         case .timeWindows:
+                          if experienceRouter.route == .legacy {
+                            LegacyTimeWindowsScreen(
+                                onHome: { path = NavigationPath() },
+                                onSettings: { path.append(Route.settings) },
+                                authorizeFeatureAccess: featureAccessAuthorizer
+                            )
+                          } else {
                             TimeWindowsScreen(
                                 onHome: {
                                     path = NavigationPath()
@@ -163,6 +179,7 @@ struct NimaApp: App {
                                 },
                                 authorizeFeatureAccess: featureAccessAuthorizer
                             )
+                          }
                         case .blockingOptions(let appId):
                             BlockingOptionsScreen(
                                 appId: appId,
@@ -207,6 +224,7 @@ struct NimaApp: App {
                 .environment(xProtectionStore)
                 .environment(onboardingStore)
                 .environment(subscriptionStore)
+                .environment(experienceRouter)
                 .environmentObject(vpnManager)
                 .statusBarHidden(!onboardingStore.isCompleted)
                 .accessibilityHidden(
@@ -216,6 +234,9 @@ struct NimaApp: App {
                 .preferredColorScheme(.dark)
                 .task {
                     await startLaunchServicesIfNeeded()
+                }
+                .task(id: subscriptionStore.cohortCheckRevision) {
+                    await recheckExperience()
                 }
                 .onOpenURL { url in
                     handleIncomingURL(url)
@@ -279,7 +300,7 @@ struct NimaApp: App {
                     )
                 }
                 .onChange(of: vpnManager.vpnStatus) { _, _ in
-                    if onboardingStore.isCompleted {
+                    if experienceRouter.route != .checking && onboardingStore.isCompleted {
                         store.syncVPNState(source: "vpn.status")
                         markStreakIfEligible(source: "vpn.status")
                     }
@@ -301,7 +322,7 @@ struct NimaApp: App {
                     await handleGuidedPracticePhaseTask()
                 }
 
-                if let guidedOnboardingPresentationMode {
+                if experienceRouter.route == .new, let guidedOnboardingPresentationMode {
                     GuidedOnboardingModal(
                         completionTitle: guidedOnboardingPresentationMode.completionTitle,
                         initialPage: guidedOnboardingPresentationMode == .firstRunPractice
@@ -333,9 +354,10 @@ struct NimaApp: App {
                     .zIndex(10)
                 }
 
-                hardModeOverlay
-
-                guidedPracticeOverlay
+                if experienceRouter.route == .new {
+                    hardModeOverlay
+                    guidedPracticeOverlay
+                }
 
                 if hardModeCoordinator.isShowingActivationWarning {
                     HardModeActivationWarningCard(
@@ -380,12 +402,56 @@ struct NimaApp: App {
         SVGCache.shared.preload(svgNames: ["instagram", "kalshi", "fanduel"])
         SVGCache.shared.preload(svgNames: ["home_mountains"], size: CGSize(width: 500, height: 280))
 
-        vpnManager.setup()
         configureHardModeIfNeeded()
-        configureProtectionIfNeeded()
-        presentGuidedOnboardingIfNeeded()
+    }
 
-        subscriptionStore.configureAnonymousUser()
+    @MainActor
+    private func recheckExperience() async {
+        let identity = subscriptionStore.cohortIdentity
+        experienceRouter.resolveCachedIdentity(identity)
+        if experienceRouter.route == .checking {
+            timeWindowStore.setEvaluationSuspended(true)
+            vpnManager.reconciliationSuspended = true
+            return
+        }
+        applyExperience(experienceRouter.route)
+        await experienceRouter.checkHistoricalPurchases(identity: identity)
+        if experienceRouter.route == .legacy {
+            applyExperience(.legacy)
+        }
+    }
+
+    @MainActor
+    private func applyExperience(_ route: ExperienceRoute) {
+        guard route != .checking else { return }
+        let legacy = route == .legacy
+        guard subscriptionStore.cohortIdentity != nil else { return }
+        if legacy && !subscriptionStore.hasAccessForRouting {
+            guard subscriptionStore.verificationState == .verified else { return }
+        }
+        if appliedExperience != route {
+            UserDefaults(suiteName: NimaConstants.appGroupID)?.set(legacy, forKey: ExperienceModeState.legacyKey)
+            store.setLegacyProtectionEnabled(legacy)
+            timeWindowStore.setLegacyProtectionEnabled(legacy)
+            vpnManager.legacyProtectionEnabled = legacy
+            InstagramScheduleMonitor.sync(windows: legacy ? [] : timeWindowStore.windows)
+            appliedExperience = route
+        }
+        PaywallBlockingState.setActive(rootDestination == .paywall)
+        instagramProtectionStore.refreshPauseMode()
+        tiktokProtectionStore.refreshPauseMode()
+        xProtectionStore.refreshPauseMode()
+        appControlRulesStore.reconcile()
+        timeWindowStore.setEvaluationSuspended(false)
+        vpnManager.reconciliationSuspended = false
+        if !didStartVPNManager {
+            didStartVPNManager = true
+            vpnManager.setup()
+        }
+        configureProtectionIfNeeded()
+        timeWindowStore.evaluateSchedules(source: "experience.resolved", forceApply: true)
+        store.syncVPNState(source: "experience.resolved")
+        if !legacy { presentGuidedOnboardingIfNeeded() }
     }
 
     private func configureHardModeIfNeeded() {
@@ -397,7 +463,9 @@ struct NimaApp: App {
     }
 
     private func configureProtectionIfNeeded() {
-        guard onboardingStore.isCompleted, !didConfigureProtection else { return }
+        guard experienceRouter.route != .checking,
+              (onboardingStore.isCompleted || experienceRouter.route == .legacy),
+              !didConfigureProtection else { return }
         didConfigureProtection = true
 
         store.configureVPNAutostart(
@@ -440,6 +508,12 @@ struct NimaApp: App {
         if hardModeCoordinator.activeAttempt != nil {
             HardModeChallengeOverlay(
                 coordinator: hardModeCoordinator,
+                availableClientAppIDs: Set(["instagram", "tiktok", "x"].filter {
+                    ClientShieldPolicy.decision(
+                        for: $0,
+                        defaults: UserDefaults(suiteName: NimaConstants.appGroupID)
+                    ).shouldShield
+                }),
                 onCommit: { commit in
                     let result = commitHardModeChange(commit)
                     return result
@@ -452,6 +526,15 @@ struct NimaApp: App {
 
     @ViewBuilder
     private var rootScreen: some View {
+        if experienceRouter.route == .checking {
+            ExperienceCheckingScreen {
+                subscriptionStore.configureAnonymousUser()
+                subscriptionStore.retrySubscriptionCheck()
+                Task { await recheckExperience() }
+            } onRestore: {
+                subscriptionStore.restore { }
+            }
+        } else {
         switch rootDestination {
         case .onboarding:
             OnboardingFlowScreen()
@@ -463,6 +546,7 @@ struct NimaApp: App {
             PaywallScreen(
                 onUnlocked: completePaywall
             )
+        }
         }
     }
 
@@ -504,7 +588,8 @@ struct NimaApp: App {
             onGuidedWindowsEditorAdvance: advanceGuidedWindowsEditorStep,
             onGuidedWindowsEditorFinished: showGuidedWindowsReadyModal,
             authorizeFeatureAccess: featureAccessAuthorizer,
-            showsDock: !isGuidedSetupActive
+            showsDock: !isGuidedSetupActive,
+            legacyExperience: experienceRouter.route == .legacy
         )
     }
 
@@ -538,6 +623,15 @@ struct NimaApp: App {
     }
 
     private var rootDestination: AppRootDestination {
+        if experienceRouter.route == .legacy {
+            guard subscriptionStore.cohortIdentity != nil else { return .subscriptionLoading }
+            switch subscriptionStore.verificationState {
+            case .verified:
+                return subscriptionStore.hasAccessForRouting ? .mainApp : .paywall
+            case .idle, .loading, .failed:
+                return subscriptionStore.hasAccessForRouting ? .mainApp : .subscriptionLoading
+            }
+        }
         return AppAccessPolicy.destination(
             onboardingCompleted: onboardingStore.isCompleted,
             guidedExperienceCompleted: hasCompletedRequiredGuidedExperience,
@@ -726,6 +820,7 @@ struct NimaApp: App {
     }
 
     private func presentGuidedOnboardingIfNeeded() {
+        guard experienceRouter.route == .new else { return }
         guard onboardingStore.isCompleted else {
             return
         }
@@ -1114,6 +1209,9 @@ struct NimaApp: App {
         if commit.choice == .direct {
             return performHardModeMutation(change.mutation, source: change.source)
         }
+        if case .batch(let selection) = commit.choice {
+            return commitHardModeBatch(selection, source: change.source)
+        }
         if change.mutation == .turnOffHardMode {
             return .success
         }
@@ -1131,7 +1229,10 @@ struct NimaApp: App {
             return performHardModeMutation(change.mutation, source: change.source)
         case .pause(let minutes):
             let ruleIDs = hardModeRuleIDs(for: change.mutation)
-            guard let expiry = HardModeProtectionState.pause(
+            let previousExpiry = HardModeProtectionState.nextPauseExpiry(
+                defaults: UserDefaults(suiteName: NimaConstants.appGroupID)
+            )
+            guard let _ = HardModeProtectionState.pause(
                 appIDs: change.affectedAppIDs,
                 ruleIDs: ruleIDs,
                 minutes: minutes,
@@ -1139,12 +1240,15 @@ struct NimaApp: App {
             ) else {
                 return .failure("Choose where protection should resume and try again.")
             }
-            guard HardModePauseMonitor.schedule(until: expiry) else {
+            guard let nextExpiry = HardModeProtectionState.nextPauseExpiry(
+                defaults: UserDefaults(suiteName: NimaConstants.appGroupID)
+            ), HardModePauseMonitor.schedule(until: nextExpiry) else {
                 HardModeProtectionState.removePauses(
                     appIDs: change.affectedAppIDs,
                     ruleIDs: ruleIDs,
                     defaults: UserDefaults(suiteName: NimaConstants.appGroupID)
                 )
+                if let previousExpiry { _ = HardModePauseMonitor.schedule(until: previousExpiry) }
                 return .failure("iOS couldn't schedule protection to return. Please try again.")
             }
             HardModePauseMonitor.clearScheduleShields(for: change.affectedAppIDs)
@@ -1167,7 +1271,66 @@ struct NimaApp: App {
             HardModePauseMonitor.clearScheduleShields(for: change.affectedAppIDs)
             refreshProtectionAfterHardModeChange(source: "\(change.source).off")
             return .success
+        case .batch:
+            return .failure("Choose what changes and try again.")
         }
+    }
+
+    @MainActor
+    private func commitHardModeBatch(
+        _ selection: HardModeBatchSelection,
+        source: String
+    ) -> HardModeCommitResult {
+        guard selection.hasChanges else { return .failure("Choose at least one change.") }
+        let defaults = UserDefaults(suiteName: NimaConstants.appGroupID)
+        let previousExpiry = HardModeProtectionState.nextPauseExpiry(defaults: defaults)
+        let changedApps = Set(selection.appChoices.compactMap { entry in
+            entry.value == .keep ? nil : entry.key
+        })
+        guard changedApps.isSubset(of: ["instagram", "tiktok", "x"]) else {
+            return .failure("This app is no longer available.")
+        }
+
+        timeWindowStore.evaluateSchedules(source: "hard_mode.batch_revalidate", forceApply: true)
+        for appID in changedApps {
+            guard ClientShieldPolicy.decision(for: appID, defaults: defaults).shouldShield else {
+                return .stale("\(appID.capitalized) protection changed before you confirmed. Nothing was changed.")
+            }
+        }
+
+        var pausedApps = Set<String>()
+        for appID in changedApps.sorted() {
+            guard case .pause(let minutes)? = selection.appChoices[appID] else { continue }
+            guard [5, 10, 15].contains(minutes),
+                  HardModeProtectionState.pause(
+                    appIDs: [appID],
+                    minutes: minutes,
+                    defaults: defaults
+                  ) != nil else {
+                HardModeProtectionState.removePauses(appIDs: pausedApps, ruleIDs: [], defaults: defaults)
+                return .failure("Could not schedule the selected pause. Nothing was changed.")
+            }
+            pausedApps.insert(appID)
+        }
+        if !pausedApps.isEmpty {
+            guard let nextExpiry = HardModeProtectionState.nextPauseExpiry(defaults: defaults),
+                  HardModePauseMonitor.schedule(until: nextExpiry, defaults: defaults) else {
+                HardModeProtectionState.removePauses(appIDs: pausedApps, ruleIDs: [], defaults: defaults)
+                if let previousExpiry { _ = HardModePauseMonitor.schedule(until: previousExpiry) }
+                return .failure("iOS couldn't schedule protection to return. Nothing was changed.")
+            }
+        }
+
+        for appID in changedApps.sorted() {
+            guard selection.appChoices[appID] == .off else { continue }
+            disableManualProtection(for: appID, source: "\(source).batch_off")
+            HardModeProtectionState.markProtectionOff(appID, defaults: defaults)
+        }
+        HardModePauseMonitor.clearScheduleShields(for: changedApps)
+        if !changedApps.isEmpty {
+            refreshProtectionAfterHardModeChange(source: "\(source).batch")
+        }
+        return .success
     }
 
     @MainActor
@@ -1315,6 +1478,10 @@ struct NimaApp: App {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         switch newPhase {
         case .active:
+            AnalyticsService.shared.enterForeground(existingInstallation: onboardingStore.isCompleted)
+            timeWindowStore.setEvaluationSuspended(true)
+            vpnManager.reconciliationSuspended = true
+            Task { await recheckExperience() }
             hardModeCoordinator.reconcilePauses()
             streakStore.refreshFromDisk()
             handlePendingInstagramShieldDestination()
@@ -1325,7 +1492,7 @@ struct NimaApp: App {
             MetaAdsService.shared.refreshConsent()
             subscriptionStore.refreshAfterForeground()
             subscriptionStore.reconcilePendingPurchaseAfterForeground()
-            if onboardingStore.isCompleted {
+            if experienceRouter.route != .checking && onboardingStore.isCompleted {
                 timeWindowStore.evaluateSchedules(source: "app.scene.active", forceApply: true)
                 markStreakIfEligible(source: "app.scene.active")
                 store.syncVPNState(source: "app.scene.active")
@@ -1339,7 +1506,11 @@ struct NimaApp: App {
             if newPhase == .background {
                 hardModeCoordinator.cancelChallenge()
             }
-            if newPhase == .background { MetaAdsService.shared.leaveForeground() }
+            if newPhase == .background {
+                AnalyticsService.shared.leaveForeground()
+                AcquisitionTrackingService.shared.leaveForeground()
+                MetaAdsService.shared.leaveForeground()
+            }
         @unknown default:
             break
         }
@@ -1520,5 +1691,25 @@ private struct SubscriptionStatusLoadingScreen: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+private struct ExperienceCheckingScreen: View {
+    let onRetry: () -> Void
+    let onRestore: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color(red: 0.0, green: 0.12, blue: 0.07).ignoresSafeArea()
+            VStack(spacing: 20) {
+                Text("nima").font(.system(size: 48, weight: .black, design: .rounded))
+                ProgressView().tint(.white)
+                Text("Checking your purchases…").multilineTextAlignment(.center)
+                Button("Try again", action: onRetry)
+                Button("Restore purchases", action: onRestore)
+            }
+            .foregroundStyle(.white)
+            .padding(32)
+        }
     }
 }

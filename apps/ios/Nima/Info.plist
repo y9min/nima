@@ -28,7 +28,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>28</string>
+	<string>30</string>
 	<key>FacebookAdvertiserIDCollectionEnabled</key>
 	<false/>
 	<key>FacebookAppID</key>
@@ -45,6 +45,8 @@
 	<false/>
 	<key>META_ADS_ENABLED</key>
 	<string>$(META_ADS_ENABLED)</string>
+	<key>NSAdvertisingAttributionReportEndpoint</key>
+	<string>https://tenjin-skan.com</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Allow Instagram inside Nima to take photos and videos when you choose to create a post or message.</string>
 	<key>NSMicrophoneUsageDescription</key>
@@ -61,6 +63,10 @@
 	<string>$(SUPABASE_KEY)</string>
 	<key>SUPABASE_URL</key>
 	<string>$(SUPABASE_URL)</string>
+	<key>TENJIN_ENABLED</key>
+	<string>$(TENJIN_ENABLED)</string>
+	<key>TENJIN_SDK_KEY</key>
+	<string>$(TENJIN_SDK_KEY)</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>SK Pupok Solid 400.ttf</string>

@@ -13,6 +13,9 @@ packages:
   Facebook:
     url: https://github.com/facebook/facebook-ios-sdk
     exactVersion: "18.1.1"
+  Tenjin:
+    url: https://github.com/tenjin/tenjin-ios-spm.git
+    exactVersion: "1.20.1"
   Tun2SocksKit:
     # Keep exact pin aligned with UDP decoder framing assumptions.
     url: https://github.com/EbrahimTahernejad/Tun2SocksKit
@@ -52,6 +55,10 @@ targets:
         product: RevenueCatUI
       - package: Facebook
         product: FacebookCore
+      - package: Tenjin
+        product: TenjinSDK
+      - sdk: AdServices.framework
+        weak: true
       - sdk: AppTrackingTransparency.framework
       - sdk: AdSupport.framework
       - package: PostHog
@@ -72,7 +79,7 @@ targets:
         CFBundleDisplayName: Nima
         CFBundleName: Nima
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "28"
+        CFBundleVersion: "30"
         UIAppFonts:
           - SK Pupok Solid 400.ttf
           - Coolvetica Rg.otf
@@ -92,6 +99,9 @@ targets:
         FacebookClientToken: $(META_CLIENT_TOKEN)
         FacebookDisplayName: Nima
         META_ADS_ENABLED: $(META_ADS_ENABLED)
+        TENJIN_ENABLED: $(TENJIN_ENABLED)
+        TENJIN_SDK_KEY: $(TENJIN_SDK_KEY)
+        NSAdvertisingAttributionReportEndpoint: https://tenjin-skan.com
         FacebookAutoInitEnabled: false
         FacebookAutoLogAppEventsEnabled: false
         FacebookAdvertiserIDCollectionEnabled: false
@@ -113,6 +123,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: so.nima.app
         INFOPLIST_FILE: Nima/Info.plist
+        OTHER_LDFLAGS: "$(inherited) -ObjC"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SSTZYP6ZWB
         TARGETED_DEVICE_FAMILY: 1
@@ -134,7 +145,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Tunnel
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "28"
+        CFBundleVersion: "30"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
@@ -171,7 +182,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Device Activity
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "28"
+        CFBundleVersion: "30"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.deviceactivity.monitor-extension
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).DeviceActivityMonitorExtension
@@ -205,7 +216,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Shield Configuration
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "28"
+        CFBundleVersion: "30"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.ManagedSettingsUI.shield-configuration-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldConfigurationExtension
@@ -236,7 +247,7 @@ targets:
       properties:
         CFBundleDisplayName: Nima Shield Action
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "28"
+        CFBundleVersion: "30"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.ManagedSettings.shield-action-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldActionExtension

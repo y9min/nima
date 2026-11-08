@@ -17,6 +17,7 @@ struct MainTabsScreen: View {
     var onGuidedWindowsEditorFinished: () -> Void = {}
     var authorizeFeatureAccess = FeatureAccessGate.unrestricted
     var showsDock = true
+    var legacyExperience = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -30,6 +31,18 @@ struct MainTabsScreen: View {
                 ZStack {
                     switch selectedTab {
                     case .home:
+                      if legacyExperience {
+                        LegacyHomeScreen(
+                            onSelectApp: onSelectApp,
+                            onTimeWindows: { selectedTab = .windows },
+                            onAddTimeWindow: openAddTimeWindow,
+                            onSettings: openSettings,
+                            onTrafficDashboard: onTrafficDashboard,
+                            showsDock: false,
+                            authorizeFeatureAccess: authorizeFeatureAccess
+                        )
+                        .transition(.opacity)
+                      } else {
                         HomeScreen(
                             onSelectApp: onSelectApp,
                             onTimeWindows: { selectedTab = .windows },
@@ -43,7 +56,19 @@ struct MainTabsScreen: View {
                             authorizeFeatureAccess: authorizeFeatureAccess
                         )
                         .transition(.opacity)
+                      }
                     case .windows:
+                      if legacyExperience {
+                        LegacyTimeWindowsScreen(
+                            onHome: { selectedTab = .home },
+                            onSettings: openSettings,
+                            addWindowRequestID: pendingAddWindowRequestID,
+                            onAddWindowRequestHandled: { pendingAddWindowRequestID = nil },
+                            showsDock: false,
+                            authorizeFeatureAccess: authorizeFeatureAccess
+                        )
+                        .transition(.opacity)
+                      } else {
                         TimeWindowsScreen(
                             onHome: { selectedTab = .home },
                             onSettings: openSettings,
@@ -58,6 +83,7 @@ struct MainTabsScreen: View {
                             authorizeFeatureAccess: authorizeFeatureAccess
                         )
                         .transition(.opacity)
+                      }
                     case .settings:
                         SettingsScreen(
                             onHome: { selectedTab = .home },
