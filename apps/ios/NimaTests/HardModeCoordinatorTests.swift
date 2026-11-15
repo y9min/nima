@@ -41,6 +41,12 @@ final class HardModeCoordinatorTests: XCTestCase {
         XCTAssertTrue(HardModeProtectionState.isEnabled(defaults: defaults))
     }
 
+    func testOldAppWideOffOverrideIsRemovedOnLaunch() {
+        defaults.set(["instagram"], forKey: NimaConstants.hardModeOffAppIDsKey)
+        _ = makeCoordinator()
+        XCTAssertNil(defaults.object(forKey: NimaConstants.hardModeOffAppIDsKey))
+    }
+
     func testDisabledHardModePerformsDirectAction() {
         var performedChoice: HardModeCommitChoice?
         let coordinator = makeCoordinator()
@@ -200,7 +206,7 @@ final class HardModeCoordinatorTests: XCTestCase {
         ))))
     }
 
-    func testPauseAndScheduleSuppressionExpireIndependently() {
+    func testHardModePauseExpiresAtSelectedTime() {
         let start = now!
         HardModeProtectionState.pause(
             appIDs: ["instagram"],
@@ -208,8 +214,6 @@ final class HardModeCoordinatorTests: XCTestCase {
             defaults: defaults,
             now: start
         )
-        HardModeProtectionState.markProtectionOff("tiktok", defaults: defaults)
-
         XCTAssertTrue(HardModeProtectionState.isPaused(
             "instagram",
             defaults: defaults,
@@ -219,18 +223,6 @@ final class HardModeCoordinatorTests: XCTestCase {
             "instagram",
             defaults: defaults,
             now: start.addingTimeInterval(301)
-        ))
-        XCTAssertFalse(HardModeProtectionState.effectivelyScheduled(
-            "tiktok",
-            scheduled: true,
-            defaults: defaults
-        ))
-
-        HardModeProtectionState.markProtectionOn("tiktok", defaults: defaults)
-        XCTAssertTrue(HardModeProtectionState.effectivelyScheduled(
-            "tiktok",
-            scheduled: true,
-            defaults: defaults
         ))
     }
 

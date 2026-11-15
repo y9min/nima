@@ -15,6 +15,8 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     }
 
     private func makeConfiguration(for application: Application) -> ShieldConfiguration {
+        let isSupportedClient = application.token.flatMap { SupportedClientApp.matching($0) } != nil
+        let canOpenNima = isSupportedClient && ShieldActionAvailability.canOpenParentApp
         if let token = application.token,
            let kind = AppControlRuleState.activeKind(for: token) {
             return ShieldConfiguration(
@@ -23,14 +25,20 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
                 icon: UIImage(named: "AppIcon-1024x1024"),
                 title: .init(text: kind == .blocked ? "App blocked" : "Daily limit reached", color: .white),
                 subtitle: .init(
-                    text: kind == .blocked ? "You blocked this app in Nima" : "Your time for this app is up today",
+                    text: canOpenNima
+                        ? "Continue in Nima without the distracting feed."
+                        : isSupportedClient
+                            ? "Open Nima from your Home Screen to continue without the distracting feed."
+                            : kind == .blocked ? "You blocked this app in Nima" : "Your time for this app is up today",
                     color: UIColor.white.withAlphaComponent(0.68)
                 ),
-                primaryButtonLabel: .init(text: "Close app", color: .white),
-                primaryButtonBackgroundColor: UIColor(red: 0.20, green: 0.46, blue: 0.30, alpha: 1)
+                primaryButtonLabel: .init(text: canOpenNima ? "Open in Nima" : "Close app", color: .white),
+                primaryButtonBackgroundColor: UIColor(red: 0.20, green: 0.46, blue: 0.30, alpha: 1),
+                secondaryButtonLabel: canOpenNima
+                    ? .init(text: "Open a link", color: UIColor(red: 0.47, green: 0.86, blue: 0.61, alpha: 1))
+                    : nil
             )
         }
-        let canOpenNima = ShieldActionAvailability.canOpenParentApp
         return ShieldConfiguration(
             backgroundBlurStyle: .systemUltraThinMaterialDark,
             backgroundColor: UIColor(red: 0.035, green: 0.047, blue: 0.039, alpha: 0.96),
@@ -39,7 +47,9 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
             subtitle: .init(
                 text: canOpenNima
                     ? "Continue without the distracting feed."
-                    : "Open Nima from your Home Screen to continue without the distracting feed.",
+                    : isSupportedClient
+                        ? "Open Nima from your Home Screen to continue without the distracting feed."
+                        : "This app is blocked in Nima.",
                 color: UIColor.white.withAlphaComponent(0.68)
             ),
             primaryButtonLabel: .init(

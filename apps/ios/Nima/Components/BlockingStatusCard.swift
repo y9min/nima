@@ -378,7 +378,7 @@ struct BlockingStatusCard: View {
                         onOpenApp(app.id)
                     }
                     .accessibilityAction(named: app.isBlocked ? "Disable protection" : "Enable protection") {
-                        if app.isScheduled {
+                        if app.isScheduled && app.isBlocked {
                             onEndScheduledWindow(app.id)
                         } else {
                             onToggleApp(app.id)
@@ -479,6 +479,9 @@ struct BlockingStatusCard: View {
 
     private func accessibilityHint(for app: BlockingDashboardApp) -> String {
         if ["instagram", "tiktok", "x"].contains(app.id) {
+            if app.isScheduled && !app.isBlocked {
+                return "Double tap to open " + app.name.capitalized + ". Use the custom action or drag to finish Screen Time setup."
+            }
             return app.isScheduled
                 ? "Double tap to open \(app.name.capitalized). Drag to the center to end the current window."
                 : "Double tap to open \(app.name.capitalized). Use the custom action or drag to change protection."
@@ -577,7 +580,7 @@ struct BlockingStatusCard: View {
                 )
 
                 if isUnblockDrag {
-                    if app.isScheduled {
+                    if app.isScheduled && app.isBlocked {
                         onEndScheduledWindow(app.id)
                     } else {
                         onToggleApp(app.id)

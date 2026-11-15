@@ -144,6 +144,7 @@ final class HardModeCoordinator {
         self.defaults = defaults
         self.now = now
         self.drawTargetProvider = drawTargetProvider
+        defaults?.removeObject(forKey: NimaConstants.hardModeOffAppIDsKey)
         isEnabled = HardModeProtectionState.isEnabled(defaults: defaults)
         HardModeProtectionState.purgeExpiredPauses(defaults: defaults, now: now())
     }

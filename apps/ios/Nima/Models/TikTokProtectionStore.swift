@@ -91,7 +91,10 @@ final class TikTokProtectionStore {
     }
 
     func setScheduled(_ scheduled: Bool, source: String) {
-        guard isScheduled != scheduled else { return }
+        guard isScheduled != scheduled else {
+            applyShield()
+            return
+        }
         isScheduled = scheduled
         applyShield()
         AppDiagnosticsLogger.log("TIKTOK_SCHEDULE enabled=\(scheduled) source=\(source)")

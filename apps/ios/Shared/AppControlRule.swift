@@ -31,6 +31,37 @@ enum ShieldActionAvailability {
     }
 }
 
+enum SupportedClientApp: String, CaseIterable {
+    case instagram
+    case tiktok
+    case x
+
+    private var selectionKey: String {
+        "\(rawValue).client.family_selection"
+    }
+
+    static func matching(
+        _ token: ApplicationToken,
+        defaults: UserDefaults? = UserDefaults(suiteName: AppControlRuleState.appGroupID)
+    ) -> SupportedClientApp? {
+        guard let defaults else { return nil }
+        let connections = defaults.data(forKey: "screen_time.app_connections")
+            .flatMap { try? JSONDecoder().decode(ShieldAppConnections.self, from: $0) }
+        let matches = allCases.filter { app in
+            let selection = defaults.data(forKey: app.selectionKey)
+                .flatMap { try? JSONDecoder().decode(FamilyActivitySelection.self, from: $0) }
+            return selection?.applicationTokens.contains(token) == true
+                || connections?.selectionsByAppID[app.rawValue]?.applicationTokens.contains(token) == true
+        }
+        // An ambiguous token must never send someone to the wrong client.
+        return matches.count == 1 ? matches[0] : nil
+    }
+}
+
+private struct ShieldAppConnections: Decodable {
+    let selectionsByAppID: [String: FamilyActivitySelection]
+}
+
 enum PaywallBlockingState {
     static let defaultsKey = "blocking.paywall_suspended"
 
@@ -63,6 +94,7 @@ enum AppControlRuleState {
     static let reachedDayKey = "app_controls.reached_day_v1"
     static let limitActivityName = "nima.controls.daily_limits"
     static let limitEventPrefix = "nima.controls.limit."
+    private static let pausedRuleExpiriesKey = "hard_mode.pause_rule_expiries"
 
     static func rules(defaults: UserDefaults? = UserDefaults(suiteName: appGroupID)) -> [AppControlRule] {
         guard let data = defaults?.data(forKey: rulesKey) else { return [] }
@@ -88,12 +120,17 @@ enum AppControlRuleState {
         defaults?.set(Array(ids), forKey: reachedLimitIDsKey)
     }
 
+    static func isRulePaused(_ id: String, defaults: UserDefaults?, now: Date = Date()) -> Bool {
+        let expiries = defaults?.dictionary(forKey: pausedRuleExpiriesKey) as? [String: TimeInterval] ?? [:]
+        return (expiries[id] ?? 0) > now.timeIntervalSince1970
+    }
+
     static func activeKind(for token: ApplicationToken, defaults: UserDefaults? = UserDefaults(suiteName: appGroupID)) -> AppControlKind? {
         guard !PaywallBlockingState.isActive(defaults: defaults) else { return nil }
         let rules = rules(defaults: defaults)
-        if rules.contains(where: { $0.applicationToken == token && $0.kind == .blocked }) { return .blocked }
+        if rules.contains(where: { $0.applicationToken == token && $0.kind == .blocked && !isRulePaused($0.id, defaults: defaults) }) { return .blocked }
         let reached = reachedLimitIDs(defaults: defaults)
-        if rules.contains(where: { $0.applicationToken == token && $0.kind == .limit && reached.contains($0.id) }) { return .limit }
+        if rules.contains(where: { $0.applicationToken == token && $0.kind == .limit && reached.contains($0.id) && !isRulePaused($0.id, defaults: defaults) }) { return .limit }
         return nil
     }
 }

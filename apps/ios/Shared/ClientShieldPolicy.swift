@@ -88,26 +88,29 @@ enum ClientShieldPolicy {
             return .shield(.manualProtection)
         }
 
-        if HardModeProtectionState.isScheduleSuppressed(app.rawValue, defaults: defaults) {
-            return .unshield(.hardModeScheduleOff)
-        }
-
         if defaults?.bool(forKey: NimaConstants.timeWindowsPauseAllKey) == true {
             return .unshield(.pauseAllWindows)
         }
 
         let windows = loadWindows(defaults: defaults)
         let endedWindowIDs = activeEndedWindowIDs(defaults: defaults, now: now)
-        let hasActiveWindow = TimeWindowScheduleEvaluator.activeWindows(
+        let activeWindows = TimeWindowScheduleEvaluator.activeWindows(
             from: windows,
             now: now,
             calendar: calendar,
             endedWindowIDs: endedWindowIDs
-        ).contains { $0.apps.contains(app.rawValue) }
+        ).filter { $0.apps.contains(app.rawValue) }
 
-        return hasActiveWindow
+        if activeWindows.isEmpty { return .unshield(.noActiveTimeWindow) }
+        let hasUnsuppressedWindow = activeWindows.contains {
+            !HardModeProtectionState.isOccurrenceSuppressed(
+                app.rawValue, window: $0, defaults: defaults, now: now, calendar: calendar
+            )
+        }
+
+        return hasUnsuppressedWindow
             ? .shield(.timeWindow)
-            : .unshield(.noActiveTimeWindow)
+            : .unshield(.hardModeScheduleOff)
     }
 
     @discardableResult
@@ -116,7 +119,8 @@ enum ClientShieldPolicy {
         defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID),
         now: Date = Date(),
         calendar: Calendar = .current,
-        selection: FamilyActivitySelection? = nil
+        selection: FamilyActivitySelection? = nil,
+        checkProcessAuthorization: Bool = true
     ) -> ClientShieldDecision {
         let decision = decision(
             for: appID,
@@ -127,8 +131,16 @@ enum ClientShieldPolicy {
         guard let app = ClientShieldAppID(rawValue: appID) else { return decision }
 
         let store = ManagedSettingsStore(named: .init(app.managedSettingsStoreName))
-        guard decision.shouldShield,
-              AuthorizationCenter.shared.authorizationStatus == .approved else {
+        guard decision.shouldShield else {
+            store.shield.applications = nil
+            return decision
+        }
+
+        // AuthorizationCenter's status starts as notDetermined in the monitor
+        // extension, which does not request authorization itself. The app
+        // checks authorization when configuring the schedule; the extension
+        // uses its Family Controls entitlement and the saved app selection.
+        if checkProcessAuthorization && AuthorizationCenter.shared.authorizationStatus != .approved {
             store.shield.applications = nil
             return decision
         }
@@ -189,5 +201,48 @@ enum ClientShieldPolicy {
             return FamilyActivitySelection()
         }
         return selection
+    }
+}
+
+enum ScheduleMonitorDiagnostics {
+    private static let registrationKey = "schedule_monitor.last_registration_v1"
+    private static let callbackKey = "schedule_monitor.last_callback_v1"
+
+    static func recordRegistration(
+        requested: Int,
+        installed: Int,
+        unchanged: Int,
+        failures: [String],
+        nextStart: Date?,
+        defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID)
+    ) {
+        var entry: [String: Any] = [
+            "at": Date().timeIntervalSince1970,
+            "requested": requested,
+            "installed": installed,
+            "unchanged": unchanged,
+            "failures": failures
+        ]
+        if let nextStart { entry["next_start"] = nextStart.timeIntervalSince1970 }
+        defaults?.set(entry, forKey: registrationKey)
+    }
+
+    static func recordCallback(
+        activity: String,
+        event: String,
+        appID: String? = nil,
+        decision: ClientShieldDecision? = nil,
+        shieldCount: Int? = nil,
+        defaults: UserDefaults? = UserDefaults(suiteName: NimaConstants.appGroupID)
+    ) {
+        var entry: [String: Any] = [
+            "at": Date().timeIntervalSince1970,
+            "activity": activity,
+            "event": event
+        ]
+        if let appID { entry["app"] = appID }
+        if let decision { entry["decision"] = decision.reason.rawValue }
+        if let shieldCount { entry["shield_count"] = shieldCount }
+        defaults?.set(entry, forKey: appID.map { "\(callbackKey).\($0)" } ?? callbackKey)
     }
 }

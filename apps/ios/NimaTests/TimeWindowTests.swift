@@ -1,6 +1,40 @@
 import XCTest
 @testable import Nima
 
+final class ScheduleMonitorDefinitionTests: XCTestCase {
+    func testEverydayWindowWithTwoAppsUsesOneMonitor() {
+        let window = TimeWindow(
+            id: "tw_daily", startTime: "14:15", endTime: "08:30",
+            repeatDays: TimeWindowWeekday.allCases,
+            apps: ["instagram", "x"]
+        )
+        let definitions = InstagramScheduleMonitor.activityDefinitions(windows: [window])
+
+        XCTAssertEqual(definitions.count, 1)
+        let entry = try? XCTUnwrap(definitions.first)
+        XCTAssertEqual(entry?.key.rawValue, "nima.window.tw_daily.daily")
+        XCTAssertNil(entry?.value.intervalStart.weekday)
+        XCTAssertNil(entry?.value.intervalEnd.weekday)
+        XCTAssertNotNil(entry?.value.nextInterval)
+    }
+
+    func testSelectedDaysUseOneMonitorPerDayAndSkipDisabledWindows() {
+        let window = TimeWindow(
+            id: "tw_weekdays", startTime: "22:00", endTime: "08:00",
+            repeatDays: [.monday, .wednesday], apps: ["instagram", "tiktok"]
+        )
+        var disabled = window
+        disabled.id = "tw_disabled"
+        disabled.enabled = false
+        let definitions = InstagramScheduleMonitor.activityDefinitions(windows: [window, disabled])
+
+        XCTAssertEqual(Set(definitions.keys.map(\.rawValue)), [
+            "nima.window.tw_weekdays.monday", "nima.window.tw_weekdays.wednesday"
+        ])
+        XCTAssertEqual(definitions.first { $0.key.rawValue.hasSuffix(".monday") }?.value.intervalEnd.weekday, 3)
+    }
+}
+
 final class TimeWindowInstagramModeCompatibilityTests: XCTestCase {
     func testLegacyInstagramWindowWithoutModeStillDecodes() throws {
         let legacy = TimeWindow(apps: ["instagram"])
@@ -497,30 +531,108 @@ final class ClientShieldPolicyTests: XCTestCase {
         )
     }
 
-    func testHardModeScheduleOffPreventsScheduledShield() {
+    func testHardModeOffOnlySuppressesCurrentOccurrenceAndSelectedApp() {
         let defaults = testDefaults()
-        defaults.set(
-            ["instagram"],
-            forKey: NimaConstants.hardModeOffAppIDsKey
+        let window = TimeWindow(
+            startTime: "22:00", endTime: "08:00",
+            repeatDays: [.monday], apps: ["instagram", "tiktok"]
         )
-        setWindows([
-            TimeWindow(
-                startTime: "22:00",
-                endTime: "08:00",
-                repeatDays: [.monday],
-                apps: ["instagram"]
-            )
-        ], defaults: defaults)
+        setWindows([window], defaults: defaults)
+        let current = date(day: 3, hour: 7, minute: 0)
+        XCTAssertTrue(HardModeProtectionState.markProtectionOff(
+            "instagram", in: [window], defaults: defaults, now: current, calendar: calendar
+        ))
 
         XCTAssertEqual(
             ClientShieldPolicy.decision(
                 for: "instagram",
                 defaults: defaults,
-                now: date(day: 3, hour: 7, minute: 0),
+                now: current,
                 calendar: calendar
             ),
             .unshield(.hardModeScheduleOff)
         )
+        XCTAssertEqual(ClientShieldPolicy.decision(
+            for: "tiktok", defaults: defaults, now: current, calendar: calendar
+        ), .shield(.timeWindow))
+        XCTAssertEqual(ClientShieldPolicy.decision(
+            for: "instagram", defaults: defaults,
+            now: date(day: 10, hour: 7, minute: 0), calendar: calendar
+        ), .shield(.timeWindow))
+    }
+
+    func testAnotherActiveWindowStillBlocksUntilItIsAlsoSuppressed() {
+        let defaults = testDefaults()
+        let first = TimeWindow(
+            startTime: "22:00", endTime: "08:00",
+            repeatDays: [.monday], apps: ["instagram"]
+        )
+        let second = TimeWindow(
+            startTime: "23:00", endTime: "09:00",
+            repeatDays: [.monday], apps: ["instagram"]
+        )
+        setWindows([first, second], defaults: defaults)
+        let now = date(day: 3, hour: 7, minute: 0)
+        HardModeProtectionState.markProtectionOff(
+            "instagram", in: [first], defaults: defaults, now: now, calendar: calendar
+        )
+        XCTAssertEqual(ClientShieldPolicy.decision(
+            for: "instagram", defaults: defaults, now: now, calendar: calendar
+        ), .shield(.timeWindow))
+        HardModeProtectionState.markProtectionOff(
+            "instagram", in: [second], defaults: defaults, now: now, calendar: calendar
+        )
+        XCTAssertEqual(ClientShieldPolicy.decision(
+            for: "instagram", defaults: defaults, now: now, calendar: calendar
+        ), .unshield(.hardModeScheduleOff))
+    }
+
+    func testOldGlobalOffKeyCannotSuppressSchedulesAfterUpgrade() {
+        let defaults = testDefaults()
+        defaults.set(["instagram"], forKey: NimaConstants.hardModeOffAppIDsKey)
+        setWindows([TimeWindow(
+            startTime: "22:00", endTime: "08:00",
+            repeatDays: [.monday], apps: ["instagram"]
+        )], defaults: defaults)
+        XCTAssertEqual(ClientShieldPolicy.decision(
+            for: "instagram", defaults: defaults,
+            now: date(day: 3, hour: 7, minute: 0), calendar: calendar
+        ), .shield(.timeWindow))
+    }
+
+    func testChangedWindowDoesNotInheritOffChoiceFromEarlierVersion() {
+        let defaults = testDefaults()
+        var window = TimeWindow(
+            startTime: "22:00", endTime: "08:00",
+            repeatDays: [.monday], apps: ["instagram"]
+        )
+        let now = date(day: 3, hour: 7, minute: 0)
+        setWindows([window], defaults: defaults)
+        HardModeProtectionState.markProtectionOff(
+            "instagram", in: [window], defaults: defaults, now: now, calendar: calendar
+        )
+        window.name = "Revised focus"
+        setWindows([window], defaults: defaults)
+        XCTAssertEqual(ClientShieldPolicy.decision(
+            for: "instagram", defaults: defaults, now: now, calendar: calendar
+        ), .shield(.timeWindow))
+    }
+
+    func testManuallyReenablingProtectionClearsCurrentOffChoice() {
+        let defaults = testDefaults()
+        let window = TimeWindow(
+            startTime: "22:00", endTime: "08:00",
+            repeatDays: [.monday], apps: ["instagram"]
+        )
+        let now = date(day: 3, hour: 7, minute: 0)
+        setWindows([window], defaults: defaults)
+        HardModeProtectionState.markProtectionOff(
+            "instagram", in: [window], defaults: defaults, now: now, calendar: calendar
+        )
+        HardModeProtectionState.markProtectionOn("instagram", defaults: defaults, now: now)
+        XCTAssertEqual(ClientShieldPolicy.decision(
+            for: "instagram", defaults: defaults, now: now, calendar: calendar
+        ), .shield(.timeWindow))
     }
 
     func testPauseModeTemporarilyPreventsScheduledShield() {
@@ -1051,6 +1163,26 @@ final class TimeWindowStorePauseTests: XCTestCase {
 
         XCTAssertEqual(applied.last, Set(["tiktok"]))
         XCTAssertEqual(store.scheduledAppIDs, Set(["tiktok"]))
+    }
+
+    func testEditingEndedWindowStartsItsCurrentScheduleAgain() {
+        let defaults = testDefaults()
+        let store = makeStore(defaults: defaults)
+        store.configure(
+            applyScheduledApps: { _, _ in },
+            startProtection: { _ in },
+            requestHomeFocus: {}
+        )
+        store.addWindow(activeWindow(apps: ["instagram"]))
+        XCTAssertTrue(store.endActiveWindow(for: "instagram"))
+        XCTAssertTrue(store.scheduledAppIDs.isEmpty)
+
+        var edited = store.windows[0]
+        edited.name = "Revised focus"
+        store.updateWindow(edited)
+
+        XCTAssertEqual(store.scheduledAppIDs, Set(["instagram"]))
+        XCTAssertNil(defaults.dictionary(forKey: NimaConstants.timeWindowsEndedUntilKey))
     }
 
     private func makeStore(

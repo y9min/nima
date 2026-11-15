@@ -349,7 +349,7 @@ struct HomeScreen: View {
                 scheduled: isScheduled,
                 defaults: pauseDefaults
             )
-            let isCurrentlyBlocked = isManuallyBlocked || effectiveSchedule
+            let isCurrentlyBlocked = (isManuallyBlocked || effectiveSchedule) && hasShieldSetup(for: app.id)
             return BlockingDashboardApp(
                 id: app.id,
                 name: app.name,
@@ -374,6 +374,16 @@ struct HomeScreen: View {
                     ? xProtectionStore.effectiveMode
                     : nil
             )
+        }
+    }
+
+    private func hasShieldSetup(for appID: String) -> Bool {
+        guard AuthorizationCenter.shared.authorizationStatus == .approved else { return false }
+        switch appID {
+        case "instagram": return !instagramProtectionStore.familySelection.applicationTokens.isEmpty
+        case "tiktok": return !tiktokProtectionStore.familySelection.applicationTokens.isEmpty
+        case "x": return !xProtectionStore.familySelection.applicationTokens.isEmpty
+        default: return false
         }
     }
 
@@ -528,6 +538,10 @@ struct HomeScreen: View {
     }
 
     private func toggleBlockState(for appId: String) {
+        if timeWindowStore.isAppScheduled(appId) && !hasShieldSetup(for: appId) {
+            finishScheduledAppSetup(appId)
+            return
+        }
         if appId == "instagram" {
             guard !timeWindowStore.isAppScheduled(appId) else { return }
             if instagramProtectionStore.protectionEnabled {
@@ -608,6 +622,38 @@ struct HomeScreen: View {
         } else {
             authorizeFeatureAccess {
                 store.toggleOption(appId: appId, optionId: optionId, source: "blocking_status_card")
+            }
+        }
+    }
+
+    private func finishScheduledAppSetup(_ appID: String) {
+        authorizeFeatureAccess {
+            Task { @MainActor in
+                do {
+                    if AuthorizationCenter.shared.authorizationStatus != .approved {
+                        try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+                    }
+                    instagramProtectionStore.refreshAuthorizationStatus()
+                    tiktokProtectionStore.refreshAuthorizationStatus()
+                    xProtectionStore.refreshAuthorizationStatus()
+                    switch appID {
+                    case "instagram" where instagramProtectionStore.familySelection.applicationTokens.isEmpty:
+                        isShowingInstagramPicker = true
+                    case "tiktok" where tiktokProtectionStore.familySelection.applicationTokens.isEmpty:
+                        isShowingTikTokPicker = true
+                    case "x" where xProtectionStore.familySelection.applicationTokens.isEmpty:
+                        isShowingXPicker = true
+                    default:
+                        break
+                    }
+                } catch {
+                    switch appID {
+                    case "instagram": instagramSetupError = "Nima needs Screen Time access to block Instagram."
+                    case "tiktok": tiktokSetupError = "Nima needs Screen Time access to block TikTok."
+                    case "x": xSetupError = "Nima needs Screen Time access to block X."
+                    default: break
+                    }
+                }
             }
         }
     }

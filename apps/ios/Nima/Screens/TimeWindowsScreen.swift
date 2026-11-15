@@ -5,6 +5,9 @@ import UIKit
 struct TimeWindowsScreen: View {
     @Environment(TimeWindowStore.self) private var store
     @Environment(AppControlRulesStore.self) private var appRules
+    @Environment(InstagramProtectionStore.self) private var instagramProtectionStore
+    @Environment(TikTokProtectionStore.self) private var tiktokProtectionStore
+    @Environment(XProtectionStore.self) private var xProtectionStore
     @Environment(HardModeCoordinator.self) private var hardModeCoordinator
     @Environment(OnboardingStore.self) private var onboardingStore
     @Environment(\.sizeCategory) private var contentSizeCategory
@@ -141,6 +144,20 @@ struct TimeWindowsScreen: View {
             if selectedControlTab == .windows {
                 pauseAllRow(scale: scale)
                 Color.clear.frame(height: 18 * scale)
+                if let window = activeWindowNeedingSetup {
+                    Button {
+                        editorPresentation = .edit(window)
+                    } label: {
+                        Text("A focus window is active, but app blocking needs setup. Tap to finish setup.")
+                            .font(.system(size: 14 * scale, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14 * scale)
+                            .background(TimeWindowsPalette.card, in: RoundedRectangle(cornerRadius: 14 * scale))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 14 * scale)
+                }
                 if store.windows.isEmpty {
                     emptyState(scale: scale)
                 } else {
@@ -167,6 +184,21 @@ struct TimeWindowsScreen: View {
             }
 
             Color.clear.frame(height: 18 * scale)
+        }
+    }
+
+    private var activeWindowNeedingSetup: TimeWindow? {
+        store.windows.first { window in
+            store.status(for: window) == .activeNow
+                && (AuthorizationCenter.shared.authorizationStatus != .approved
+                    || window.apps.contains { appID in
+                        switch appID {
+                        case "instagram": return instagramProtectionStore.familySelection.applicationTokens.isEmpty
+                        case "tiktok": return tiktokProtectionStore.familySelection.applicationTokens.isEmpty
+                        case "x": return xProtectionStore.familySelection.applicationTokens.isEmpty
+                        default: return true
+                        }
+                    })
         }
     }
 
@@ -852,6 +884,9 @@ enum TimeWindowEditorDefaults {
 
 private struct TimeWindowEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(InstagramProtectionStore.self) private var instagramProtectionStore
+    @Environment(TikTokProtectionStore.self) private var tiktokProtectionStore
+    @Environment(XProtectionStore.self) private var xProtectionStore
     let window: TimeWindow?
     let onSave: (TimeWindow) -> Void
     let onDelete: (String) -> Void
@@ -868,9 +903,13 @@ private struct TimeWindowEditorSheet: View {
     @State private var selectedApps: Set<String>
     @State private var selectedDays: Set<TimeWindowWeekday>
     @State private var validationMessage: String?
+    @State private var isShowingShortWindowWarning = false
     @State private var isShowingEmojiPicker = false
     @State private var isShowingRepeat = false
     @State private var isShowingDeleteConfirmation = false
+    @State private var isShowingAppPicker = false
+    @State private var appIDToConnect: String?
+    @State private var appPickerSelection = FamilyActivitySelection()
 
     init(
         window: TimeWindow?,
@@ -948,6 +987,12 @@ private struct TimeWindowEditorSheet: View {
             RepeatSelectionSheet(selectedDays: $selectedDays)
                 .presentationDetents([.fraction(0.68), .large])
         }
+        .familyActivityPicker(isPresented: $isShowingAppPicker, selection: $appPickerSelection)
+        .alert("Window too short", isPresented: $isShowingShortWindowWarning) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Scheduled windows must last at least 15 minutes.")
+        }
         .alert("Delete time window?", isPresented: $isShowingDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 if let id = window?.id {
@@ -966,6 +1011,23 @@ private struct TimeWindowEditorSheet: View {
         .onChange(of: isShowingEmojiPicker) { wasShowing, isShowing in
             guard wasShowing, !isShowing else { return }
             advanceGuidedStepIfNeeded(.icon)
+        }
+        .onChange(of: isShowingAppPicker) { wasShowing, isShowing in
+            guard wasShowing, !isShowing, let appID = appIDToConnect else { return }
+            appIDToConnect = nil
+            guard appPickerSelection.applicationTokens.count == 1,
+                  appPickerSelection.categoryTokens.isEmpty,
+                  appPickerSelection.webDomainTokens.isEmpty else {
+                validationMessage = "Choose only the official app, without categories or websites."
+                return
+            }
+            switch appID {
+            case "instagram": instagramProtectionStore.familySelection = appPickerSelection
+            case "tiktok": tiktokProtectionStore.familySelection = appPickerSelection
+            case "x": xProtectionStore.familySelection = appPickerSelection
+            default: return
+            }
+            validationMessage = nil
         }
         .onChange(of: name) { _, _ in
             advanceGuidedStepIfNeeded(.name)
@@ -1129,26 +1191,69 @@ private struct TimeWindowEditorSheet: View {
     }
 
     private func appRow(appID: String, title: String) -> some View {
-        Button {
-            toggleApp(appID)
-            advanceGuidedStepIfNeeded(.apps)
-        } label: {
-            HStack(spacing: 12) {
-                SocialMediaIcon(platform: appID, size: 28)
-                Text(title)
-                    .font(.system(size: 20, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white)
-                Spacer()
-                Image(systemName: selectedApps.contains(appID) ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(selectedApps.contains(appID) ? TimeWindowsPalette.accent : TimeWindowsPalette.muted)
+        VStack(spacing: 8) {
+            Button {
+                toggleApp(appID)
+                advanceGuidedStepIfNeeded(.apps)
+            } label: {
+                HStack(spacing: 12) {
+                    SocialMediaIcon(platform: appID, size: 28)
+                    Text(title)
+                        .font(.system(size: 20, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Image(systemName: selectedApps.contains(appID) ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(selectedApps.contains(appID) ? TimeWindowsPalette.accent : TimeWindowsPalette.muted)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 58)
+                .background(TimeWindowsPalette.card)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
-            .padding(.horizontal, 16)
-            .frame(height: 58)
-            .background(TimeWindowsPalette.card)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .buttonStyle(.plain)
+
+            if selectedApps.contains(appID),
+               (AuthorizationCenter.shared.authorizationStatus != .approved || !hasAppConnection(appID)) {
+                Button(AuthorizationCenter.shared.authorizationStatus == .approved
+                    ? "Connect " + title + " in Screen Time"
+                    : "Enable Screen Time for " + title) {
+                    connectApp(appID)
+                }
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(TimeWindowsPalette.accent)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 16)
+            }
         }
-        .buttonStyle(.plain)
+    }
+
+    private func hasAppConnection(_ appID: String) -> Bool {
+        switch appID {
+        case "instagram": return !instagramProtectionStore.familySelection.applicationTokens.isEmpty
+        case "tiktok": return !tiktokProtectionStore.familySelection.applicationTokens.isEmpty
+        case "x": return !xProtectionStore.familySelection.applicationTokens.isEmpty
+        default: return false
+        }
+    }
+
+    private func connectApp(_ appID: String) {
+        Task { @MainActor in
+            do {
+                if AuthorizationCenter.shared.authorizationStatus != .approved {
+                    try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+                }
+                guard !hasAppConnection(appID) else {
+                    validationMessage = nil
+                    return
+                }
+                appPickerSelection = FamilyActivitySelection()
+                appIDToConnect = appID
+                isShowingAppPicker = true
+            } catch {
+                validationMessage = "Allow Screen Time access to connect this app."
+            }
+        }
     }
 
     private var repeatRow: some View {
@@ -1210,8 +1315,13 @@ private struct TimeWindowEditorSheet: View {
         let startTime = Self.timeString(from: startDate)
         let endTime = Self.timeString(from: endDate)
 
-        if TimeWindowScheduleEvaluator.minutes(from: startTime) == TimeWindowScheduleEvaluator.minutes(from: endTime) {
-            validationMessage = "Start and end time can't be the same."
+        guard let startMinutes = TimeWindowScheduleEvaluator.minutes(from: startTime),
+              let endMinutes = TimeWindowScheduleEvaluator.minutes(from: endTime) else { return }
+        // Wrap across midnight for overnight windows; equal times mean zero minutes.
+        let durationMinutes = (endMinutes - startMinutes + 24 * 60) % (24 * 60)
+        if durationMinutes < 15 {
+            validationMessage = nil
+            isShowingShortWindowWarning = true
             return
         }
         if selectedApps.isEmpty {
@@ -1220,6 +1330,14 @@ private struct TimeWindowEditorSheet: View {
         }
         if selectedDays.isEmpty {
             validationMessage = "Choose at least one day."
+            return
+        }
+        guard AuthorizationCenter.shared.authorizationStatus == .approved else {
+            validationMessage = "Allow Screen Time access before saving a focus window."
+            return
+        }
+        if let appID = selectedApps.sorted().first(where: { !hasAppConnection($0) }) {
+            validationMessage = "Connect " + appID.capitalized + " in Screen Time before saving."
             return
         }
         var appActions = window?.appActions ?? [:]

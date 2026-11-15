@@ -30,9 +30,15 @@ final class AppControlRulesStore {
 
     func activeKind(for tokens: Set<ApplicationToken>) -> AppControlKind? {
         guard !PaywallBlockingState.isActive(defaults: defaults) else { return nil }
-        if blocked.contains(where: { tokens.contains($0.applicationToken) }) { return .blocked }
+        if blocked.contains(where: {
+            tokens.contains($0.applicationToken)
+                && !AppControlRuleState.isRulePaused($0.id, defaults: defaults)
+        }) { return .blocked }
         let reached = AppControlRuleState.reachedLimitIDs(defaults: defaults)
-        if limits.contains(where: { tokens.contains($0.applicationToken) && reached.contains($0.id) }) { return .limit }
+        if limits.contains(where: {
+            tokens.contains($0.applicationToken) && reached.contains($0.id)
+                && !AppControlRuleState.isRulePaused($0.id, defaults: defaults)
+        }) { return .limit }
         return nil
     }
 
@@ -65,7 +71,9 @@ final class AppControlRulesStore {
         rules = prior
         AppControlRuleState.save(prior, defaults: defaults)
         AppControlRuleState.saveReachedLimitIDs(priorReached, defaults: defaults)
+        let saveError = monitoringError
         _ = syncMonitoring()
+        monitoringError = saveError
         applyShields()
         return false
     }
@@ -181,7 +189,23 @@ final class AppControlRulesStore {
             monitoringError = nil
             return true
         } catch {
-            monitoringError = "Could not start this daily limit. Please try again."
+            AppDiagnosticsLogger.log(
+                "APP_LIMIT_MONITOR_FAILED error=\(error) activities=\(activityCenter.activities.count) events=\(events.count)"
+            )
+            if let error = error as? DeviceActivityCenter.MonitoringError {
+                switch error {
+                case .excessiveActivities:
+                    monitoringError = "Too many app schedules are active. Remove a time window and try again."
+                case .unauthorized:
+                    monitoringError = "Screen Time access is unavailable. Check Nima's Screen Time permission and try again."
+                case .invalidDateComponents, .intervalTooLong, .intervalTooShort:
+                    monitoringError = "This daily limit could not be scheduled. Please try again."
+                @unknown default:
+                    monitoringError = "Could not start this daily limit. Please try again."
+                }
+            } else {
+                monitoringError = "Could not start this daily limit. Please try again."
+            }
             return false
         }
     }

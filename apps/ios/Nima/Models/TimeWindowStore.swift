@@ -94,11 +94,15 @@ final class TimeWindowStore {
         var updatedWindow = window
         updatedWindow.updatedAt = Date()
         windows[index] = updatedWindow
+        endedWindowUntilByID.removeValue(forKey: window.id)
+        saveEndedWindows()
         persistAndRefresh(source: "time_windows.update", requestNotificationAuthorization: updatedWindow.enabled)
     }
 
     func deleteWindow(id: String) {
         windows.removeAll { $0.id == id }
+        endedWindowUntilByID.removeValue(forKey: id)
+        saveEndedWindows()
         persistAndRefresh(source: "time_windows.delete", requestNotificationAuthorization: false)
     }
 
@@ -106,6 +110,10 @@ final class TimeWindowStore {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
         windows[index].enabled = enabled
         windows[index].updatedAt = Date()
+        if enabled {
+            endedWindowUntilByID.removeValue(forKey: id)
+            saveEndedWindows()
+        }
         persistAndRefresh(source: "time_windows.toggle", requestNotificationAuthorization: enabled)
     }
 

@@ -64,6 +64,11 @@ final class InstagramProtectionStore {
         if let data = defaults?.data(forKey: Self.familySelectionKey),
            let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
             familySelection = selection
+        } else if let connected = ScreenTimeAppConnections.load(defaults: defaults).selection(for: "instagram") {
+            familySelection = connected
+            if let data = try? JSONEncoder().encode(connected) {
+                defaults?.set(data, forKey: Self.familySelectionKey)
+            }
         } else {
             familySelection = FamilyActivitySelection()
         }
@@ -112,7 +117,10 @@ final class InstagramProtectionStore {
     }
 
     func setScheduled(_ enabled: Bool, source: String) {
-        guard isScheduled != enabled else { return }
+        guard isScheduled != enabled else {
+            applyShield()
+            return
+        }
         isScheduled = enabled
         applyShield()
         AppDiagnosticsLogger.log(

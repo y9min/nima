@@ -14,9 +14,6 @@ final class ShieldActionExtension: ShieldActionDelegate {
 
     private static let appGroupID = "group.so.nima.app"
     private static let pendingDestinationKey = "shield.pending_destination"
-    private static let tiktokFamilySelectionKey = "tiktok.client.family_selection"
-    private static let xFamilySelectionKey = "x.client.family_selection"
-    private static let screenTimeAppConnectionsKey = "screen_time.app_connections"
     private static let openParentalControlsAppRawValue = 3
 
     override func handle(
@@ -24,15 +21,15 @@ final class ShieldActionExtension: ShieldActionDelegate {
         for application: ApplicationToken,
         completionHandler: @escaping (ShieldActionResponse) -> Void
     ) {
-        if AppControlRuleState.activeKind(for: application) != nil {
+        guard let app = SupportedClientApp.matching(application) else {
             completionHandler(.close)
             return
         }
         switch action {
         case .primaryButtonPressed:
-            openNima(destination: destination(for: application), completionHandler: completionHandler)
+            openNima(destination: destination(for: app), completionHandler: completionHandler)
         case .secondaryButtonPressed:
-            let appDestination = destination(for: application)
+            let appDestination = destination(for: app)
             openNima(
                 destination: appDestination == .instagram
                     ? .openLink
@@ -44,29 +41,12 @@ final class ShieldActionExtension: ShieldActionDelegate {
         }
     }
 
-    private func destination(for application: ApplicationToken) -> Destination {
-        guard let defaults = UserDefaults(suiteName: Self.appGroupID) else { return .instagram }
-        if let data = defaults.data(forKey: Self.xFamilySelectionKey),
-           let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data),
-           selection.applicationTokens.contains(application) {
-            return .x
+    private func destination(for app: SupportedClientApp) -> Destination {
+        switch app {
+        case .instagram: return .instagram
+        case .tiktok: return .tiktok
+        case .x: return .x
         }
-        if let data = defaults.data(forKey: Self.tiktokFamilySelectionKey),
-           let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data),
-           selection.applicationTokens.contains(application) {
-            return .tiktok
-        }
-        if let data = defaults.data(forKey: Self.screenTimeAppConnectionsKey),
-           let connections = try? JSONDecoder().decode(ShieldAppConnections.self, from: data),
-           connections.selectionsByAppID["tiktok"]?.applicationTokens.contains(application) == true {
-            return .tiktok
-        }
-        if let data = defaults.data(forKey: Self.screenTimeAppConnectionsKey),
-           let connections = try? JSONDecoder().decode(ShieldAppConnections.self, from: data),
-           connections.selectionsByAppID["x"]?.applicationTokens.contains(application) == true {
-            return .x
-        }
-        return .instagram
     }
 
     private func openNima(
@@ -88,8 +68,4 @@ final class ShieldActionExtension: ShieldActionDelegate {
         defaults.synchronize()
         completionHandler(openParentAppResponse)
     }
-}
-
-private struct ShieldAppConnections: Decodable {
-    let selectionsByAppID: [String: FamilyActivitySelection]
 }

@@ -71,6 +71,7 @@ struct HardModeActivationWarningCard: View {
 struct HardModeChallengeOverlay: View {
     @Bindable var coordinator: HardModeCoordinator
     let availableClientAppIDs: Set<String>
+    let scheduledClientAppIDs: Set<String>
     let onCommit: (HardModeCommit) -> HardModeCommitResult
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -614,11 +615,11 @@ struct HardModeChallengeOverlay: View {
                     appChoices[appID] = .pause(minutes: minutes)
                 }
             }
-            Button("Off until I turn it back on") { appChoices[appID] = .off }
+            Button(appOffTitle(appID)) { appChoices[appID] = .off }
         } label: {
             choiceRow(
                 title: appName(appID),
-                detail: appChoiceTitle(choice),
+                detail: appChoiceTitle(choice, appID: appID),
                 platform: appID,
                 changed: choice != .keep
             )
@@ -684,7 +685,7 @@ struct HardModeChallengeOverlay: View {
             ForEach([5, 10, 15], id: \.self) { minutes in
                 selectableChoice("Pause \(minutes) min", choice: .pause(minutes: minutes))
             }
-            selectableChoice("Turn off until I turn it back on", choice: .off)
+            selectableChoice(genericOffTitle, choice: .off)
         }
     }
 
@@ -753,13 +754,13 @@ struct HardModeChallengeOverlay: View {
     private var completionSummary: String {
         if !isClientBatchAttempt {
             guard let genericChoice else { return "Choose what happens next." }
-            return genericChoice == .off ? "Protection turns off until you turn it back on." : "Protection pauses temporarily."
+            return genericChoice == .off ? genericOffSummary : "Protection pauses temporarily."
         }
         var changes = displayedClientIDs.compactMap { appID -> String? in
             switch appChoices[appID] ?? .keep {
             case .keep: return nil
             case .pause(let minutes): return "\(appName(appID)) pauses for \(minutes) min"
-            case .off: return "\(appName(appID)) turns off"
+            case .off: return "\(appName(appID)): \(appOffTitle(appID).lowercased())"
             }
         }
         if turnOffHardMode { changes.append("Hard Mode turns off") }
@@ -775,12 +776,42 @@ struct HardModeChallengeOverlay: View {
         }
     }
 
-    private func appChoiceTitle(_ choice: HardModeAppChoice) -> String {
+    private func appChoiceTitle(_ choice: HardModeAppChoice, appID: String) -> String {
         switch choice {
         case .keep: "Keep blocked"
         case .pause(let minutes): "Pause for \(minutes) min"
-        case .off: "Off until I turn it back on"
+        case .off: appOffTitle(appID)
         }
+    }
+
+    private func appOffTitle(_ appID: String) -> String {
+        scheduledClientAppIDs.contains(appID)
+            ? "Off for this session"
+            : "Off until I turn it back on"
+    }
+
+    private var genericOffTitle: String {
+        guard let mutation = coordinator.activeAttempt?.change.mutation else { return "Apply change" }
+        switch mutation {
+        case .endActiveWindows: return "End current window"
+        case .disableClientProtection: return "Off for this session"
+        case .disableBlockingOption: return "Turn off until I turn it back on"
+        case .setWindowEnabled: return "Change window setting"
+        case .updateWindow: return "Save window changes"
+        case .deleteWindow: return "Delete window"
+        case .updateAppRule: return "Save app control changes"
+        case .deleteAppRule: return "Delete app control"
+        case .pauseAllWindows: return "Pause all windows"
+        case .turnOffHardMode: return "Turn off Hard Mode"
+        }
+    }
+
+    private var genericOffSummary: String {
+        guard let mutation = coordinator.activeAttempt?.change.mutation else { return "The change takes effect now." }
+        if case .endActiveWindows = mutation {
+            return "This window ends now. Its next scheduled session will start normally."
+        }
+        return "The selected change takes effect now. Other schedules remain unchanged."
     }
 
     private var footer: some View {

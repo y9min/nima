@@ -114,7 +114,10 @@ final class XProtectionStore {
     }
 
     func setScheduled(_ scheduled: Bool, source: String) {
-        guard isScheduled != scheduled else { return }
+        guard isScheduled != scheduled else {
+            applyShield()
+            return
+        }
         isScheduled = scheduled
         applyShield()
         AppDiagnosticsLogger.log("X_SCHEDULE enabled=\(scheduled) source=\(source)")

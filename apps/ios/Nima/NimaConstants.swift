@@ -95,6 +95,7 @@ enum NimaConstants {
     static let paywallBlockingSuspendedKey = "blocking.paywall_suspended"
     static let hardModeEnabledKey = "hard_mode.enabled"
     static let hardModeOffAppIDsKey = "hard_mode.off_app_ids"
+    static let hardModeOffOccurrencesKey = "hard_mode.off_occurrences.v1"
     static let hardModePauseExpiriesKey = "hard_mode.pause_expiries"
     static let hardModePauseRuleExpiriesKey = "hard_mode.pause_rule_expiries"
     static let onboardingStateKey = "onboardingStateV1"
@@ -364,29 +365,77 @@ enum HardModeProtectionState {
         defaults?.set(enabled, forKey: NimaConstants.hardModeEnabledKey)
     }
 
-    static func isScheduleSuppressed(_ appID: String, defaults: UserDefaults?) -> Bool {
-        Set(defaults?.stringArray(forKey: NimaConstants.hardModeOffAppIDsKey) ?? []).contains(appID)
+    static func isScheduleSuppressed(
+        _ appID: String,
+        defaults: UserDefaults?,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Bool {
+        guard let data = defaults?.data(forKey: NimaConstants.timeWindowsKey) else { return false }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let windows = try? decoder.decode([TimeWindow].self, from: data) else { return false }
+        let ended = activeEndedWindowIDs(defaults: defaults, now: now)
+        let active = TimeWindowScheduleEvaluator.activeWindows(
+            from: windows, now: now, calendar: calendar, endedWindowIDs: ended
+        ).filter { $0.apps.contains(appID) }
+        return !active.isEmpty && active.allSatisfy {
+            isOccurrenceSuppressed(appID, window: $0, defaults: defaults, now: now, calendar: calendar)
+        }
     }
 
     static func markProtectionOn(_ appID: String, defaults: UserDefaults?, now: Date = Date()) {
-        var offAppIDs = offOverrideAppIDs(defaults: defaults)
-        offAppIDs.remove(appID)
-        persistOffOverrideAppIDs(offAppIDs, defaults: defaults)
+        var overrides = offOccurrences(defaults: defaults, now: now)
+        overrides = overrides.filter { !$0.key.hasPrefix("\(appID)|") }
+        persistOffOccurrences(overrides, defaults: defaults)
         clearPause(for: appID, defaults: defaults, now: now)
     }
 
-    static func markProtectionOff(_ appID: String, defaults: UserDefaults?) {
-        var offAppIDs = offOverrideAppIDs(defaults: defaults)
-        offAppIDs.insert(appID)
-        persistOffOverrideAppIDs(offAppIDs, defaults: defaults)
+    @discardableResult
+    static func markProtectionOff(
+        _ appID: String,
+        in windows: [TimeWindow],
+        defaults: UserDefaults?,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Bool {
+        guard defaults != nil else { return false }
+        var overrides = offOccurrences(defaults: defaults, now: now)
+        var didSuppress = false
+        for window in windows where window.apps.contains(appID) {
+            guard let occurrence = TimeWindowScheduleEvaluator.activeOccurrence(
+                for: window, now: now, calendar: calendar
+            ) else { continue }
+            overrides[offOccurrenceKey(appID, window: window, occurrence: occurrence)] = occurrence.endDate.timeIntervalSince1970
+            didSuppress = true
+        }
+        if didSuppress { persistOffOccurrences(overrides, defaults: defaults) }
+        return didSuppress
+    }
+
+    static func isOccurrenceSuppressed(
+        _ appID: String,
+        window: TimeWindow,
+        defaults: UserDefaults?,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Bool {
+        guard let occurrence = TimeWindowScheduleEvaluator.activeOccurrence(
+            for: window, now: now, calendar: calendar
+        ) else { return false }
+        return offOccurrences(defaults: defaults, now: now)[
+            offOccurrenceKey(appID, window: window, occurrence: occurrence)
+        ] != nil
     }
 
     static func effectivelyScheduled(
         _ appID: String,
         scheduled: Bool,
-        defaults: UserDefaults?
+        defaults: UserDefaults?,
+        now: Date = Date(),
+        calendar: Calendar = .current
     ) -> Bool {
-        scheduled && !isScheduleSuppressed(appID, defaults: defaults)
+        scheduled && !isScheduleSuppressed(appID, defaults: defaults, now: now, calendar: calendar)
     }
 
     @discardableResult
@@ -472,20 +521,37 @@ enum HardModeProtectionState {
     static func reset(defaults: UserDefaults?) {
         defaults?.removeObject(forKey: NimaConstants.hardModeEnabledKey)
         defaults?.removeObject(forKey: NimaConstants.hardModeOffAppIDsKey)
+        defaults?.removeObject(forKey: NimaConstants.hardModeOffOccurrencesKey)
         defaults?.removeObject(forKey: NimaConstants.hardModePauseExpiriesKey)
         defaults?.removeObject(forKey: NimaConstants.hardModePauseRuleExpiriesKey)
     }
 
-    private static func offOverrideAppIDs(defaults: UserDefaults?) -> Set<String> {
-        Set(defaults?.stringArray(forKey: NimaConstants.hardModeOffAppIDsKey) ?? [])
+    private static func offOccurrences(defaults: UserDefaults?, now: Date) -> [String: TimeInterval] {
+        let stored = defaults?.dictionary(forKey: NimaConstants.hardModeOffOccurrencesKey) as? [String: TimeInterval] ?? [:]
+        return stored.filter { $0.value > now.timeIntervalSince1970 }
     }
 
-    private static func persistOffOverrideAppIDs(_ appIDs: Set<String>, defaults: UserDefaults?) {
-        if appIDs.isEmpty {
-            defaults?.removeObject(forKey: NimaConstants.hardModeOffAppIDsKey)
+    private static func persistOffOccurrences(_ overrides: [String: TimeInterval], defaults: UserDefaults?) {
+        if overrides.isEmpty {
+            defaults?.removeObject(forKey: NimaConstants.hardModeOffOccurrencesKey)
         } else {
-            defaults?.set(appIDs.sorted(), forKey: NimaConstants.hardModeOffAppIDsKey)
+            defaults?.set(overrides, forKey: NimaConstants.hardModeOffOccurrencesKey)
         }
+    }
+
+    private static func offOccurrenceKey(
+        _ appID: String, window: TimeWindow, occurrence: TimeWindowOccurrence
+    ) -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .sortedKeys
+        let windowVersion = (try? encoder.encode(window).base64EncodedString()) ?? ""
+        return "\(appID)|\(occurrence.id)|\(windowVersion)"
+    }
+
+    private static func activeEndedWindowIDs(defaults: UserDefaults?, now: Date) -> Set<String> {
+        let stored = defaults?.dictionary(forKey: NimaConstants.timeWindowsEndedUntilKey) as? [String: TimeInterval] ?? [:]
+        return Set(stored.compactMap { $0.value > now.timeIntervalSince1970 ? $0.key : nil })
     }
 
     private static func appPauseTimestamps(defaults: UserDefaults?) -> [String: TimeInterval] {

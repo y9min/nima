@@ -3,51 +3,89 @@ import Foundation
 import ManagedSettings
 
 enum InstagramScheduleMonitor {
-    private static let activityPrefixes = ["nima.instagram.", "nima.tiktok.", "nima.x."]
+    private static let activityPrefixes = ["nima.window.", "nima.instagram.", "nima.tiktok.", "nima.x."]
 
     static func sync(windows: [TimeWindow]) {
         let center = DeviceActivityCenter()
-        let existing = center.activities.filter { activity in
+        let existing = Set(center.activities.filter { activity in
             activityPrefixes.contains { activity.rawValue.hasPrefix($0) }
-        }
-        if !existing.isEmpty {
-            for activity in existing {
-                ManagedSettingsStore(named: .init(activity.rawValue)).shield.applications = nil
+        })
+        let desired = activityDefinitions(windows: windows)
+        var failed: [String] = []
+        var unchanged = 0
+
+        // Keep the old monitor until a replacement is installed. A failed
+        // registration must not leave an otherwise working schedule empty.
+        for (name, schedule) in desired.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
+            if center.schedule(for: name) == schedule {
+                unchanged += 1
+                continue
             }
-            center.stopMonitoring(existing)
+            do {
+                try center.startMonitoring(name, during: schedule)
+            } catch {
+                failed.append("\(name.rawValue): \(error.localizedDescription)")
+                AppDiagnosticsLogger.log(
+                    "FEED_DEVICE_ACTIVITY_REGISTER_FAILED activity=\(name.rawValue) error=\(error.localizedDescription)"
+                )
+            }
         }
 
-        for window in windows where window.enabled {
+        // Old per-app monitors can continue to drive reconciliation if the
+        // replacement could not be installed.
+        let installed = Set(center.activities)
+        let missing = Set(desired.keys).subtracting(installed)
+        let stale = existing.subtracting(desired.keys)
+        // An empty stopMonitoring list cancels ALL activities, including limits
+        // and pause expiry. Only stop explicitly obsolete schedules.
+        if !stale.isEmpty && missing.isEmpty && failed.isEmpty {
+            for activity in stale {
+                ManagedSettingsStore(named: .init(activity.rawValue)).shield.applications = nil
+            }
+            center.stopMonitoring(Array(stale))
+        }
+        let remaining = Set(center.activities)
+        for name in Set(desired.keys).subtracting(remaining) {
+            failed.append("\(name.rawValue): missing after registration cleanup")
+        }
+        ScheduleMonitorDiagnostics.recordRegistration(
+            requested: desired.count,
+            installed: desired.keys.filter { remaining.contains($0) }.count,
+            unchanged: unchanged,
+            failures: failed,
+            nextStart: desired.values.compactMap { $0.nextInterval?.start }.min()
+        )
+    }
+
+    static func activityDefinitions(windows: [TimeWindow]) -> [DeviceActivityName: DeviceActivitySchedule] {
+        var definitions: [DeviceActivityName: DeviceActivitySchedule] = [:]
+        for window in windows where window.enabled && window.apps.contains(where: { ["instagram", "tiktok", "x"].contains($0) }) {
             guard let startMinutes = TimeWindowScheduleEvaluator.minutes(from: window.startTime),
                   let endMinutes = TimeWindowScheduleEvaluator.minutes(from: window.endTime),
                   startMinutes != endMinutes else { continue }
 
-            for appID in window.apps where ["instagram", "tiktok", "x"].contains(appID) {
-                for day in window.repeatDays {
-                    let name = DeviceActivityName("nima.\(appID).\(window.id).\(day.rawValue)")
-                    let schedule = DeviceActivitySchedule(
-                        intervalStart: DateComponents(
-                            hour: startMinutes / 60,
-                            minute: startMinutes % 60,
-                            weekday: day.calendarWeekday
-                        ),
-                        intervalEnd: DateComponents(
-                            hour: endMinutes / 60,
-                            minute: endMinutes % 60,
-                            weekday: endWeekday(for: day, startMinutes: startMinutes, endMinutes: endMinutes).calendarWeekday
-                        ),
-                        repeats: true
-                    )
-                    do {
-                        try center.startMonitoring(name, during: schedule)
-                    } catch {
-                        AppDiagnosticsLogger.log(
-                            "FEED_DEVICE_ACTIVITY_REGISTER_FAILED app=\(appID) window=\(window.id) error=\(error.localizedDescription)"
-                        )
-                    }
-                }
+            let everyDay = Set(window.repeatDays) == Set(TimeWindowWeekday.allCases)
+            let days: [TimeWindowWeekday?] = everyDay ? [nil] : window.repeatDays.map(Optional.some)
+            for day in days {
+                let name = DeviceActivityName("nima.window.\(window.id).\(day?.rawValue ?? "daily")")
+                definitions[name] = DeviceActivitySchedule(
+                    intervalStart: DateComponents(
+                        hour: startMinutes / 60,
+                        minute: startMinutes % 60,
+                        weekday: day?.calendarWeekday
+                    ),
+                    intervalEnd: DateComponents(
+                        hour: endMinutes / 60,
+                        minute: endMinutes % 60,
+                        weekday: day.map {
+                            endWeekday(for: $0, startMinutes: startMinutes, endMinutes: endMinutes).calendarWeekday
+                        }
+                    ),
+                    repeats: true
+                )
             }
         }
+        return definitions
     }
 
     private static func endWeekday(

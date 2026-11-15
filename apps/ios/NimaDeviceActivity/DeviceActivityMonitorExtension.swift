@@ -8,7 +8,13 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
+        ScheduleMonitorDiagnostics.recordCallback(activity: activity.rawValue, event: "start_received", defaults: defaults)
         guard !PaywallBlockingState.isActive(defaults: defaults), !ExperienceModeState.isLegacy(defaults: defaults) else {
+            ScheduleMonitorDiagnostics.recordCallback(
+                activity: activity.rawValue,
+                event: PaywallBlockingState.isActive(defaults: defaults) ? "start_skipped_paywall" : "start_skipped_legacy",
+                defaults: defaults
+            )
             clearAppControlShields()
             return
         }
@@ -21,21 +27,19 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         }
         if activity.rawValue == "nima.pause_mode" { return }
         if activity.rawValue == "nima.hard_mode_pause" { return }
-        guard let appID = scheduledFeedAppID(for: activity) else { return }
-        ManagedSettingsStore(named: .init(activity.rawValue)).shield.applications = nil
-        ClientShieldPolicy.clearLegacyWindowActivityShields(for: [appID])
-        let decision = ClientShieldPolicy.reconcile(
-            for: appID,
-            defaults: defaults
-        )
-        if decision.shouldShield {
-            StreakStore(defaults: defaults).markTodayEarned(source: "\(appID)_scheduled")
-        }
+        guard isScheduledWindowActivity(activity) else { return }
+        reconcileScheduledApps(for: activity, event: "start")
     }
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
+        ScheduleMonitorDiagnostics.recordCallback(activity: activity.rawValue, event: "end_received", defaults: defaults)
         guard !PaywallBlockingState.isActive(defaults: defaults), !ExperienceModeState.isLegacy(defaults: defaults) else {
+            ScheduleMonitorDiagnostics.recordCallback(
+                activity: activity.rawValue,
+                event: PaywallBlockingState.isActive(defaults: defaults) ? "end_skipped_paywall" : "end_skipped_legacy",
+                defaults: defaults
+            )
             clearAppControlShields()
             return
         }
@@ -48,10 +52,8 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             restoreHardModePauseShields()
             return
         }
-        guard let appID = scheduledFeedAppID(for: activity) else { return }
-        ManagedSettingsStore(named: .init(activity.rawValue)).shield.applications = nil
-        ClientShieldPolicy.clearLegacyWindowActivityShields(for: [appID])
-        ClientShieldPolicy.reconcile(for: appID, defaults: defaults)
+        guard isScheduledWindowActivity(activity) else { return }
+        reconcileScheduledApps(for: activity, event: "end")
     }
 
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
@@ -68,7 +70,10 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         reached.insert(id)
         AppControlRuleState.saveReachedLimitIDs(reached, defaults: defaults)
         let tokens = Set(AppControlRuleState.rules(defaults: defaults)
-            .filter { $0.kind == .limit && reached.contains($0.id) }
+            .filter {
+                $0.kind == .limit && reached.contains($0.id)
+                    && !AppControlRuleState.isRulePaused($0.id, defaults: defaults)
+            }
             .map(\.applicationToken))
         ManagedSettingsStore(named: .init("nima.controls.limits")).shield.applications = tokens.isEmpty ? nil : tokens
     }
@@ -81,7 +86,8 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             ClientShieldPolicy.reconcile(
                 for: appID,
                 defaults: defaults,
-                now: now
+                now: now,
+                checkProcessAuthorization: false
             )
         }
         PauseModeState.clear(defaults: defaults)
@@ -94,7 +100,8 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             ClientShieldPolicy.reconcile(
                 for: appID,
                 defaults: defaults,
-                now: now
+                now: now,
+                checkProcessAuthorization: false
             )
         }
 
@@ -136,11 +143,35 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         }
     }
 
-    private func scheduledFeedAppID(for activity: DeviceActivityName) -> String? {
-        if activity.rawValue.hasPrefix("nima.instagram.") { return "instagram" }
-        if activity.rawValue.hasPrefix("nima.tiktok.") { return "tiktok" }
-        if activity.rawValue.hasPrefix("nima.x.") { return "x" }
-        return nil
+    private func isScheduledWindowActivity(_ activity: DeviceActivityName) -> Bool {
+        ["nima.window.", "nima.instagram.", "nima.tiktok.", "nima.x."].contains {
+            activity.rawValue.hasPrefix($0)
+        }
+    }
+
+    private func reconcileScheduledApps(for activity: DeviceActivityName, event: String) {
+        ManagedSettingsStore(named: .init(activity.rawValue)).shield.applications = nil
+        ClientShieldPolicy.clearLegacyWindowActivityShields()
+        for appID in ["instagram", "tiktok", "x"] {
+            let decision = ClientShieldPolicy.reconcile(
+                for: appID,
+                defaults: defaults,
+                checkProcessAuthorization: false
+            )
+            let shieldCount = ManagedSettingsStore(named: .init("nima.\(appID)"))
+                .shield.applications?.count ?? 0
+            ScheduleMonitorDiagnostics.recordCallback(
+                activity: activity.rawValue,
+                event: event,
+                appID: appID,
+                decision: decision,
+                shieldCount: shieldCount,
+                defaults: defaults
+            )
+            if event == "start" && decision.shouldShield && shieldCount > 0 {
+                StreakStore(defaults: defaults).markTodayEarned(source: "\(appID)_scheduled")
+            }
+        }
     }
 
     private func clearAppControlShields() {

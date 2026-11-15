@@ -43,7 +43,6 @@ struct NimaApp: App {
     @State private var hasHandledGuidedPracticeReviewRequest = false
     @State private var didTrackGuidedPracticeResume = false
     @State private var didTrackAppUnlock = false
-    @State private var appRuleAlertMessage: String?
     private let guidedPracticeReviewPromptStore = GuidedPracticeReviewPromptStore()
 
     init() {
@@ -375,14 +374,6 @@ struct NimaApp: App {
                 isPresented: $isShowingGuidedPracticeFamilyPicker,
                 selection: $guidedPracticeFamilySelection
             )
-            .alert("App blocked", isPresented: Binding(
-                get: { appRuleAlertMessage != nil },
-                set: { if !$0 { appRuleAlertMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) { appRuleAlertMessage = nil }
-            } message: {
-                Text(appRuleAlertMessage ?? "")
-            }
             .onChange(of: isShowingGuidedPracticeFamilyPicker) { wasShowing, isShowing in
                 guard wasShowing, !isShowing else { return }
                 finishGuidedPracticeFamilyPicker()
@@ -514,6 +505,7 @@ struct NimaApp: App {
                         defaults: UserDefaults(suiteName: NimaConstants.appGroupID)
                     ).shouldShield
                 }),
+                scheduledClientAppIDs: timeWindowStore.scheduledAppIDs,
                 onCommit: { commit in
                     let result = commitHardModeChange(commit)
                     return result
@@ -556,17 +548,14 @@ struct NimaApp: App {
                 guard !isGuidedSetupActive else { return }
                 if app.id == "instagram" {
                     featureAccessAuthorizer {
-                        guard canOpenControlledClient("instagram") else { return }
                         path.append(Route.instagramClient())
                     }
                 } else if app.id == "tiktok" {
                     featureAccessAuthorizer {
-                        guard canOpenControlledClient("tiktok") else { return }
                         path.append(Route.tiktokClient())
                     }
                 } else if app.id == "x" {
                     featureAccessAuthorizer {
-                        guard canOpenControlledClient("x") else { return }
                         path.append(Route.xClient())
                     }
                 } else {
@@ -1031,7 +1020,7 @@ struct NimaApp: App {
     private func openGuidedPracticeInstagram() {
         guard guidedPracticeInstagramOpenGate.requestOpen(
             from: guidedPracticePhase,
-            canOpenControlledClient: { canOpenControlledClient("instagram") }
+            canOpenControlledClient: { true }
         ) else { return }
         AnalyticsService.shared.capture("instagram_practice_open_tapped")
         setGuidedPracticePhase(.waitingForReturn, source: "instagram_opened")
@@ -1255,18 +1244,18 @@ struct NimaApp: App {
             refreshProtectionAfterHardModeChange(source: "\(change.source).paused")
             return .success
         case .off:
+            if case .disableClientProtection(let appID) = change.mutation,
+               hasActiveAppControl(for: appID) {
+                return .failure("An app control also blocks this app. Change that control first.")
+            }
             let result = performHardModeMutation(change.mutation, source: change.source)
             guard result == .success else { return result }
-            if change.mutation != .pauseAllWindows {
-                for appID in change.affectedAppIDs {
-                    if ["instagram", "tiktok", "x"].contains(appID) {
-                        disableManualProtection(for: appID, source: "\(change.source).hard_mode_off")
-                    }
-                    HardModeProtectionState.markProtectionOff(
-                        appID,
-                        defaults: UserDefaults(suiteName: NimaConstants.appGroupID)
-                    )
-                }
+            if case .disableClientProtection(let appID) = change.mutation {
+                HardModeProtectionState.markProtectionOff(
+                    appID,
+                    in: timeWindowStore.activeWindows(),
+                    defaults: UserDefaults(suiteName: NimaConstants.appGroupID)
+                )
             }
             HardModePauseMonitor.clearScheduleShields(for: change.affectedAppIDs)
             refreshProtectionAfterHardModeChange(source: "\(change.source).off")
@@ -1296,6 +1285,9 @@ struct NimaApp: App {
             guard ClientShieldPolicy.decision(for: appID, defaults: defaults).shouldShield else {
                 return .stale("\(appID.capitalized) protection changed before you confirmed. Nothing was changed.")
             }
+            if hasActiveAppControl(for: appID) {
+                return .failure("An app control also blocks \(appID.capitalized). Change that control first.")
+            }
         }
 
         var pausedApps = Set<String>()
@@ -1324,7 +1316,9 @@ struct NimaApp: App {
         for appID in changedApps.sorted() {
             guard selection.appChoices[appID] == .off else { continue }
             disableManualProtection(for: appID, source: "\(source).batch_off")
-            HardModeProtectionState.markProtectionOff(appID, defaults: defaults)
+            HardModeProtectionState.markProtectionOff(
+                appID, in: timeWindowStore.activeWindows(), defaults: defaults
+            )
         }
         HardModePauseMonitor.clearScheduleShields(for: changedApps)
         if !changedApps.isEmpty {
@@ -1465,6 +1459,17 @@ struct NimaApp: App {
         }
     }
 
+    private func hasActiveAppControl(for appID: String) -> Bool {
+        let tokens: Set<ApplicationToken>
+        switch appID {
+        case "instagram": tokens = instagramProtectionStore.familySelection.applicationTokens
+        case "tiktok": tokens = tiktokProtectionStore.familySelection.applicationTokens
+        case "x": tokens = xProtectionStore.familySelection.applicationTokens
+        default: return false
+        }
+        return appControlRulesStore.activeKind(for: tokens) != nil
+    }
+
     private func refreshProtectionAfterHardModeChange(source: String) {
         timeWindowStore.evaluateSchedules(source: source, forceApply: true)
         instagramProtectionStore.refreshPauseMode()
@@ -1522,7 +1527,6 @@ struct NimaApp: App {
         if url.host?.lowercased() == "instagram" {
             let opensLinkSheet = url.path.lowercased() == "/open-link"
             featureAccessAuthorizer {
-                guard canOpenControlledClient("instagram") else { return }
                 path = NavigationPath()
                 path.append(
                     Route.instagramClient(context: opensLinkSheet ? .openLink : .standard)
@@ -1531,7 +1535,6 @@ struct NimaApp: App {
         } else if url.host?.lowercased() == "tiktok" {
             let opensLinkSheet = url.path.lowercased() == "/open-link"
             featureAccessAuthorizer {
-                guard canOpenControlledClient("tiktok") else { return }
                 path = NavigationPath()
                 path.append(
                     Route.tiktokClient(context: opensLinkSheet ? .openLink : .standard)
@@ -1540,28 +1543,12 @@ struct NimaApp: App {
         } else if url.host?.lowercased() == "x" {
             let opensLinkSheet = url.path.lowercased() == "/open-link"
             featureAccessAuthorizer {
-                guard canOpenControlledClient("x") else { return }
                 path = NavigationPath()
                 path.append(
                     Route.xClient(context: opensLinkSheet ? .openLink : .standard)
                 )
             }
         }
-    }
-
-    private func canOpenControlledClient(_ appID: String) -> Bool {
-        let tokens: Set<ApplicationToken>
-        switch appID {
-        case "instagram": tokens = instagramProtectionStore.familySelection.applicationTokens
-        case "tiktok": tokens = tiktokProtectionStore.familySelection.applicationTokens
-        case "x": tokens = xProtectionStore.familySelection.applicationTokens
-        default: return true
-        }
-        guard let kind = appControlRulesStore.activeKind(for: tokens) else { return true }
-        appRuleAlertMessage = kind == .blocked
-            ? "You blocked this app in Controls. Remove the block there to open it."
-            : "Your daily time limit for this app has been reached. It resets tomorrow."
-        return false
     }
 
     private func handlePendingInstagramShieldDestination() {
@@ -1578,7 +1565,6 @@ struct NimaApp: App {
         if destination == "tiktok" || destination == "tiktok_open_link" {
             let opensLinkSheet = destination == "tiktok_open_link"
             featureAccessAuthorizer {
-                guard canOpenControlledClient("tiktok") else { return }
                 path = NavigationPath()
                 path.append(
                     Route.tiktokClient(context: opensLinkSheet ? .openLink : .standard)
@@ -1587,7 +1573,6 @@ struct NimaApp: App {
         } else if destination == "x" || destination == "x_open_link" {
             let opensLinkSheet = destination == "x_open_link"
             featureAccessAuthorizer {
-                guard canOpenControlledClient("x") else { return }
                 path = NavigationPath()
                 path.append(
                     Route.xClient(context: opensLinkSheet ? .openLink : .standard)
@@ -1596,7 +1581,6 @@ struct NimaApp: App {
         } else {
             let opensLinkSheet = destination == "open_link"
             featureAccessAuthorizer {
-                guard canOpenControlledClient("instagram") else { return }
                 path = NavigationPath()
                 path.append(
                     Route.instagramClient(context: opensLinkSheet ? .openLink : .standard)
@@ -1607,17 +1591,21 @@ struct NimaApp: App {
 
     private func markStreakIfEligible(source _: String) {
         let defaults = UserDefaults(suiteName: NimaConstants.appGroupID)
+        let legacy = ExperienceModeState.isLegacy(defaults: defaults)
+        let instagramDecision = ClientShieldPolicy.decision(for: "instagram", defaults: defaults)
+        let tiktokDecision = ClientShieldPolicy.decision(for: "tiktok", defaults: defaults)
+        let xDecision = ClientShieldPolicy.decision(for: "x", defaults: defaults)
         guard onboardingStore.isCompleted,
               let activeSource = StreakEligibility.activeSource(
-                instagramManual: instagramProtectionStore.protectionEnabled,
-                instagramScheduled: instagramProtectionStore.isScheduled,
-                instagramPaused: PauseModeState.isPaused("instagram", defaults: defaults),
-                tiktokManual: tiktokProtectionStore.protectionEnabled,
-                tiktokScheduled: tiktokProtectionStore.isScheduled,
-                tiktokPaused: PauseModeState.isPaused("tiktok", defaults: defaults),
-                xManual: xProtectionStore.protectionEnabled,
-                xScheduled: xProtectionStore.isScheduled,
-                xPaused: PauseModeState.isPaused("x", defaults: defaults)
+                instagramManual: instagramProtectionStore.protectionEnabled && (legacy || instagramDecision.shouldShield),
+                instagramScheduled: instagramProtectionStore.isScheduled && (legacy || (instagramDecision.shouldShield && HardModeProtectionState.effectivelyScheduled("instagram", scheduled: true, defaults: defaults))),
+                instagramPaused: legacy ? PauseModeState.isPaused("instagram", defaults: defaults) : false,
+                tiktokManual: tiktokProtectionStore.protectionEnabled && (legacy || tiktokDecision.shouldShield),
+                tiktokScheduled: tiktokProtectionStore.isScheduled && (legacy || (tiktokDecision.shouldShield && HardModeProtectionState.effectivelyScheduled("tiktok", scheduled: true, defaults: defaults))),
+                tiktokPaused: legacy ? PauseModeState.isPaused("tiktok", defaults: defaults) : false,
+                xManual: xProtectionStore.protectionEnabled && (legacy || xDecision.shouldShield),
+                xScheduled: xProtectionStore.isScheduled && (legacy || (xDecision.shouldShield && HardModeProtectionState.effectivelyScheduled("x", scheduled: true, defaults: defaults))),
+                xPaused: legacy ? PauseModeState.isPaused("x", defaults: defaults) : false
               ) else {
             syncStreakReminder()
             return
